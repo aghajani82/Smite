@@ -9,6 +9,7 @@ on:
       - node/app/frp_gateway_config.py
       - node/app/core_adapters.py
       - panel/app/routers/tunnels.py
+      - panel/main.py
       - tests/test_frp_gateway.py
       - .github/workflows/frp-gateway-tests.yml
 
@@ -27,6 +28,6 @@ jobs:
           python-version: '3.11'
       - name: Compile Smite Node and Panel files
         run: |
-          python -m compileall -q node/app/frp_gateway_config.py node/app/core_adapters.py panel/app/routers/tunnels.py tests/test_frp_gateway.py
+          python -m compileall -q node/app/frp_gateway_config.py node/app/core_adapters.py panel/app/routers/tunnels.py panel/main.py tests/test_frp_gateway.py
       - name: Run opt-in gateway regression tests
         run: python -m unittest discover -s tests -p 'test_frp_gateway.py' -v
