@@ -69,6 +69,35 @@ class FrpGatewayConfigTest(unittest.TestCase):
                 with self.assertRaises(ValueError):
                     frp_tls_transport_yaml({"frp_tls_server_name": sni})
 
+    def test_panel_restart_respects_gateway_port(self):
+        """Panel startup synchronization must not reset FRPC back to bindPort."""
+        path = ROOT / "panel" / "main.py"
+        parsed = ast.parse(path.read_text(), filename=str(path))
+        method = next(
+            node for node in parsed.body
+            if isinstance(node, ast.AsyncFunctionDef)
+            and node.name == "_restore_node_tunnels"
+        )
+        matches = [
+            node for node in ast.walk(method)
+            if isinstance(node, ast.Assign)
+            and any(
+                isinstance(t, ast.Subscript)
+                and isinstance(t.value, ast.Name)
+                and t.value.id == "client_spec"
+                and isinstance(t.slice, ast.Constant)
+                and t.slice.value == "server_port"
+                for t in node.targets
+            )
+        ]
+        self.assertEqual(len(matches), 1)
+        value = matches[0].value
+        self.assertIsInstance(value, ast.Call)
+        self.assertIsInstance(value.func, ast.Attribute)
+        self.assertEqual(value.func.attr, "frp_client_gateway_port")
+        self.assertIsInstance(value.func.value, ast.Name)
+        self.assertEqual(value.func.value.id, "tunnels")
+
     def test_sni_without_gateway_port_preserves_control_port(self):
         spec = {"frp_tls_server_name": "frp-file.ir.kolbe1.ir"}
         self.assertEqual(frp_client_server_port(spec, 17000), 17000)
