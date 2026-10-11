@@ -1,0 +1,73 @@
+name: Smite FRP 443 Docker Build Check
+
+on:
+  push:
+    branches:
+      - feature/frp-tls-sni-443
+    paths:
+      - 'node/**'
+      - 'panel/**'
+      - 'frontend/**'
+      - 'tests/**'
+      - '.github/workflows/frp-gateway-image-build.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: frp443-docker-build-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-node:
+    name: Build node image (no publish)
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - name: Checkout fork feature branch
+        uses: actions/checkout@v4
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+      - name: Build node image locally without publishing
+        uses: docker/build-push-action@v6
+        with:
+          context: ./node
+          file: ./node/Dockerfile
+          platforms: linux/amd64
+          load: true
+          push: false
+          tags: smite-node:frp443-buildcheck
+          build-args: |
+            SMITE_VERSION=0.1.7-frp443-test
+          cache-from: type=gha,scope=smite-frp443-node
+          cache-to: type=gha,mode=max,scope=smite-frp443-node
+      - name: Smoke-test node gateway support inside image
+        run: |
+          docker run --rm --entrypoint python smite-node:frp443-buildcheck -c "from app.frp_gateway_config import frp_client_server_port, frp_tls_transport_yaml; spec={'frp_gateway_port': 443, 'frp_tls_server_name': 'frp-file.ir.kolbe1.ir'}; assert frp_client_server_port(spec, 17000) == 443; assert 'disableCustomTLSFirstByte: true' in frp_tls_transport_yaml(spec); print('NODE GATEWAY SMOKE OK')"
+
+  build-panel:
+    name: Build panel image (no publish)
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - name: Checkout fork feature branch
+        uses: actions/checkout@v4
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+      - name: Build panel image locally without publishing
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: ./panel/Dockerfile
+          platforms: linux/amd64
+          load: true
+          push: false
+          tags: smite-panel:frp443-buildcheck
+          build-args: |
+            SMITE_VERSION=0.1.7-frp443-test
+          cache-from: type=gha,scope=smite-frp443-panel
+          cache-to: type=gha,mode=max,scope=smite-frp443-panel
+      - name: Smoke-test panel gateway helper inside image
+        run: |
+          docker run --rm --entrypoint python smite-panel:frp443-buildcheck -c "from app.routers.tunnels import frp_client_gateway_port; assert frp_client_gateway_port({'frp_gateway_port':443,'frp_tls_server_name':'frp-file.ir.kolbe1.ir'},17000)==443; print('PANEL GATEWAY SMOKE OK')"
