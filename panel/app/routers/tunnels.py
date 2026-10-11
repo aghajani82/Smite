@@ -17,6 +17,24 @@ router = APIRouter()
 logger = logging.getLogger(__name__)
 
 
+def frp_client_gateway_port(spec: dict, bind_port: int) -> int:
+    """Keep the FRPS bind port private; route FRPC through an optional gateway."""
+    raw = spec.get("frp_gateway_port")
+    if raw is None or raw == "":
+        return int(bind_port)
+    if isinstance(raw, bool) or not isinstance(raw, (str, int)):
+        raise ValueError("FRP gateway port must be a number between 1 and 65535")
+    raw_str = str(raw)
+    if not raw_str.isascii() or not raw_str.isdecimal():
+        raise ValueError("FRP gateway port must be a number between 1 and 65535")
+    port = int(raw_str)
+    if not 1 <= port <= 65535:
+        raise ValueError("FRP gateway port must be between 1 and 65535")
+    if not spec.get("frp_tls_server_name"):
+        raise ValueError("FRP gateway port requires frp_tls_server_name")
+    return port
+
+
 def prepare_frp_spec_for_node(spec: dict, node: Node, request: Request) -> dict:
     """Prepare FRP spec for node by determining correct server_addr from node metadata"""
     spec_for_node = spec.copy()
@@ -80,11 +98,11 @@ def prepare_frp_spec_for_node(spec: dict, node: Node, request: Request) -> dict:
         server_addr = panel_host
     
     spec_for_node["server_addr"] = server_addr
-    spec_for_node["server_port"] = int(bind_port)
+    spec_for_node["server_port"] = frp_client_gateway_port(spec_for_node, bind_port)
     if token:
         spec_for_node["token"] = token
     
-    logger.info(f"FRP spec prepared: server_addr={server_addr}, server_port={bind_port}, token={'set' if token else 'none'}, panel_host={panel_host} (from node panel_address: {panel_address})")
+    logger.info(f"FRP spec prepared: server_addr={server_addr}, server_port={spec_for_node['server_port']}, token={'set' if token else 'none'}, panel_host={panel_host} (from node panel_address: {panel_address})")
     return spec_for_node
 
 
@@ -394,7 +412,7 @@ async def create_tunnel(tunnel: TunnelCreate, request: Request, db: AsyncSession
                     await db.refresh(db_tunnel)
                     return db_tunnel
                 client_spec["server_addr"] = iran_node_ip
-                client_spec["server_port"] = bind_port
+                client_spec["server_port"] = frp_client_gateway_port(client_spec, bind_port)
                 client_spec["token"] = token
                 tunnel_type = db_tunnel.type.lower() if db_tunnel.type else "tcp"
                 if tunnel_type not in ["tcp", "udp"]:
@@ -1477,7 +1495,7 @@ async def apply_tunnel(tunnel_id: str, request: Request, db: AsyncSession = Depe
                     client_spec = spec.copy()
                     client_spec["mode"] = "client"
                     client_spec["server_addr"] = iran_node_ip
-                    client_spec["server_port"] = bind_port
+                    client_spec["server_port"] = frp_client_gateway_port(client_spec, bind_port)
                     client_spec["token"] = token
                     tunnel_type = tunnel.type.lower() if tunnel.type else "tcp"
                     if tunnel_type not in ["tcp", "udp"]:
