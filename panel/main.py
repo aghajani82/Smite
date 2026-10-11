@@ -449,7 +449,7 @@ async def _restore_node_tunnels():
                             logger.warning(f"Tunnel {tunnel.id}: Iran node has no IP address, skipping")
                             continue
                         client_spec["server_addr"] = iran_node_ip
-                        client_spec["server_port"] = bind_port
+                        client_spec["server_port"] = tunnels.frp_client_gateway_port(client_spec, bind_port)
                         if token:
                             client_spec["token"] = token
                         tunnel_type = tunnel.type.lower() if tunnel.type else "tcp"
