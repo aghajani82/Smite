@@ -8,6 +8,8 @@ import logging
 from pathlib import Path
 import shutil
 
+from app.frp_gateway_config import frp_client_server_port, frp_tls_transport_yaml
+
 logger = logging.getLogger(__name__)
 def parse_address_port(address_str: str):
     """Parse address:port string, returns (host, port, is_ipv6)"""
@@ -818,6 +820,11 @@ class FrpAdapter:
     
     def apply(self, tunnel_id: str, spec: Dict[str, Any]):
         """Apply FRP tunnel - supports both server and client modes"""
+        # Validate opt-in gateway settings *before* stopping an existing tunnel.
+        if spec.get("mode", "client") != "server":
+            frp_client_server_port(spec, spec.get("server_port", 7000))
+            frp_tls_transport_yaml(spec)
+
         if tunnel_id in self.processes:
             logger.info(f"FRP tunnel {tunnel_id} already exists, removing it first")
             self.remove(tunnel_id)
@@ -889,7 +896,8 @@ class FrpAdapter:
             logger.info(f"FRP tunnel {tunnel_id} received spec: {spec}")
             
             server_addr = spec.get('server_addr', '').strip()
-            server_port = spec.get('server_port', 7000)
+            server_port = frp_client_server_port(spec, spec.get('server_port', 7000))
+            tls_transport = frp_tls_transport_yaml(spec)
             token = spec.get('token')
             tunnel_type = spec.get('type', 'tcp').lower()
             local_ip = spec.get('local_ip', '127.0.0.1')
@@ -929,7 +937,9 @@ serverPort: {server_port}
   method: token
   token: "{token}"
 """
-            
+
+            if tls_transport:
+                config_content += tls_transport
             config_content += "\nproxies:\n"
             for i, port_config in enumerate(ports):
                 if isinstance(port_config, dict):
