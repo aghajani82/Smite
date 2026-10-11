@@ -1,0 +1,32 @@
+name: FRP Gateway Regression Tests
+
+on:
+  push:
+    branches:
+      - feature/frp-tls-sni-443
+  pull_request:
+    paths:
+      - node/app/frp_gateway_config.py
+      - node/app/core_adapters.py
+      - panel/app/routers/tunnels.py
+      - tests/test_frp_gateway.py
+      - .github/workflows/frp-gateway-tests.yml
+
+permissions:
+  contents: read
+
+jobs:
+  gateway-tests:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@v4
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Compile Smite Node and Panel files
+        run: |
+          python -m compileall -q node/app/frp_gateway_config.py node/app/core_adapters.py panel/app/routers/tunnels.py tests/test_frp_gateway.py
+      - name: Run opt-in gateway regression tests
+        run: python -m unittest discover -s tests -p 'test_frp_gateway.py' -v
