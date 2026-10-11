@@ -31,7 +31,7 @@ jobs:
           python-version: '3.11'
       - name: Compile and test the modified application files
         run: |
-          python3 -m compileall -q node/app/frp_gateway_config.py node/app/core_adapters.py panel/app/routers/tunnels.py
+          python3 -m compileall -q node/app/frp_gateway_config.py node/app/core_adapters.py panel/app/routers/tunnels.py panel/main.py
           python3 -m unittest discover -s tests -p 'test_frp_gateway.py' -v
 
   build-and-publish:
