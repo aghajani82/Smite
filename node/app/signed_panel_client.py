@@ -96,10 +96,13 @@ async def signed_register() -> dict:
     node_id, _ = await run_in_threadpool(
         read_identity, settings.smite_agent_identity_path
     )
-    return await signed_panel_post(
+    result = await signed_panel_post(
         target="/api/node-control/register",
         data={"node_id": node_id, "role": settings.node_role},
     )
+    if result.get("id") != node_id:
+        raise SignedPanelUnavailable("Signed Node identity mismatch")
+    return result
 
 
 async def signed_frp_status(*, connected: bool, remote_port: int | None) -> dict:
