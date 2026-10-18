@@ -49,6 +49,12 @@ class Admin(Base):
     id = Column(String, primary_key=True, default=generate_uuid)
     username = Column(String, unique=True, nullable=False)
     password_hash = Column(String, nullable=False)
+    # MFA secrets are Fernet-encrypted; recovery_codes holds HMAC hashes only.
+    totp_secret = Column(Text, nullable=True)
+    totp_pending_secret = Column(Text, nullable=True)
+    recovery_codes = Column(JSON, nullable=True)
+    totp_last_counter = Column(Integer, nullable=True)
+    auth_version = Column(Integer, nullable=False, default=0, server_default="0")
     created_at = Column(DateTime, default=datetime.utcnow)
 
 
