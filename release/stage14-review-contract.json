@@ -1,0 +1,77 @@
+{
+  "schema": 1,
+  "kind": "smite_stage14_review_only",
+  "release": {
+    "proposed_version": "2.0.0-rc.0",
+    "published": false,
+    "tag_created": false,
+    "channel": "development-draft",
+    "production_deployable": false
+  },
+  "integration": {
+    "security_source_base": "c5b3127c6b1db61e5848e4404a1eb77701a51b06",
+    "primary_draft_pr": 12,
+    "upstream_prs": [
+      1,
+      2,
+      3,
+      4,
+      5,
+      6,
+      7,
+      8,
+      9,
+      10,
+      11,
+      12
+    ],
+    "required_uopti_prs": [
+      28,
+      29,
+      30,
+      31,
+      32,
+      33,
+      34,
+      35
+    ],
+    "uopti_admin_overlay_sibling_pr": 27
+  },
+  "protocol": {
+    "envelope": "smite-node-hmac-v1",
+    "agent_signed_targets": [
+      "/api/agent/tunnels/apply",
+      "/api/agent/tunnels/remove",
+      "/api/agent/status"
+    ],
+    "node_signed_targets": [
+      "/api/node-control/register",
+      "/api/node-control/frp-status",
+      "/api/node-control/gateway-check"
+    ],
+    "required_modes": [
+      "SMITE_AGENT_AUTH_MODE=strict",
+      "SMITE_PANEL_AGENT_AUTH_MODE=signed",
+      "SMITE_NODE_PANEL_AUTH_MODE=signed",
+      "SMITE_NODE_REGISTRATION_MODE=signed"
+    ]
+  },
+  "environment": {
+    "standard_only": true,
+    "private_mode_supported": false,
+    "auto_enable": false,
+    "auto_merge": false
+  },
+  "holds": [
+    "Panel and Node images must be immutable digest-pinned and runtime-verified",
+    "U-OPTI admin auth host main.py overlay must be included in integrated installer",
+    "U-OPTI overlays must be reconciled with signed security images and checked against mounted files",
+    "Pairing HTTPS gateway needs trusted ingress injection and rate limits",
+    "Node secrets and replay storage require correct container UID and tested persistence",
+    "Panel Fernet master needs durable backup and schema migration review",
+    "IR and KH exact TLS443 no-rewrite proxy paths need runtime test",
+    "Snapshots must be verified and restore rehearsed",
+    "Real FRP Backhaul XHTTP apply remove update and reboot tests not performed"
+  ],
+  "activation_allowed": false
+}
