@@ -1,0 +1,33 @@
+name: Scoped Node Admin and Signed Gateway Stage Eight
+
+on:
+  push:
+    branches:
+      - feature/smite-admin-node-read-gateway-stage8-20261018
+  pull_request:
+    paths:
+      - 'panel/app/routers/nodes.py'
+      - 'panel/app/routers/signed_nodes.py'
+      - 'panel/app/signed_node_registration.py'
+      - 'tests/test_signed_node_inbound_panel.py'
+      - '.github/workflows/node-admin-gateway-stage8.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  api-read-security:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install pinned API test dependencies
+        run: |
+          python -m pip install 'fastapi==0.104.1' 'httpx==0.25.2' 'pydantic==2.5.0' 'pydantic-settings==2.1.0' 'cryptography==41.0.7' 'sqlalchemy==2.0.23' 'aiosqlite==0.19.0' 'python-jose[cryptography]==3.3.0' 'passlib[bcrypt]==1.7.4' 'bcrypt==4.0.1'
+      - name: Compile security-sensitive modules
+        run: |
+          python -m py_compile panel/app/routers/nodes.py panel/app/routers/signed_nodes.py panel/app/signed_node_registration.py tests/test_signed_node_inbound_panel.py
+      - name: Verify JWT admin Node reads/deletes and HMAC gateway readiness
+        run: python -B tests/test_signed_node_inbound_panel.py -v
