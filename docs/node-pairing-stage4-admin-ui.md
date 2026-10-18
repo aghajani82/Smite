@@ -53,10 +53,22 @@ Smite #2 (HMAC envelope) → #3 (SQLite issuance) → #4 (HTTPS pairing API)
 ## Validation
 
 `.github/workflows/node-pairing-admin-ui.yml` tests frontend TypeScript
-typechecking and production build, plus offline FastAPI/JWT
+typechecking **of the new Pairing component only** and a complete Vite
+production build, plus offline FastAPI/JWT
 capability and one-use redemption tests and static no-persistence checks.
 This is not a browser security penetration test.
 
 **No user commands yet. No PR merged.** Next work: signed registration and
 HMAC-authenticated Panel ↔ Agent commands, authenticated Node discovery,
 Nginx ingress config and U-OPTI install/pairing automation with rollback.
+
+## Existing upstream TypeScript debt (not introduced by this branch)
+
+The repository-wide `npx tsc --noEmit -p frontend/tsconfig.json` currently
+fails on pre-existing issues outside this pairing change: missing PNG image
+type declarations in Layout/Login, mismatch between LanguageContext translation
+types and actual settings translations, and unrelated Tunnel/Backhaul model
+typing errors. These must be repaired in a separate scoped PR. Our CI thus
+strictly checks `frontend/tsconfig.pairing.json` for the newly added React
+component and builds the **entire** production frontend with Vite. This is
+not equivalent to passing a full-project TypeScript typecheck.
