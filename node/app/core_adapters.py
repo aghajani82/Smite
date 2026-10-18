@@ -314,6 +314,10 @@ class BackhaulAdapter:
 
     def apply(self, tunnel_id: str, spec: Dict[str, Any]):
         """Apply Backhaul tunnel - supports both server and client modes"""
+        # Validate before stopping a healthy tunnel or touching its config.
+        if spec.get("uopti_standard_backhaul") is True:
+            from app.uopti_backhaul_standard import normalize_node_spec
+            spec = normalize_node_spec(spec)
         if tunnel_id in self.processes:
             logger.info(f"Backhaul tunnel {tunnel_id} already exists, removing it first")
             self.remove(tunnel_id)
@@ -394,13 +398,22 @@ class BackhaulAdapter:
                     server_config[key] = value
             
             config_path = self.config_dir / f"{tunnel_id}.toml"
-            config_path.write_text(self._render_toml({"server": server_config}), encoding="utf-8")
+            if spec.get("uopti_standard_backhaul") is True:
+                # Private config contains the Backhaul token; avoid public logs.
+                flags = os.O_WRONLY | os.O_CREAT | os.O_TRUNC | getattr(os, "O_NOFOLLOW", 0)
+                fd = os.open(config_path, flags, 0o600)
+                with os.fdopen(fd, "w", encoding="utf-8") as cfg:
+                    os.fchmod(cfg.fileno(), 0o600)
+                    cfg.write(self._render_toml({"server": server_config}))
+            else:
+                config_path.write_text(self._render_toml({"server": server_config}), encoding="utf-8")
             
             binary_path = self._resolve_binary_path()
             log_path = self.config_dir / f"backhaul_{tunnel_id}.log"
             log_fh = log_path.open("w", buffering=1)
             log_fh.write(f"Starting Backhaul server for tunnel {tunnel_id}\n")
-            log_fh.write(self._render_toml({"server": server_config}))
+            if spec.get("uopti_standard_backhaul") is not True:
+                log_fh.write(self._render_toml({"server": server_config}))
             log_fh.flush()
             
             try:
@@ -457,14 +470,23 @@ class BackhaulAdapter:
                 config_dict["accept_udp"] = True
 
             config_path = self.config_dir / f"{tunnel_id}.toml"
-            config_path.write_text(self._render_toml({"client": config_dict}), encoding="utf-8")
+            if spec.get("uopti_standard_backhaul") is True:
+                # Private config contains the Backhaul token; avoid public logs.
+                flags = os.O_WRONLY | os.O_CREAT | os.O_TRUNC | getattr(os, "O_NOFOLLOW", 0)
+                fd = os.open(config_path, flags, 0o600)
+                with os.fdopen(fd, "w", encoding="utf-8") as cfg:
+                    os.fchmod(cfg.fileno(), 0o600)
+                    cfg.write(self._render_toml({"client": config_dict}))
+            else:
+                config_path.write_text(self._render_toml({"client": config_dict}), encoding="utf-8")
 
             binary_path = self._resolve_binary_path()
 
             log_path = self.config_dir / f"backhaul_{tunnel_id}.log"
             log_fh = log_path.open("w", buffering=1)
             log_fh.write(f"Starting Backhaul client for tunnel {tunnel_id}\n")
-            log_fh.write(self._render_toml({"client": config_dict}))
+            if spec.get("uopti_standard_backhaul") is not True:
+                log_fh.write(self._render_toml({"client": config_dict}))
             log_fh.flush()
 
             try:
