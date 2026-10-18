@@ -185,10 +185,9 @@ class FrpStandardWssTest(unittest.TestCase):
             text.index("spec = normalize_node_spec(spec)"),
             text.index("if tunnel_id in self.processes:", text.index("class BackhaulAdapter:")),
         )
-        self.assertNotIn(
-            "config_path.write_text(self._render_toml({\"server\": server_config})\n",
-            text,
-        )
+        self.assertIn('if spec.get("uopti_standard_backhaul") is True:', text)
+        self.assertIn('os.fchmod(cfg.fileno(), 0o600)', text)
+        self.assertIn('if spec.get("uopti_standard_backhaul") is not True:', text)
 
 
 if __name__ == "__main__":
