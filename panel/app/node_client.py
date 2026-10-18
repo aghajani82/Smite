@@ -9,6 +9,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 from app.database import AsyncSessionLocal
 from app.models import Node, Settings
+from app.config import settings
+from app.signed_agent_transport import signed_agent_call, SignedAgentUnavailable
+
 
 logger = logging.getLogger(__name__)
 
@@ -60,10 +63,43 @@ class NodeClient:
         logger.info(f"[HTTP] Using direct HTTP to communicate with node {node.id} at {node_address}")
         return (node_address, False)
     
+    async def _signed_agent_request(
+        self, node_id: str, *, method: str, target: str,
+        payload: Optional[Dict[str, Any]] = None, timeout: float = 30.0,
+    ) -> Dict[str, Any]:
+        """Signed request with no legacy fallback and no automatic write retry."""
+        try:
+            async with AsyncSessionLocal() as session:
+                result = await session.execute(select(Node).where(Node.id == node_id))
+                node = result.scalar_one_or_none()
+                if node is None:
+                    return {"status": "error", "message": "Node not found"}
+                address, using_frp = await self._get_node_address(node)
+
+            return await signed_agent_call(
+                node_id=node_id, address=address, using_frp=using_frp,
+                method=method, target=target, payload=payload, timeout=timeout,
+            )
+        except (SignedAgentUnavailable, ValueError):
+            # Never serialize tokens, raw authorization headers or TLS exceptions.
+            return {"status": "error", "message": "Signed Node control unavailable"}
+        except Exception:
+            logger.warning("Signed Node communication failed for node %s", node_id)
+            return {"status": "error", "message": "Signed Node control unavailable"}
+
     async def send_to_node(self, node_id: str, endpoint: str, data: Dict[str, Any]) -> Dict[str, Any]:
         """
         Send request to node via HTTPS or FRP
         """
+        if settings.smite_panel_agent_auth_mode == "signed":
+            # No downgrade to legacy even if the Node rejects the signature.
+            if endpoint not in (
+                "/api/agent/tunnels/apply", "/api/agent/tunnels/remove"
+            ):
+                return {"status": "error", "message": "Unsigned command prohibited"}
+            return await self._signed_agent_request(
+                node_id, method="POST", target=endpoint, payload=data,
+            )
         async with AsyncSessionLocal() as session:
             result = await session.execute(select(Node).where(Node.id == node_id))
             node = result.scalar_one_or_none()
@@ -123,6 +159,14 @@ class NodeClient:
     
     async def get_tunnel_status(self, node_id: str, tunnel_id: str = "") -> Dict[str, Any]:
         """Get tunnel status from node"""
+        if settings.smite_panel_agent_auth_mode == "signed":
+            target = "/api/agent/status"
+            # Existing status caller intentionally uses aggregate status.
+            # Do not change the response contract or assume tunnel-specific
+            # format until all status polling consumers are migrated.
+            return await self._signed_agent_request(
+                node_id, method="GET", target=target, timeout=3.0,
+            )
         async with AsyncSessionLocal() as session:
             result = await session.execute(select(Node).where(Node.id == node_id))
             node = result.scalar_one_or_none()
