@@ -32,6 +32,9 @@ class Settings(BaseSettings):
     smite_node_pairing_preview_enabled: bool = False
     smite_node_pairing_master_key: str = ""
     smite_node_pairing_ingress_token: str = ""
+
+    # Signed Panel -> Node API calls remain OFF during the pairing migration.
+    smite_panel_agent_auth_mode: Literal["legacy", "signed"] = "legacy"
     
     class Config:
         env_file = ".env"
