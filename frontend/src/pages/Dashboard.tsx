@@ -55,10 +55,16 @@ const Dashboard = () => {
         const response = await api.get<RegisteredNode[]>('/nodes')
         if (!mounted) return
         const nodes = Array.isArray(response.data) ? response.data : []
-        setRegistered({
-          iran: nodes.some(node => node.metadata?.role === 'iran'),
-          foreign: nodes.some(node => node.metadata?.role === 'foreign'),
-        })
+        if (nodes.some(node => !node.metadata?.role)) {
+          // An older, untyped registration cannot establish a server role.
+          // Show "unverified" instead of guessing IR/KH readiness.
+          setRegistered(null)
+        } else {
+          setRegistered({
+            iran: nodes.some(node => node.metadata?.role === 'iran'),
+            foreign: nodes.some(node => node.metadata?.role === 'foreign'),
+          })
+        }
       } catch {
         if (mounted) setRegistered(null)
       }
