@@ -158,7 +158,20 @@ class AgentGuardTest(unittest.TestCase):
         path = "/api/agent/tunnels/status?tunnel_id=demo-123"
         body, headers = self.signed("GET", path, nonce="6" * 32)
         self.assertEqual(body, b"")
-        response = self.client.get(path, headers=headers)
+        # Trace the exact ASGI path used by the strict guard without
+        # exposing credentials in CI logs.
+        from app import agent_auth
+        from unittest.mock import patch
+        original = agent_auth.verify_agent_envelope
+        seen = {}
+        def capture(**kwargs):
+            seen["target"] = kwargs["target"]
+            seen["body_len"] = len(kwargs["body"])
+            return original(**kwargs)
+        with patch.object(agent_auth, "verify_agent_envelope", side_effect=capture):
+            response = self.client.get(path, headers=headers)
+        self.assertEqual(seen.get("target"), path, seen)
+        self.assertEqual(seen.get("body_len"), 0, seen)
         self.assertEqual(response.status_code, 200, response.text)
         self.assertEqual(response.json()["data"], {"running": False})
         self.assertEqual(self.client.get(
