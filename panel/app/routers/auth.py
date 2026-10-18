@@ -2,7 +2,7 @@
 from datetime import datetime, timedelta
 import hmac
 from typing import Optional
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, status, Response
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, update, or_
@@ -104,7 +104,7 @@ async def get_current_user(
 
 
 @router.post("/login", response_model=LoginResponse)
-async def login(login_data: LoginRequest, db: AsyncSession = Depends(get_db)):
+async def login(login_data: LoginRequest, response: Response, db: AsyncSession = Depends(get_db)):
     """Login endpoint"""
     result = await db.execute(select(Admin).where(Admin.username == login_data.username))
     user = result.scalar_one_or_none()
@@ -117,9 +117,12 @@ async def login(login_data: LoginRequest, db: AsyncSession = Depends(get_db)):
         )
     
     if user.totp_secret:
+        if _mfa_locked(user):
+            raise HTTPException(status_code=429, detail="Too many invalid codes. Please try again later.")
         if not login_data.mfa_code:
             raise HTTPException(status_code=428, detail="Two-factor code required")
         if not await _consume_factor(db, user, login_data.mfa_code):
+            await _record_mfa_failure(db, user)
             raise HTTPException(status_code=401, detail="Invalid or already used two-factor code")
     access_token_expires = timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
     access_token = create_access_token(
@@ -127,6 +130,7 @@ async def login(login_data: LoginRequest, db: AsyncSession = Depends(get_db)):
         expires_delta=access_token_expires
     )
     
+    response.headers["Cache-Control"] = "no-store"
     return LoginResponse(
         access_token=access_token,
         token_type="bearer",
@@ -151,6 +155,18 @@ async def logout():
 
 
 
+def _mfa_locked(user: Admin) -> bool:
+    return bool(user.mfa_locked_until and user.mfa_locked_until > datetime.utcnow())
+
+
+async def _record_mfa_failure(db: AsyncSession, user: Admin):
+    failures = (user.mfa_failures or 0) + 1
+    user.mfa_failures = failures
+    if failures >= 5:
+        user.mfa_locked_until = datetime.utcnow() + timedelta(minutes=5)
+    await db.commit()
+
+
 async def _consume_factor(db: AsyncSession, user: Admin, code: str) -> bool:
     """Atomically consume a TOTP time-step or a single recovery code."""
     try:
@@ -163,7 +179,7 @@ async def _consume_factor(db: AsyncSession, user: Admin, code: str) -> bool:
             update(Admin)
             .where(Admin.id == user.id)
             .where(or_(Admin.totp_last_counter.is_(None), Admin.totp_last_counter < step))
-            .values(totp_last_counter=step)
+            .values(totp_last_counter=step, mfa_failures=0, mfa_locked_until=None)
         )
         if result.rowcount == 1:
             await db.commit()
@@ -178,7 +194,7 @@ async def _consume_factor(db: AsyncSession, user: Admin, code: str) -> bool:
     remaining = [saved for saved in codes if not hmac.compare_digest(saved, digest)]
     result = await db.execute(
         update(Admin).where(Admin.id == user.id, Admin.recovery_codes == codes)
-        .values(recovery_codes=remaining)
+        .values(recovery_codes=remaining, mfa_failures=0, mfa_locked_until=None)
     )
     if result.rowcount == 1:
         await db.commit()
@@ -195,6 +211,7 @@ async def mfa_status(current_user: Admin = Depends(get_current_user)):
 @router.post("/2fa/setup")
 async def mfa_setup(
     data: MfaPasswordRequest,
+    response: Response,
     current_user: Admin = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
@@ -207,12 +224,14 @@ async def mfa_setup(
     secret = mfa.new_secret()
     current_user.totp_pending_secret = mfa.seal_secret(secret)
     await db.commit()
+    response.headers["Cache-Control"] = "no-store"
     return {"secret": secret, "otpauth_uri": mfa.provisioning_uri(current_user.username, secret)}
 
 
 @router.post("/2fa/enable")
 async def mfa_enable(
     data: MfaConfirmRequest,
+    response: Response,
     current_user: Admin = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
@@ -234,9 +253,12 @@ async def mfa_enable(
     current_user.totp_pending_secret = None
     current_user.totp_last_counter = step
     current_user.recovery_codes = [mfa.recovery_digest(code) for code in codes]
+    current_user.mfa_failures = 0
+    current_user.mfa_locked_until = None
     current_user.auth_version = (current_user.auth_version or 0) + 1
     await db.commit()
     token = create_access_token({"sub": current_user.username, "mfa": True, "v": current_user.auth_version})
+    response.headers["Cache-Control"] = "no-store"
     return {"enabled": True, "recovery_codes": codes, "access_token": token, "username": current_user.username}
 
 
@@ -250,7 +272,10 @@ async def mfa_disable(
         raise HTTPException(status_code=401, detail="Incorrect password")
     if not current_user.totp_secret:
         raise HTTPException(status_code=409, detail="Two-factor authentication is not enabled")
+    if _mfa_locked(current_user):
+        raise HTTPException(status_code=429, detail="Too many invalid codes. Please try again later.")
     if not await _consume_factor(db, current_user, data.code):
+        await _record_mfa_failure(db, current_user)
         raise HTTPException(status_code=401, detail="Invalid or already used two-factor code")
     # Re-read after atomic factor consumption to avoid stale ORM fields.
     await db.refresh(current_user)
@@ -259,5 +284,7 @@ async def mfa_disable(
     current_user.recovery_codes = None
     current_user.totp_last_counter = None
     current_user.auth_version = (current_user.auth_version or 0) + 1
+    current_user.mfa_failures = 0
+    current_user.mfa_locked_until = None
     await db.commit()
     return {"enabled": False}

@@ -89,6 +89,7 @@ class TwoFactorEndToEnd(unittest.TestCase):
         self.assertEqual(setup.status_code, 200, setup.text)
         secret = setup.json()["secret"]
         self.assertIn("otpauth://totp/", setup.json()["otpauth_uri"])
+        self.assertEqual(setup.headers.get("Cache-Control"), "no-store")
         self.assertNotIn(secret, str(setup.headers))
         bad_enable = self.client.post("/api/auth/2fa/enable", headers=headers, json={"password": "password-strong-test", "code": "0000000"})
         self.assertEqual(bad_enable.status_code, 400)
@@ -98,6 +99,7 @@ class TwoFactorEndToEnd(unittest.TestCase):
         self.assertEqual(enabled.status_code, 200, enabled.text)
         data = enabled.json()
         self.assertEqual(len(data["recovery_codes"]), 10)
+        self.assertEqual(enabled.headers.get("Cache-Control"), "no-store")
         new_headers = {"Authorization": "Bearer " + data["access_token"]}
         self.assertTrue(self.client.get("/api/auth/2fa/status", headers=new_headers).json()["enabled"])
         self.assertEqual(self.client.get("/api/auth/2fa/status", headers=headers).status_code, 401)
@@ -108,6 +110,16 @@ class TwoFactorEndToEnd(unittest.TestCase):
         recovery = data["recovery_codes"]
         self.assertEqual(log_in({"mfa_code": recovery[0]}).status_code, 200)
         self.assertEqual(log_in({"mfa_code": recovery[0]}).status_code, 401)
+        # Repeated guesses after a valid password are throttled even across requests.
+        for _ in range(2):
+            self.assertEqual(log_in({"mfa_code": "0000000"}).status_code, 401)
+        self.assertEqual(log_in({"mfa_code": "0000000"}).status_code, 429)
+        async def clear_test_lock():
+            from sqlalchemy import update
+            async with self.maker() as session:
+                await session.execute(update(Admin).where(Admin.username == "operator").values(mfa_failures=0, mfa_locked_until=None))
+                await session.commit()
+        asyncio.run(clear_test_lock())
 
         async def inspect():
             async with self.maker() as session:

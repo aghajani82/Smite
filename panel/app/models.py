@@ -55,6 +55,8 @@ class Admin(Base):
     recovery_codes = Column(JSON, nullable=True)
     totp_last_counter = Column(Integer, nullable=True)
     auth_version = Column(Integer, nullable=False, default=0, server_default="0")
+    mfa_failures = Column(Integer, nullable=False, default=0, server_default="0")
+    mfa_locked_until = Column(DateTime, nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow)
 
 

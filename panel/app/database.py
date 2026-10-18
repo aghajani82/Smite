@@ -56,6 +56,8 @@ async def migrate_db():
             ("recovery_codes", "JSON"),
             ("totp_last_counter", "INTEGER"),
             ("auth_version", "INTEGER NOT NULL DEFAULT 0"),
+            ("mfa_failures", "INTEGER NOT NULL DEFAULT 0"),
+            ("mfa_locked_until", "DATETIME"),
         ):
             if name not in admin_columns:
                 logger.info("Adding admins.%s column", name)
