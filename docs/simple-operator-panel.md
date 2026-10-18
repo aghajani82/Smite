@@ -1,4 +1,4 @@
-# Smite — Simple Operator UI (Draft, no backend or VPS changes)
+# Smite — Simple Operator UI + MFA (Draft, no VPS changes)
 
 The operator experience should feel like **three tasks**, not a server
 administration course: add Iran Node, add foreign Node, then enter the real
@@ -34,20 +34,30 @@ mandatory setup menus.
 - Removed verbose Backhaul console output in the creation path and
   masked manually entered token inputs.
 - Persian/English labels, keyboard focus visibility and RTL content
-  direction; functional API shapes, Pairing and transport-security
-  logic are unchanged.
+  direction; Pairing and transport-security
+  logic are unchanged; the authenticated MFA endpoints are new.
 
 ## Not included / deliberately not claimed
 
-- No new endpoint, auto-setup API, one-click FRP/Backhaul deployment or
+- No new tunnel auto-setup endpoint, one-click FRP/Backhaul deployment or
   automatic HMAC activation. The UI is a shell over the existing tunnel
   API and is not a replacement for the U-OPTI post-install dynamic
   path/port wizard.
-- **Two-factor login is not implemented by this UI PR.** Real TOTP needs
-  a server-side challenge, verified enrollment/confirmation, recovery
-  codes, revocation and rate limits before a six-digit input is added.
-  A mock code field would be actively misleading, so this PR does
-  not pretend to add 2FA.
+- **Real server-side TOTP MFA is included** in this branch. Login checks the
+  password first, then requires a verified Authenticator or one-time recovery
+  code before issuing any access token. Invalid guesses are throttled after
+  five attempts. Enrollment requires the current password and a valid
+  6-digit authenticator code, with Fernet-encrypted secrets and ten hashed
+  single-use recovery codes. Enabling/disabling MFA invalidates older JWTs.
+  MFA setup requires a strong deployment SECRET_KEY; the U-OPTI installer
+  already generates one. Sensitive setup/login responses have no-store headers.
+- Google Authenticator supports manual entry of the displayed setup key.
+  A local QR renderer is not yet included; do not send provisioning secrets
+  to third-party QR services.
+- This is **not yet a fully audited production authentication system**:
+  HTTPS, login-IP throttling at the gateway, secure backups of the SQLite
+  database and cross-process concurrency/recovery rehearsals still need
+  verification. No claim of final live readiness is made.
 - No claims that an active Node means end-to-end client traffic passed.
 - No modifications to existing IR/KH VPS hosts, nginx, Docker, credentials
   or live FRP/Backhaul tunnels.
@@ -59,6 +69,11 @@ full frontend TypeScript checking, node-native unit tests for strict
 inbound port acceptance, source UI invariants and `npm run build`.
 It also corrects a few existing frontend type declaration mismatches
 and Vite static asset typing so the TypeScript gate stays enabled.
+
+`.github/workflows/admin-auth-check.yml` runs the existing API permission
+checks and `tests/test_totp_mfa.py`, including an RFC 6238 known vector,
+password gate, enrollment, successful/failed login, TOTP replay rejection,
+one-use recovery consumption, throttling and old-token revocation.
 
 **Keep as Draft until the clean-install Panel image is built and
 visually tested together with the new U-OPTI wizard on disposable hosts.**
