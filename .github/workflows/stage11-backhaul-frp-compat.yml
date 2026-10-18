@@ -1,0 +1,75 @@
+name: Stage11 Signed Backhaul and FRP Gateway Compatibility
+
+on:
+  push:
+    branches:
+      - feature/smite-stage11-backhaul-signed-interop-20261018
+  pull_request:
+    paths:
+      - 'panel/app/node_client.py'
+      - 'panel/app/uopti_backhaul_dispatch.py'
+      - 'panel/app/uopti_backhaul_standard.py'
+      - 'panel/main.py'
+      - 'node/app/uopti_backhaul_standard.py'
+      - 'node/app/frp_gateway_config.py'
+      - 'node/app/core_adapters.py'
+      - 'tests/test_stage11_backhaul_frp_interop.py'
+      - '.github/workflows/stage11-backhaul-frp-compat.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  secure-interop:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install Panel integration dependencies
+        run: |
+          python -m pip install 'fastapi==0.104.1' 'httpx==0.25.2' 'pydantic==2.5.0' 'pydantic-settings==2.1.0' 'cryptography==41.0.7' 'sqlalchemy==2.0.23' 'aiosqlite==0.19.0'
+      - name: Compile reviewed FRP and Backhaul integrations
+        run: |
+          python -m py_compile panel/app/node_client.py panel/app/uopti_backhaul_dispatch.py panel/app/uopti_backhaul_standard.py panel/main.py node/app/uopti_backhaul_standard.py node/app/frp_gateway_config.py node/app/core_adapters.py tests/test_stage11_backhaul_frp_interop.py
+      - name: Signed and legacy canonical Backhaul and WSS 443 unit tests
+        run: python -B tests/test_stage11_backhaul_frp_interop.py -v
+
+  unpublished-image-smoke:
+    strategy:
+      fail-fast: false
+      matrix:
+        role: [panel, node]
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build local CI image only, never push
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ "${{ matrix.role }}" = panel ]; then
+            docker build -f panel/Dockerfile -t smite-stage11-panel:ci --build-arg SMITE_VERSION=stage11-preview .
+          else
+            docker build -f node/Dockerfile -t smite-stage11-node:ci --build-arg SMITE_VERSION=stage11-preview node
+          fi
+      - name: Verify security modules and FRP/Backhaul integration in extracted image
+        shell: bash
+        run: |
+          set -euo pipefail
+          role="${{ matrix.role }}"
+          cid="$(docker create --entrypoint /bin/true "smite-stage11-$role:ci")"
+          trap 'docker rm -f "$cid" >/dev/null 2>&1 || true' EXIT
+          docker cp "$cid:/app" "$RUNNER_TEMP/app"
+          python3 -B tests/image_auth_smoke.py --role "$role" --root "$RUNNER_TEMP/app"
+          if [ "$role" = panel ]; then
+            grep -Fq 'prepare_node_command' "$RUNNER_TEMP/app/app/node_client.py"
+            grep -Fq 'compile_standard_specs' "$RUNNER_TEMP/app/app/uopti_backhaul_dispatch.py"
+          else
+            grep -Fq 'normalize_node_spec(spec)' "$RUNNER_TEMP/app/app/core_adapters.py"
+            grep -Fq 'frp_client_server_port' "$RUNNER_TEMP/app/app/core_adapters.py"
+          fi
+          echo "NO_IMAGE_PUBLISH=YES"
+          echo "NO_CONTAINER_START=YES"
+          echo "AUTH_NOT_ACTIVATED=YES"

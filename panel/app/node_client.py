@@ -11,6 +11,8 @@ from app.database import AsyncSessionLocal
 from app.models import Node, Settings
 from app.config import settings
 from app.signed_agent_transport import signed_agent_call, SignedAgentUnavailable
+from app.uopti_backhaul_dispatch import prepare_node_command
+from app.uopti_backhaul_standard import StandardBackhaulSpecError
 
 
 logger = logging.getLogger(__name__)
@@ -91,6 +93,15 @@ class NodeClient:
         """
         Send request to node via HTTPS or FRP
         """
+        # Normalize persisted opt-in Backhaul BEFORE the signed/legacy split.
+        # Never let the signed fast path skip the validated IR/KH spec.
+        try:
+            data = await prepare_node_command(node_id, endpoint, data)
+        except StandardBackhaulSpecError:
+            return {"status": "error", "message": "Standard Backhaul spec rejected"}
+        except Exception:
+            logger.warning("Backhaul dispatch precheck failed for node %s", node_id)
+            return {"status": "error", "message": "Backhaul preparation unavailable"}
         if settings.smite_panel_agent_auth_mode == "signed":
             # No downgrade to legacy even if the Node rejects the signature.
             if endpoint not in (
