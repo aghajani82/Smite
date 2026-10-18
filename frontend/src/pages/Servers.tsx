@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { Plus, Copy, Trash2, CheckCircle, XCircle, AlertCircle } from 'lucide-react'
 import api from '../api/client'
+import { NodePairingAction, usePairingPreviewAvailability } from '../components/NodePairingAction'
 import { useLanguage } from '../contexts/LanguageContext'
 
 interface Server {
@@ -17,6 +18,7 @@ const Servers = () => {
   const { t } = useLanguage()
   const [servers, setServers] = useState<Server[]>([])
   const [loading, setLoading] = useState(true)
+  const pairingPreviewEnabled = usePairingPreviewAvailability()
   const [showAddModal, setShowAddModal] = useState(false)
   const [showCertModal, setShowCertModal] = useState(false)
   const [certContent, setCertContent] = useState('')
@@ -252,6 +254,7 @@ const Servers = () => {
                     {new Date(server.last_seen).toLocaleString()}
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap text-sm">
+                    <NodePairingAction node={server} role="foreign" enabled={pairingPreviewEnabled} />
                     <button
                       onClick={() => deleteServer(server.id)}
                       className="text-red-600 dark:text-red-400 hover:text-red-800 dark:hover:text-red-300"
