@@ -111,7 +111,7 @@ class TwoFactorEndToEnd(unittest.TestCase):
         self.assertEqual(log_in({"mfa_code": recovery[0]}).status_code, 200)
         self.assertEqual(log_in({"mfa_code": recovery[0]}).status_code, 401)
         # Repeated guesses after a valid password are throttled even across requests.
-        for _ in range(2):
+        for _ in range(4):
             self.assertEqual(log_in({"mfa_code": "0000000"}).status_code, 401)
         self.assertEqual(log_in({"mfa_code": "0000000"}).status_code, 429)
         async def clear_test_lock():

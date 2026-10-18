@@ -184,7 +184,6 @@ async def _consume_factor(db: AsyncSession, user: Admin, code: str) -> bool:
         if result.rowcount == 1:
             await db.commit()
             return True
-        await db.rollback()
         return False
 
     digest = mfa.recovery_digest(code)
@@ -199,7 +198,6 @@ async def _consume_factor(db: AsyncSession, user: Admin, code: str) -> bool:
     if result.rowcount == 1:
         await db.commit()
         return True
-    await db.rollback()
     return False
 
 
