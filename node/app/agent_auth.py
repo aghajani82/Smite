@@ -140,6 +140,15 @@ def _http_target(request: Request) -> str:
     query = request.scope.get("query_string", b"")
     if not isinstance(path, bytes) or not isinstance(query, bytes):
         raise AgentAuthUnavailable("HTTP target missing")
+    # ASGI transport implementations differ: some provide raw_path WITH
+    # its query string as well as scope.query_string. Require byte-identical
+    # query values and canonicalize exactly once; never silently discard an
+    # inconsistent value that could produce a signature-confusion bypass.
+    if b"?" in path:
+        raw_path, embedded_query = path.split(b"?", 1)
+        if embedded_query != query:
+            raise AgentAuthUnavailable("Conflicting HTTP query representations")
+        path = raw_path
     try:
         return (path + (b"?" + query if query else b"")).decode("ascii")
     except UnicodeDecodeError as exc:
