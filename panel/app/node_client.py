@@ -13,6 +13,7 @@ from app.config import settings
 from app.signed_agent_transport import signed_agent_call, SignedAgentUnavailable
 from app.uopti_backhaul_dispatch import prepare_node_command
 from app.uopti_backhaul_standard import StandardBackhaulSpecError
+from app.signed_node_origins import approved_node, ApprovedOriginUnavailable
 
 
 logger = logging.getLogger(__name__)
@@ -76,13 +77,19 @@ class NodeClient:
                 node = result.scalar_one_or_none()
                 if node is None:
                     return {"status": "error", "message": "Node not found"}
-                address, using_frp = await self._get_node_address(node)
+                # Never route HMAC credentials to historical, anonymous
+                # Node.metadata.api_address / control_address / FRP ports.
+                # The signed endpoint must be approved out of band.
+                pin = approved_node(node_id)
+                if pin["role"] != (node.node_metadata or {}).get("role"):
+                    raise ApprovedOriginUnavailable("Node role differs from approved identity")
+                address, using_frp = pin["origin"], False
 
             return await signed_agent_call(
                 node_id=node_id, address=address, using_frp=using_frp,
                 method=method, target=target, payload=payload, timeout=timeout,
             )
-        except (SignedAgentUnavailable, ValueError):
+        except (SignedAgentUnavailable, ApprovedOriginUnavailable, ValueError):
             # Never serialize tokens, raw authorization headers or TLS exceptions.
             return {"status": "error", "message": "Signed Node control unavailable"}
         except Exception:
