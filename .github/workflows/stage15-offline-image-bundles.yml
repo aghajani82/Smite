@@ -76,8 +76,8 @@ jobs:
       - name: Upload disposable untrusted test images (3-day retention)
         uses: actions/upload-artifact@v4
         with:
-          name: smite-stage15-offline-images-\${{ github.sha }}
-          path: \${{ runner.temp }}/stage15-bundle/
+          name: smite-stage15-offline-images-${{ github.sha }}
+          path: ${{ runner.temp }}/stage15-bundle/
           retention-days: 3
           if-no-files-found: error
           compression-level: 0
