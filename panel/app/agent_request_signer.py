@@ -7,6 +7,7 @@ The caller MUST send the returned byte string unchanged via content=body.
 from __future__ import annotations
 
 import json
+import re
 from typing import Any
 from urllib.parse import urlsplit
 
@@ -29,12 +30,15 @@ def _target_check(target: str) -> None:
     if not isinstance(target, str):
         raise AgentRequestPreparationError("Target must be an Agent API path")
     split = urlsplit(target)
-    # This migration helper accepts exact fixed paths only. A separate
-    # future helper will canonicalize + sign status query strings.
+    # Exactly one restricted status query is accepted. Never sign arbitrary
+    # attacker-supplied raw query strings or unrelated control endpoints.
+    is_tunnel_status = split.path == "/api/agent/tunnels/status"
     if (
-        split.scheme or split.netloc or split.query or split.fragment
+        split.scheme or split.netloc or split.fragment
         or split.path not in ALLOWED_AGENT_TARGETS
-        or target != split.path
+        or (is_tunnel_status and not re.fullmatch(r"tunnel_id=[A-Za-z0-9_-]{1,128}", split.query))
+        or (not is_tunnel_status and bool(split.query))
+        or (target != split.path + ("?" + split.query if split.query else ""))
     ):
         raise AgentRequestPreparationError("Unapproved Agent target")
 
@@ -46,12 +50,16 @@ def prepare_agent_request(
 ) -> tuple[bytes, dict[str, str]]:
     """Return exact wire body + signed headers for a scoped Agent request."""
     _target_check(target)
-    if (method, target) not in (
-        ("POST", "/api/agent/tunnels/apply"),
-        ("POST", "/api/agent/tunnels/remove"),
-        ("GET", "/api/agent/status"),
-        ("GET", "/api/agent/tunnels/status"),
-    ):
+    allowed = (
+        (method == "POST" and target in (
+            "/api/agent/tunnels/apply", "/api/agent/tunnels/remove"
+        ))
+        or (method == "GET" and (
+            target == "/api/agent/status"
+            or target.startswith("/api/agent/tunnels/status?tunnel_id=")
+        ))
+    )
+    if not allowed:
         raise AgentRequestPreparationError("Wrong Agent method/target")
     if method == "GET":
         if payload is not None:
