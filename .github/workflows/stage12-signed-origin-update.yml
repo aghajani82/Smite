@@ -34,5 +34,5 @@ jobs:
           python -m py_compile panel/app/signed_node_origins.py panel/app/uopti_backhaul_lifecycle.py panel/app/routers/signed_nodes.py panel/app/routers/tunnels.py panel/app/node_client.py tests/test_stage12_signed_origins_and_updates.py
       - name: Test approved per-Node TLS/443 origins and fail-closed Backhaul edit
         run: python -B tests/test_stage12_signed_origins_and_updates.py -v
-      - name: Regression: signed Node registry and gateway check
+      - name: "Regression - signed Node registry and gateway check"
         run: python -B tests/test_signed_node_inbound_panel.py -v
