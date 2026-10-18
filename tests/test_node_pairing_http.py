@@ -84,6 +84,35 @@ class PairingHTTPTest(unittest.TestCase):
             "pairing_code": code,
         }, headers=headers or {})
 
+    def test_capabilities_are_admin_only_and_default_off(self):
+        response = self.client.get("/api/node-pairing/capabilities")
+        self.assertIn(response.status_code, (401, 403))
+        self.grant_admin()
+        disabled = self.client.get("/api/node-pairing/capabilities")
+        self.assertEqual(disabled.status_code, 200)
+        self.assertEqual(disabled.headers["cache-control"], "no-store")
+        self.assertEqual(disabled.json(), {
+            "pairing_preview_enabled": False,
+            "legacy_node_auth_enforced": False,
+        })
+
+    def test_capabilities_reject_missing_schema_or_invalid_master(self):
+        self.grant_admin()
+        settings.smite_node_pairing_preview_enabled = True
+        ok = self.client.get("/api/node-pairing/capabilities")
+        self.assertEqual(ok.status_code, 200)
+        self.assertTrue(ok.json()["pairing_preview_enabled"])
+        self.assertFalse(ok.json()["legacy_node_auth_enforced"])
+
+        with sqlite3.connect(self.db) as conn:
+            conn.execute("DROP TABLE smite_node_identities")
+        incomplete = self.client.get("/api/node-pairing/capabilities")
+        self.assertFalse(incomplete.json()["pairing_preview_enabled"])
+
+        settings.smite_node_pairing_master_key = "invalid"
+        not_configured = self.client.get("/api/node-pairing/capabilities")
+        self.assertFalse(not_configured.json()["pairing_preview_enabled"])
+
     def test_disabled_by_default_and_admin_auth_first(self):
         unauth = self.issue()
         self.assertIn(unauth.status_code, (401, 403))
