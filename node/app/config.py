@@ -17,6 +17,7 @@ class Settings(BaseSettings):
     smite_agent_auth_mode: Literal["legacy", "strict"] = "legacy"
     smite_agent_identity_path: str = "/etc/smite-node/identity/node-identity.json"
     smite_agent_replay_db: str = "/var/lib/smite-node/auth/agent-replay.sqlite3"
+    smite_node_panel_auth_mode: Literal["legacy", "signed"] = "legacy"
     
     class Config:
         env_file = ".env"
