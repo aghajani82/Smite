@@ -1616,16 +1616,18 @@ function BackhaulForm({
   state,
   onChange,
   onOpenAdvanced,
+  showTechnicalSettings,
   acceptUdpVisible,
 }: {
   state: BackhaulFormState
   onChange: (partial: Partial<BackhaulFormState>) => void
   onOpenAdvanced: () => void
+  showTechnicalSettings: boolean
   acceptUdpVisible?: boolean
 }) {
   return (
     <div className="space-y-4">
-      <div>
+      {showTechnicalSettings && <div>
         <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
           Control Port
         </label>
@@ -1641,11 +1643,11 @@ function BackhaulForm({
         <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
           Port where the node connects back to the panel.
         </p>
-      </div>
+      </div>}
 
       <div>
         <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-          Ports
+          3x-UI inbound port
         </label>
         <input
           type="text"
@@ -1661,21 +1663,22 @@ function BackhaulForm({
         </p>
       </div>
 
-      <div>
+      {showTechnicalSettings && <div>
         <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
           Token (Optional - Auto-generated if empty)
         </label>
         <input
-          type="text"
+          type="password"
+          autoComplete="off"
           value={state.token}
           onChange={(e) => onChange({ token: e.target.value })}
           className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg dark:bg-gray-700 dark:text-white"
           placeholder="Leave empty for auto-generation"
         />
         <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">Authentication token (will be auto-generated if not provided)</p>
-      </div>
+      </div>}
 
-      {acceptUdpVisible && (
+      {showTechnicalSettings && acceptUdpVisible && (
         <div className="flex items-center justify-between">
           <label className="text-sm font-medium text-gray-700 dark:text-gray-300">
             Allow UDP over TCP
@@ -1689,7 +1692,7 @@ function BackhaulForm({
         </div>
       )}
 
-      <div className="pt-2">
+      {showTechnicalSettings && <div className="pt-2">
         <button
           type="button"
           onClick={onOpenAdvanced}
@@ -1697,7 +1700,7 @@ function BackhaulForm({
         >
           Advanced settings
         </button>
-      </div>
+      </div>}
     </div>
   )
 }
