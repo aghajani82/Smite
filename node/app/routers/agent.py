@@ -1,10 +1,13 @@
 """Agent API endpoints"""
-from fastapi import APIRouter, Request, HTTPException
+from fastapi import APIRouter, Request, HTTPException, Depends
+from app.agent_auth import require_agent_auth
 from pydantic import BaseModel
 from typing import Dict, Any
 import logging
 
-router = APIRouter()
+# Strict mode gates status AND Apply/Remove without route-level bypass.
+# Default legacy mode intentionally preserves current Node interoperability.
+router = APIRouter(dependencies=[Depends(require_agent_auth)])
 logger = logging.getLogger(__name__)
 
 
