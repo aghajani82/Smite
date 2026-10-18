@@ -87,6 +87,45 @@ def _no_store(response: Response) -> None:
     response.headers["X-Content-Type-Options"] = "nosniff"
 
 
+def _schema_ready() -> bool:
+    # Read-only probe: must not create an empty database or auto-migrate it.
+    from pathlib import Path
+    try:
+        db_path = Path(_database_path()).resolve(strict=True)
+        with sqlite3.connect(db_path.as_uri() + "?mode=ro", uri=True, timeout=2) as conn:
+            names = {
+                row[0] for row in conn.execute(
+                    "SELECT name FROM sqlite_master "
+                    "WHERE type='table' AND name IN "
+                    "('nodes', 'smite_node_pairing_codes', 'smite_node_identities')"
+                )
+            }
+        return names == {
+            "nodes", "smite_node_pairing_codes", "smite_node_identities"
+        }
+    except (OSError, sqlite3.Error, HTTPException):
+        return False
+
+
+@router.get("/capabilities")
+async def pairing_capabilities(
+    response: Response,
+    admin: Admin = Depends(auth.get_current_user),
+):
+    """Admin-only, no-secret, read-only UI preview gate."""
+    _no_store(response)
+    try:
+        _require_preview()
+        enabled = await run_in_threadpool(_schema_ready)
+    except HTTPException:
+        enabled = False
+    return {
+        "pairing_preview_enabled": enabled,
+        # Critical: the legacy Node register and Agent APIs are NOT guarded.
+        "legacy_node_auth_enforced": False,
+    }
+
+
 @router.post("/issue", response_model=PairingCodeResponse)
 async def issue_code(
     request: PairingIssueRequest,
