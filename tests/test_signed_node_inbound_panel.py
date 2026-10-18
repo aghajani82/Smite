@@ -8,6 +8,7 @@ import sys
 import tempfile
 import time
 import unittest
+from unittest.mock import AsyncMock, patch
 
 from cryptography.fernet import Fernet
 from fastapi import FastAPI
@@ -19,7 +20,8 @@ sys.path.insert(0, str(ROOT / "panel"))
 
 from app.config import settings
 from app.database import Base, get_db
-from app.models import Node, Settings as DbSettings
+from app.models import Node, Admin, Settings as DbSettings
+from app.routers import auth
 from app import node_auth, node_pairing_store
 from app.routers import signed_nodes, nodes
 from app.signed_node_registration import initialize_replay_schema, _verify
@@ -43,11 +45,12 @@ class SignedInboundTest(unittest.TestCase):
                 session.add(Node(
                     id=self.node_id, name="node-kh",
                     fingerprint="fingerprint-kh-test", status="pending",
-                    node_metadata={"role": "foreign", "api_address": "https://node.example.org"}
+                    node_metadata={"role": "foreign", "node_name": "node-kh", "control_address": "https://node.example.org/control/secure/", "api_address": "https://node.example.org"}
                 ))
                 session.add(DbSettings(key="frp", value={
                     "enabled": True, "port": 17000, "token": self.token,
                 }))
+                session.add(Admin(id="admin0000-1111-2222-3333-444444444444", username="test-admin", password_hash="not-used"))
                 await session.commit()
         asyncio.run(setup())
         node_pairing_store.initialize_schema(self.db_path)
@@ -61,11 +64,12 @@ class SignedInboundTest(unittest.TestCase):
         ).secret.encode("ascii")
 
         self.old = (settings.db_path, settings.smite_node_pairing_master_key,
-                    settings.smite_node_registration_mode, settings.panel_domain)
+                    settings.smite_node_registration_mode, settings.panel_domain, settings.smite_panel_agent_auth_mode)
         settings.db_path = str(self.db_path)
         settings.smite_node_pairing_master_key = self.master
         settings.smite_node_registration_mode = "signed"
         settings.panel_domain = "panel.example.org"
+        settings.smite_panel_agent_auth_mode = "signed"
         self.addCleanup(self.restore)
 
         async def database_override():
@@ -81,7 +85,7 @@ class SignedInboundTest(unittest.TestCase):
 
     def restore(self):
         (settings.db_path, settings.smite_node_pairing_master_key,
-         settings.smite_node_registration_mode, settings.panel_domain) = self.old
+         settings.smite_node_registration_mode, settings.panel_domain, settings.smite_panel_agent_auth_mode) = self.old
         asyncio.run(self.engine.dispose())
 
     def request(self, *, path="/api/node-control/register", data=None, node_id=None,
@@ -179,6 +183,53 @@ class SignedInboundTest(unittest.TestCase):
         self.assertEqual(self.client.post(
             "/api/node-control/register", content=good, headers=headers
         ).status_code, 401)
+
+    def test_list_get_restricted_in_signed_mode_and_delete_always_admin(self):
+        token = auth.create_access_token({"sub": "test-admin"})
+        headers = {"Authorization": "Bearer " + token}
+        for url in ("/api/nodes", "/api/nodes/" + self.node_id):
+            self.assertIn(self.client.get(url).status_code, (401, 403))
+            self.assertIn(self.client.get(
+                url, headers={"Authorization": "Bearer bad"}
+            ).status_code, (401, 403))
+        with patch("app.routers.nodes.NodeClient.get_tunnel_status",
+                   new_callable=AsyncMock, return_value={"status": "ok"}):
+            result = self.client.get("/api/nodes", headers=headers)
+        self.assertEqual(result.status_code, 200, result.text)
+        self.assertEqual(len(result.json()), 1)
+        self.assertEqual(
+            self.client.get("/api/nodes/" + self.node_id, headers=headers).status_code, 200
+        )
+        self.assertIn(self.client.delete("/api/nodes/" + self.node_id).status_code, (401, 403))
+        settings.smite_node_registration_mode = "legacy"
+        self.assertIn(self.client.delete("/api/nodes/" + self.node_id).status_code, (401, 403))
+        settings.smite_node_registration_mode = "signed"
+
+    def test_gateway_check_bound_to_signed_identity_and_own_endpoint(self):
+        initialize_replay_schema(self.db_path)
+        path = "/api/node-control/gateway-check"
+        params = {"node_id": self.node_id, "node_name": "node-kh",
+                  "control_url": "https://node.example.org/control/secure/"}
+        self.assertEqual(self.client.post(path, json=params).status_code, 401)
+        body, headers = self.request(path=path, data=params)
+        with patch("app.routers.signed_nodes.NodeClient.get_tunnel_status",
+                   new_callable=AsyncMock, return_value={"status": "ok"}) as check:
+            res = self.client.post(path, content=body, headers=headers)
+        self.assertEqual(res.status_code, 200, res.text)
+        self.assertEqual(res.json(), {"status": "ok", "gateway_ready": True})
+        self.assertEqual(res.headers["cache-control"], "no-store")
+        check.assert_awaited_once_with(self.node_id)
+        self.assertEqual(self.client.post(path, content=body, headers=headers).status_code, 401)
+        params["control_url"] = "https://node.example.org/wrong/path"
+        body, headers = self.request(path=path, data=params)
+        with patch("app.routers.signed_nodes.NodeClient.get_tunnel_status",
+                   new_callable=AsyncMock) as check:
+            wrong = self.client.post(path, content=body, headers=headers)
+        self.assertEqual(wrong.json(), {"status": "ok", "gateway_ready": False})
+        check.assert_not_awaited()
+        settings.smite_panel_agent_auth_mode = "legacy"
+        body, headers = self.request(path=path, data=params)
+        self.assertEqual(self.client.post(path, content=body, headers=headers).status_code, 503)
 
     def test_atomic_replay_across_parallel_db_users(self):
         initialize_replay_schema(self.db_path)
