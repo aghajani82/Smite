@@ -5,8 +5,13 @@ security image.** Proposed label: `2.0.0-rc.0`; no tag or GHCR push.
 
 The workflow `.github/workflows/stage15-offline-image-bundles.yml`
 builds both Panel and Node from **the exact same GitHub Commit**.
-It smoke-checks the required security source files *inside* each image
-without starting Smite. It then creates:
+It smoke-checks the required security source files *inside* each image.
+A second GitHub Actions gate then runs both images as disposable, isolated
+containers (Docker network mode `none`, no published host ports, no host
+volume mounts, read-only root and temporary data mounts). It checks Panel
+HTTP readiness, static UI, version, zero-state API counts, MFA database
+columns, rejection of anonymous login, and the Node's local liveness.
+Only if these pass does CI create:
 
 - `smite-panel-stage15.docker.tar.gz` — a `docker save` archive
 - `smite-node-stage15.docker.tar.gz` — matching source version
@@ -34,10 +39,13 @@ the bundle manifest.
    pinned for U-OPTI to pull. Dockerfile dependencies and binary
    downloads also need reproducibility/provenance review.
 3. `docker load` of these unreviewed images is NOT performed on IR or
-   KH. Future acceptance must verify actual image/container IDs and
+   KH. Passing the new isolated CI first-boot test is not a substitute for
+   a real two-host install. Future acceptance must verify image/container IDs and
    bind mounts, Nginx/443 paths, certificate/SNI, Panel/Node UUID and
    secret permissions, replay storage, encryption master backup.
-4. FRP, Backhaul and XHTTP traffic, signed registration, Apply/Remove,
+4. Node registration is deliberately *not* tested: the isolated Node
+   cannot reach a Panel, and no HMAC/tunnel communication is activated.
+   FRP, Backhaul and XHTTP traffic, signed registration, Apply/Remove,
    client routing, reboot persistence, provider snapshots and rollback
    have NOT passed actual two-VPS integration acceptance.
 5. Standard mode only; Private Network remains out of scope.
