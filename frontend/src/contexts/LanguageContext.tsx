@@ -30,6 +30,24 @@ interface Translations {
     addNode: string
     addServer: string
     loadingDashboard: string
+    simpleSubtitle: string
+    apiUnavailable: string
+    apiReachable: string
+    apiErrorHelp: string
+    refresh: string
+    lastUpdated: string
+    viewNodes: string
+    stepIran: string
+    stepForeign: string
+    stepTunnel: string
+    simpleSteps: string
+    simpleStepsHelp: string
+    statusUnknown: string
+    added: string
+    notAdded: string
+    overview: string
+    activeTunnels: string
+    noData: string
   }
   navigation: {
     dashboard: string
@@ -153,6 +171,24 @@ const translations: Record<Language, Translations> = {
       addNode: 'Add Iran Server',
       addServer: 'Add Foreign Server',
       loadingDashboard: 'Loading dashboard...',
+      simpleSubtitle: 'Your servers and tunnels, without the complicated settings.',
+      apiUnavailable: 'Panel status temporarily unavailable',
+      apiReachable: 'Panel API responded',
+      apiErrorHelp: 'Could not refresh panel status. The last values may be outdated. Please retry. This does not necessarily mean the tunnel is offline.',
+      refresh: 'Refresh',
+      lastUpdated: 'Last updated',
+      viewNodes: 'View registered nodes',
+      stepIran: 'Add your Iran server',
+      stepForeign: 'Add your foreign server',
+      stepTunnel: 'Create your tunnel',
+      simpleSteps: 'Getting started',
+      simpleStepsHelp: 'Install both servers first. Configure the inbound port and tunnel afterward.',
+      statusUnknown: 'Unverified',
+      added: 'Registered',
+      notAdded: 'Not registered',
+      overview: 'Active tunnels',
+      activeTunnels: 'Reported by the Panel',
+      noData: 'Resource status is not available yet.',
     },
     navigation: {
       dashboard: 'Dashboard',
@@ -278,6 +314,24 @@ const translations: Record<Language, Translations> = {
       addNode: 'افزودن سرور ایران',
       addServer: 'افزودن سرور خارجی',
       loadingDashboard: 'در حال بارگذاری داشبورد...',
+      simpleSubtitle: 'وضعیت سرورها و تونل‌ها، ساده و بدون تنظیمات شلوغ.',
+      apiUnavailable: 'وضعیت پنل فعلاً قابل دریافت نیست',
+      apiReachable: 'پاسخ از API پنل دریافت شد',
+      apiErrorHelp: 'دریافت وضعیت جدید موفق نبود. اطلاعات قبلی ممکن است قدیمی باشند. دوباره تلاش کنید؛ این خطا لزوماً به معنی قطع بودن تونل نیست.',
+      refresh: 'به‌روزرسانی',
+      lastUpdated: 'آخرین بررسی',
+      viewNodes: 'مشاهده نودهای ثبت‌شده',
+      stepIran: 'افزودن سرور ایران',
+      stepForeign: 'افزودن سرور خارج',
+      stepTunnel: 'ساخت تونل',
+      simpleSteps: 'شروع سریع',
+      simpleStepsHelp: 'اول نصب هر دو سرور را کامل کنید؛ تنظیم پورت و ساخت تونل بعد از نصب است.',
+      statusUnknown: 'تأیید نشده',
+      added: 'ثبت شده',
+      notAdded: 'ثبت نشده',
+      overview: 'تونل‌های فعال',
+      activeTunnels: 'طبق گزارش پنل',
+      noData: 'اطلاعات منابع سیستم هنوز در دسترس نیست.',
     },
     navigation: {
       dashboard: 'داشبورد',
