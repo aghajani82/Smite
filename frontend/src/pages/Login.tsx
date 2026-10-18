@@ -11,6 +11,8 @@ const Login = () => {
   const [username, setUsername] = useState('')
   const [version, setVersion] = useState('v0.1.0')
   const [password, setPassword] = useState('')
+  const [mfaCode, setMfaCode] = useState('')
+  const [mfaRequired, setMfaRequired] = useState(false)
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
   const [darkMode, setDarkMode] = useState(() => {
@@ -57,12 +59,18 @@ const Login = () => {
       const response = await api.post('/auth/login', {
         username,
         password,
+        mfa_code: mfaCode.trim() || undefined,
       })
 
       login(response.data.access_token, response.data.username)
       navigate('/dashboard')
     } catch (err: any) {
-      setError(err.response?.data?.detail || t.login.checkCredentials)
+      if (err.response?.status === 428) {
+        setMfaRequired(true)
+        setError('')
+      } else {
+        setError(err.response?.data?.detail || t.login.checkCredentials)
+      }
     } finally {
       setLoading(false)
     }
@@ -157,6 +165,17 @@ const Login = () => {
               />
             </div>
 
+            {mfaRequired && (
+              <div>
+                <label htmlFor="mfa-code" className="block text-sm font-semibold text-gray-700 dark:text-gray-300 mb-2">
+                  {t.login.twoFactorCode}
+                </label>
+                <input id="mfa-code" type="text" autoFocus autoComplete="one-time-code"
+                  value={mfaCode} onChange={e => setMfaCode(e.target.value)} required
+                  placeholder={t.login.twoFactorHint}
+                  className="w-full px-4 py-3 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500" />
+              </div>
+            )}
             <button
               type="submit"
               disabled={loading}

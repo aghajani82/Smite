@@ -14,6 +14,8 @@ interface Translations {
     signingIn: string
     loginFailed: string
     checkCredentials: string
+    twoFactorCode: string
+    twoFactorHint: string
   }
   dashboard: {
     title: string
@@ -169,6 +171,8 @@ const translations: Record<Language, Translations> = {
       signingIn: 'Signing in...',
       loginFailed: 'Login failed. Please check your credentials.',
       checkCredentials: 'Login failed. Please check your credentials.',
+      twoFactorCode: 'Authenticator or recovery code',
+      twoFactorHint: 'Enter the 6-digit code or a recovery code',
     },
     dashboard: {
       title: 'Dashboard',
@@ -322,6 +326,8 @@ const translations: Record<Language, Translations> = {
       signingIn: 'در حال ورود...',
       loginFailed: 'ورود ناموفق بود. لطفاً اطلاعات خود را بررسی کنید.',
       checkCredentials: 'ورود ناموفق بود. لطفاً اطلاعات خود را بررسی کنید.',
+      twoFactorCode: 'کد Authenticator یا بازیابی',
+      twoFactorHint: 'کد شش‌رقمی یا کد بازیابی را وارد کنید',
     },
     dashboard: {
       title: 'داشبورد',
