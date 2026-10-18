@@ -5,14 +5,24 @@ from pathlib import Path
 import sys
 import tempfile
 import time
+import types
 import unittest
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, Mock, patch
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "node"))
 
 from app.config import settings
 from app import node_auth, signed_panel_client
+
+# Legacy FRP manager creates /etc/smite-node/frp_comm during module import.
+# A CI runner must never require root or write host files just to test signed
+# registration. Provide a fake FRP module before importing PanelClient.
+fake_frp = types.ModuleType("app.frp_comm_client")
+fake_frp.frp_comm_client = Mock()
+fake_frp.frp_comm_client.is_running.return_value = False
+sys.modules["app.frp_comm_client"] = fake_frp
+
 from app.panel_client import PanelClient
 
 
