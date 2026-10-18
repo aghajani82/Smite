@@ -18,6 +18,7 @@ from fastapi.staticfiles import StaticFiles
 from app.config import settings
 from app.database import init_db
 from app.routers import nodes, tunnels, panel, status, logs, auth, core_health, node_pairing
+from app.routers import signed_nodes
 from app.routers import settings as settings_router
 from app.node_server import NodeServer
 from app.gost_forwarder import gost_forwarder
@@ -767,6 +768,8 @@ app.include_router(core_health.router, prefix="/api/core-health", tags=["core-he
 app.include_router(settings_router.router, dependencies=admin_only)
 # Preview-only: all operations return HTTP 503 until explicitly configured.
 app.include_router(node_pairing.router, prefix="/api/node-pairing", tags=["node-pairing"])
+# Disabled until both Node HTTPS check-in and replay DB migration are ready.
+app.include_router(signed_nodes.router, prefix="/api/node-control", tags=["signed-node"])
 
 static_dir = os.path.join(os.path.dirname(__file__), "static")
 static_path = Path(static_dir)

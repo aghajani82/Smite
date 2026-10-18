@@ -25,7 +25,9 @@ async def registration_loop(panel_client: PanelClient):
     while True:
         try:
             await asyncio.sleep(60)  # Re-register every 60 seconds
-            if panel_client and panel_client.client:
+            if panel_client and (
+                panel_client.client or settings.smite_node_panel_auth_mode == "signed"
+            ):
                 await panel_client.register_with_panel()
         except asyncio.CancelledError:
             break
