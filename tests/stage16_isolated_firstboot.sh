@@ -38,6 +38,7 @@ for role in panel node; do
     docker run -d --name "$container" --network none --read-only \
       --security-opt no-new-privileges --cap-drop ALL --pids-limit 128 \
       --tmpfs /tmp:rw,nosuid,nodev --tmpfs /var/lib/smite-node:rw,nosuid,nodev \
+      --tmpfs /etc/smite-node:rw,nosuid,nodev \
       -e NODE_API_PORT=8888 -e PANEL_CA_PATH=/tmp/no-external-panel-ca.crt \
       -e PANEL_ADDRESS=127.0.0.1:8000 \
       "$image" >/dev/null
