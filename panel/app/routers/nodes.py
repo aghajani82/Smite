@@ -11,6 +11,7 @@ import logging
 from app.database import get_db
 from app.models import Node, Settings
 from app.node_client import NodeClient
+from app.config import settings
 
 logger = logging.getLogger(__name__)
 
@@ -41,6 +42,8 @@ class NodeResponse(BaseModel):
 @router.post("", response_model=NodeResponse)
 async def create_node(node: NodeCreate, db: AsyncSession = Depends(get_db)):
     """Register a new node"""
+    if settings.smite_node_registration_mode == "signed":
+        raise HTTPException(status_code=403, detail="Legacy registration disabled")
     import hashlib
     
     fingerprint_data = f"{node.ip_address}:{node.api_port}".encode()
@@ -255,6 +258,8 @@ async def get_node(node_id: str, db: AsyncSession = Depends(get_db)):
 @router.put("/{node_id}/frp-status")
 async def update_frp_status(node_id: str, frp_status: dict, db: AsyncSession = Depends(get_db)):
     """Update node FRP connection status"""
+    if settings.smite_node_registration_mode == "signed":
+        raise HTTPException(status_code=403, detail="Legacy FRP heartbeat disabled")
     from sqlalchemy.orm.attributes import flag_modified
     
     result = await db.execute(select(Node).where(Node.id == node_id))
