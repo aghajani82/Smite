@@ -19,6 +19,7 @@ from sqlalchemy.orm.attributes import flag_modified
 from app.database import get_db
 from app.models import Node, Settings
 from app.config import settings
+from app.node_client import NodeClient
 from app.signed_node_registration import authenticated_node
 
 
@@ -32,6 +33,12 @@ _HOST = re.compile(
 class Checkin(BaseModel):
     node_id: str = Field(min_length=8, max_length=80)
     role: str
+
+
+class GatewayCheck(BaseModel):
+    node_id: str = Field(min_length=8, max_length=80)
+    node_name: str = Field(min_length=1, max_length=128)
+    control_url: str = Field(min_length=10, max_length=512)
 
 
 class FrpHeartbeat(BaseModel):
@@ -103,6 +110,47 @@ async def signed_checkin(
             "server_port": port, "token": token,
         }
     return {"id": node.id, "status": "active", "metadata": meta}
+
+
+@router.post("/gateway-check")
+async def signed_gateway_check(
+    response: Response,
+    authenticated: tuple[str, bytes] = Depends(authenticated_node),
+    db: AsyncSession = Depends(get_db),
+):
+    """Answer only whether the caller's OWN registered Node is reachable.
+
+    This replaces KH U-OPTI's anonymous GET /api/nodes enumeration. Never
+    include Node listings, addresses, FRP config or keys in this response.
+    Strict paired identity AND signed Panel->Node status are both required.
+    """
+    _no_store(response)
+    if (
+        settings.smite_node_registration_mode != "signed"
+        or settings.smite_panel_agent_auth_mode != "signed"
+    ):
+        raise HTTPException(503, detail="Signed gateway readiness unavailable")
+    node_id, raw = authenticated
+    report = _decode(GatewayCheck, raw)
+    if report.node_id != node_id:
+        raise HTTPException(403, detail="Unauthorized Node")
+    node = await _find_node(node_id, db)
+    meta = node.node_metadata or {}
+    own_name = meta.get("node_name") or node.name
+    own_control = (meta.get("control_address") or "").rstrip("/")
+    expected_control = report.control_url.rstrip("/")
+    if (
+        meta.get("role") != "foreign"
+        or own_name != report.node_name
+        or not own_control or own_control != expected_control
+    ):
+        return {"status": "ok", "gateway_ready": False}
+    try:
+        result = await NodeClient().get_tunnel_status(node.id)
+        active = isinstance(result, dict) and result.get("status") == "ok"
+    except Exception:
+        active = False
+    return {"status": "ok", "gateway_ready": active}
 
 
 @router.post("/frp-status")
