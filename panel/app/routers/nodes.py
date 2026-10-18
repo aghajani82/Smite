@@ -1,5 +1,6 @@
 """Nodes API endpoints"""
 from fastapi import APIRouter, Depends, HTTPException
+from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 from typing import List
@@ -12,10 +13,33 @@ from app.database import get_db
 from app.models import Node, Settings
 from app.node_client import NodeClient
 from app.config import settings
+from app.routers import auth
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter()
+optional_admin_bearer = HTTPBearer(auto_error=False)
+
+
+async def require_node_admin_read(
+    credentials: HTTPAuthorizationCredentials | None = Depends(optional_admin_bearer),
+    db: AsyncSession = Depends(get_db),
+) -> None:
+    """Close legacy read routes during signed rollout, not during legacy install.
+
+    Delegate credential validation to the existing admin JWT implementation.
+    Never use Node HMAC as a substitute for administrative list privileges.
+    """
+    if settings.smite_node_registration_mode != "signed":
+        return
+    if credentials is None:
+        raise HTTPException(
+            401, detail="Administrator authentication required",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+    await auth.get_current_user(credentials=credentials, db=db)
+
+
 
 
 class NodeCreate(BaseModel):
@@ -159,7 +183,7 @@ async def create_node(node: NodeCreate, db: AsyncSession = Depends(get_db)):
     )
 
 
-@router.get("", response_model=List[NodeResponse])
+@router.get("", response_model=List[NodeResponse], dependencies=[Depends(require_node_admin_read)])
 async def list_nodes(db: AsyncSession = Depends(get_db)):
     """List all nodes with connection state"""
     import asyncio
@@ -237,7 +261,7 @@ async def list_nodes(db: AsyncSession = Depends(get_db)):
     return results
 
 
-@router.get("/{node_id}", response_model=NodeResponse)
+@router.get("/{node_id}", response_model=NodeResponse, dependencies=[Depends(require_node_admin_read)])
 async def get_node(node_id: str, db: AsyncSession = Depends(get_db)):
     """Get node by ID"""
     result = await db.execute(select(Node).where(Node.id == node_id))
@@ -287,7 +311,7 @@ async def update_frp_status(node_id: str, frp_status: dict, db: AsyncSession = D
     return {"status": "success"}
 
 
-@router.delete("/{node_id}")
+@router.delete("/{node_id}", dependencies=[Depends(auth.get_current_user)])
 async def delete_node(node_id: str, db: AsyncSession = Depends(get_db)):
     """Delete a node"""
     result = await db.execute(select(Node).where(Node.id == node_id))
