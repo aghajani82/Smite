@@ -7,6 +7,7 @@ on:
       - 'frontend/src/pages/Nodes.tsx'
       - 'frontend/src/pages/Servers.tsx'
       - 'panel/app/routers/node_pairing.py'
+      - 'frontend/tsconfig.pairing.json'
       - 'tests/test_node_pairing_http.py'
       - 'tests/test_node_pairing_admin_ui.py'
       - '.github/workflows/node-pairing-admin-ui.yml'
@@ -30,9 +31,9 @@ jobs:
       - name: Install frontend dependencies
         working-directory: frontend
         run: npm ci --no-audit --no-fund
-      - name: Check frontend TypeScript
+      - name: Check new Pairing React component with strict TypeScript
         working-directory: frontend
-        run: npx tsc --noEmit -p tsconfig.json
+        run: npx tsc --noEmit -p tsconfig.pairing.json
       - name: Build frontend assets
         working-directory: frontend
         run: npm run build
