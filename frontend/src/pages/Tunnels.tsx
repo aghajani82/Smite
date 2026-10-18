@@ -11,6 +11,8 @@ interface Tunnel {
   core: string
   type: string
   node_id: string
+  iran_node_id?: string
+  foreign_node_id?: string
   spec: Record<string, any>
   status: string
   error_message?: string | null
@@ -45,6 +47,7 @@ interface BackhaulAdvancedServerState {
   tls_cert: string
   tls_key: string
   sniffer: boolean
+  sniffer_log: string
   web_port: string
   proxy_protocol: boolean
 }
@@ -92,6 +95,7 @@ const createDefaultBackhaulAdvancedState = (): BackhaulAdvancedState => ({
     tls_cert: '',
     tls_key: '',
     sniffer: false,
+    sniffer_log: '',
     web_port: '',
     proxy_protocol: false,
   },
@@ -577,6 +581,7 @@ const EditTunnelModal = ({ tunnel, onClose, onSuccess }: EditTunnelModalProps) =
       const parsed = parseAddressPort(tunnel.spec.remote_addr)
       return parsed.port?.toString() || ''
     })() : '',
+    rathole_local_port: tunnel.spec?.local_port?.toString() || '',
     chisel_control_port: tunnel.spec?.control_port ? tunnel.spec.control_port.toString() : '',
     frp_bind_port: tunnel.spec?.bind_port ? tunnel.spec.bind_port.toString() : '7000',
     frp_token: tunnel.spec?.token || '',
@@ -1614,13 +1619,13 @@ function BackhaulForm({
   state,
   onChange,
   onOpenAdvanced,
-  showTechnicalSettings,
+  showTechnicalSettings = true,
   acceptUdpVisible,
 }: {
   state: BackhaulFormState
   onChange: (partial: Partial<BackhaulFormState>) => void
   onOpenAdvanced: () => void
-  showTechnicalSettings: boolean
+  showTechnicalSettings?: boolean
   acceptUdpVisible?: boolean
 }) {
   return (
@@ -2235,9 +2240,9 @@ function parseBackhaulSpec(spec: Record<string, any>, currentType: string): {
       return
     }
     if (typeof defaultValue === 'boolean') {
-      advanced.server[key as keyof BackhaulAdvancedServerState] = Boolean(value)
+      Object.assign(advanced.server, { [key]: Boolean(value) })
     } else {
-      advanced.server[key as keyof BackhaulAdvancedServerState] = String(value)
+      Object.assign(advanced.server, { [key]: String(value) })
     }
   })
 
@@ -2248,9 +2253,9 @@ function parseBackhaulSpec(spec: Record<string, any>, currentType: string): {
       return
     }
     if (typeof defaultValue === 'boolean') {
-      advanced.client[key as keyof BackhaulAdvancedClientState] = Boolean(value)
+      Object.assign(advanced.client, { [key]: Boolean(value) })
     } else {
-      advanced.client[key as keyof BackhaulAdvancedClientState] = String(value)
+      Object.assign(advanced.client, { [key]: String(value) })
     }
   })
 
