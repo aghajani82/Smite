@@ -336,7 +336,7 @@ const AddServerModal = ({ onClose, onSuccess, securePreview }: AddServerModalPro
     <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
       <div className="bg-white dark:bg-gray-800 rounded-lg p-6 w-full max-w-md">
         <h2 className="text-xl font-bold text-gray-900 dark:text-white mb-4">{securePreview ? 'Prepare secure Foreign Node' : 'Add Foreign Server'}</h2>
-        {securePreview && <p className="text-sm text-gray-600 dark:text-gray-300 mb-4">Reserve KH with just a name. Pair it securely over HTTPS/443 after installation; no IP or port needed.</p>
+        {securePreview && <p className="text-sm text-gray-600 dark:text-gray-300 mb-4">Reserve KH with just a name. Pair it securely over HTTPS/443 after installation; no IP or port needed.</p>}
         <form onSubmit={handleSubmit} className="space-y-4">
           <div>
             <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
