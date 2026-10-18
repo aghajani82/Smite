@@ -1,0 +1,29 @@
+name: Admin API Security Regression
+
+on:
+  push:
+    branches:
+      - feature/admin-api-auth-and-ui-20261018
+  pull_request:
+    paths:
+      - "panel/**"
+      - "tests/test_admin_api_auth.py"
+      - ".github/workflows/admin-auth-check.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  admin-api-auth:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: "pip"
+          cache-dependency-path: panel/requirements.txt
+      - name: Install panel dependencies
+        run: python -m pip install -r panel/requirements.txt
+      - name: Ensure admin API requires JWT and bootstrap routes remain reachable
+        run: python -m unittest discover -s tests -p test_admin_api_auth.py -v
