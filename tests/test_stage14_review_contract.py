@@ -84,7 +84,12 @@ class ReleaseContractTest(unittest.TestCase):
         node_cfg = (ROOT / "node/app/config.py").read_text()
         self.assertIn('smite_panel_agent_auth_mode: Literal["legacy", "signed"] = "legacy"', panel_cfg)
         self.assertIn('smite_node_registration_mode: Literal["legacy", "signed"] = "legacy"', panel_cfg)
-        self.assertIn('smite_node_panel_auth_mode: Literal["legacy", "signed"] = "legacy"', node_cfg)
+        self.assertIn('smite_node_panel_auth_mode: Literal["legacy", "signed", "paused"] = "legacy"', node_cfg)
+        # Pending pairing must never change the historic default or permit
+        # legacy HTTP/8000 registration for an explicitly paused Node.
+        client = (ROOT / "node/app/panel_client.py").read_text()
+        self.assertIn('if settings.smite_node_panel_auth_mode == "paused":', client)
+        self.assertIn("outbound Panel registration is paused", client)
         self.assertIn('smite_agent_auth_mode: Literal["legacy", "strict"] = "legacy"', node_cfg)
         inbound = (ROOT / "panel/app/routers/signed_nodes.py").read_text()
         agent = (ROOT / "node/app/routers/agent.py").read_text()
