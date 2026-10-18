@@ -1,5 +1,6 @@
 """Authentication endpoints"""
 from datetime import datetime, timedelta
+import hmac
 from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
@@ -172,9 +173,9 @@ async def _consume_factor(db: AsyncSession, user: Admin, code: str) -> bool:
 
     digest = mfa.recovery_digest(code)
     codes = list(user.recovery_codes or [])
-    if not any(__import__("hmac").compare_digest(saved, digest) for saved in codes):
+    if not any(hmac.compare_digest(saved, digest) for saved in codes):
         return False
-    remaining = [saved for saved in codes if not __import__("hmac").compare_digest(saved, digest)]
+    remaining = [saved for saved in codes if not hmac.compare_digest(saved, digest)]
     result = await db.execute(
         update(Admin).where(Admin.id == user.id, Admin.recovery_codes == codes)
         .values(recovery_codes=remaining)
