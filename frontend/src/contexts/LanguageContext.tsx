@@ -94,6 +94,14 @@ interface Translations {
     reapplyAll: string
     confirmReapplyAll: string
     reapplyAllSuccess: string
+    basicSetupHint: string
+    advancedSettings: string
+    hideAdvancedSettings: string
+    advancedHelp: string
+    inboundPort: string
+    missingServers: string
+    invalidPorts: string
+    creatingTunnel: string
   }
   coreHealth: {
     title: string
@@ -235,6 +243,14 @@ const translations: Record<Language, Translations> = {
       reapplyAll: 'Reapply All',
       confirmReapplyAll: 'Are you sure you want to reapply all tunnels?',
       reapplyAllSuccess: 'Success',
+      basicSetupHint: 'First connect both servers, then enter the actual inbound port from 3x-UI.',
+      advancedSettings: 'Advanced settings',
+      hideAdvancedSettings: 'Hide advanced settings',
+      advancedHelp: 'These options are only needed for a custom transport or token. Default values are preserved.',
+      inboundPort: '3x-UI inbound port',
+      missingServers: 'Register your Iran and foreign servers before creating a tunnel.',
+      invalidPorts: 'Enter valid port numbers from 1 to 65535, separated by commas.',
+      creatingTunnel: 'Creating...',
     },
     coreHealth: {
       title: 'Core Health',
@@ -378,6 +394,14 @@ const translations: Record<Language, Translations> = {
       reapplyAll: 'اعمال مجدد همه',
       confirmReapplyAll: 'آیا از اعمال مجدد همه تونل‌ها مطمئن هستید؟',
       reapplyAllSuccess: 'موفقیت',
+      basicSetupHint: 'اول هر دو سرور را وصل کنید و سپس پورت واقعی Inbound سنایی را وارد کنید.',
+      advancedSettings: 'تنظیمات پیشرفته',
+      hideAdvancedSettings: 'بستن تنظیمات پیشرفته',
+      advancedHelp: 'این گزینه‌ها فقط برای حالت سفارشی، توکن یا روش انتقال متفاوت لازم‌اند. مقادیر قبلی حفظ می‌شوند.',
+      inboundPort: 'پورت Inbound سنایی',
+      missingServers: 'قبل از ساخت تونل، سرور ایران و خارج را ثبت کنید.',
+      invalidPorts: 'پورت‌ها را با اعداد ۱ تا ۶۵۵۳۵ و جداشده با کاما وارد کنید.',
+      creatingTunnel: 'در حال ساخت...',
     },
     coreHealth: {
       title: 'سلامت هسته',
