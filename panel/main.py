@@ -10,7 +10,7 @@ from sqlalchemy import select
 from app.database import AsyncSessionLocal
 from app.models import Tunnel, Node, CoreResetConfig
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Depends
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import RedirectResponse, FileResponse
 from fastapi.staticfiles import StaticFiles
@@ -752,14 +752,19 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# Admin-only APIs must enforce authentication on the SERVER, not only React.
+# Preserve node bootstrap/heartbeat, CA distribution and the uncredentialed
+# /api/status healthcheck until node-auth migration is implemented and tested.
+# Do not blanket-protect /api: it would break existing Smite node enrollment.
+admin_only = [Depends(auth.get_current_user)]
 app.include_router(auth.router, prefix="/api/auth", tags=["auth"])
 app.include_router(panel.router, prefix="/api/panel", tags=["panel"])
 app.include_router(nodes.router, prefix="/api/nodes", tags=["nodes"])
-app.include_router(tunnels.router, prefix="/api/tunnels", tags=["tunnels"])
+app.include_router(tunnels.router, prefix="/api/tunnels", tags=["tunnels"], dependencies=admin_only)
 app.include_router(status.router, prefix="/api/status", tags=["status"])
-app.include_router(logs.router, prefix="/api/logs", tags=["logs"])
-app.include_router(core_health.router, prefix="/api/core-health", tags=["core-health"])
-app.include_router(settings_router.router)
+app.include_router(logs.router, prefix="/api/logs", tags=["logs"], dependencies=admin_only)
+app.include_router(core_health.router, prefix="/api/core-health", tags=["core-health"], dependencies=admin_only)
+app.include_router(settings_router.router, dependencies=admin_only)
 
 static_dir = os.path.join(os.path.dirname(__file__), "static")
 static_path = Path(static_dir)
