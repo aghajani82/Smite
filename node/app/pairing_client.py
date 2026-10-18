@@ -38,23 +38,35 @@ def _endpoint(panel_url: str) -> str:
     return panel_url.rstrip("/") + "/api/node-pairing/redeem"
 
 
+def _validate_private_destination(dest: Path) -> None:
+    """Verify local safe storage BEFORE consuming the one-time code."""
+    if dest.exists() or dest.is_symlink():
+        raise PairingClientError("Identity exists: never overwrite or auto-rotate")
+    try:
+        info = dest.parent.lstat()
+    except OSError as exc:
+        raise PairingClientError("Identity directory missing") from exc
+    if (
+        not stat.S_ISDIR(info.st_mode)
+        or info.st_uid != os.geteuid()
+        or stat.S_IMODE(info.st_mode) != 0o700
+    ):
+        raise PairingClientError("Identity directory must be owned and mode 0700")
+
+
 def store_identity(destination: str | Path, *, node_id: str, secret: str) -> None:
     """Create an unreadable-to-others identity, refusing existing destinations.
 
     The parent is expected to be a provisioned, owned, private directory.
     This implementation does not follow symlinks or replace credentials.
     """
-    if not _UUID.fullmatch(node_id) or not _SECRET.fullmatch(secret):
+    if (
+        not isinstance(node_id, str) or not _UUID.fullmatch(node_id)
+        or not isinstance(secret, str) or not _SECRET.fullmatch(secret)
+    ):
         raise PairingClientError("Invalid Node identity response")
     dest = Path(destination)
-    parent = dest.parent
-    parent_info = parent.lstat()
-    if (
-        not stat.S_ISDIR(parent_info.st_mode)
-        or parent_info.st_uid != os.geteuid()
-        or stat.S_IMODE(parent_info.st_mode) & 0o077
-    ):
-        raise PairingClientError("Identity directory must be owned and mode 0700")
+    _validate_private_destination(dest)
     data = json.dumps(
         {"version": 1, "node_id": node_id, "node_secret": secret},
         separators=(",", ":"), sort_keys=True,
@@ -84,8 +96,7 @@ def redeem_and_store(
     if not isinstance(pairing_code, str) or len(pairing_code) > 128 or not pairing_code.startswith("smn1_"):
         raise PairingClientError("Invalid Node pairing code")
     dest = Path(destination)
-    if dest.exists() or dest.is_symlink():
-        raise PairingClientError("Identity exists: never overwrite or auto-rotate")
+    _validate_private_destination(dest)
 
     # No verify=False: system CA chain and DNS hostname verification required.
     # No environment proxy to silently intercept pairing credentials.
