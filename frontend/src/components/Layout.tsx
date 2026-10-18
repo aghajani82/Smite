@@ -20,6 +20,9 @@ const Layout = ({ children }: LayoutProps) => {
     return saved ? JSON.parse(saved) : false
   })
   const [sidebarOpen, setSidebarOpen] = useState(false)
+  const [showMoreTools, setShowMoreTools] = useState(() =>
+    ['/core-health', '/logs', '/settings'].includes(window.location.pathname)
+  )
   const [version, setVersion] = useState('v0.1.0')
 
   useEffect(() => {
@@ -33,6 +36,9 @@ const Layout = ({ children }: LayoutProps) => {
 
   useEffect(() => {
     setSidebarOpen(false)
+    if (['/core-health', '/logs', '/settings'].includes(location.pathname)) {
+      setShowMoreTools(true)
+    }
   }, [location.pathname])
 
   useEffect(() => {
@@ -53,6 +59,8 @@ const Layout = ({ children }: LayoutProps) => {
     { path: '/nodes', label: t.navigation.nodes, icon: Network },
     { path: '/servers', label: t.navigation.servers, icon: Globe },
     { path: '/tunnels', label: t.navigation.tunnels, icon: Activity },
+  ]
+  const tools = [
     { path: '/core-health', label: t.navigation.coreHealth, icon: Heart },
     { path: '/logs', label: t.navigation.logs, icon: FileText },
     { path: '/settings', label: t.navigation.settings, icon: Settings },
@@ -125,6 +133,33 @@ const Layout = ({ children }: LayoutProps) => {
                 </Link>
               )
             })}
+            <div className="mt-5 pt-4 border-t border-gray-200 dark:border-gray-700">
+              <button type="button" aria-expanded={showMoreTools} aria-controls="smite-extra-tools"
+                onClick={() => setShowMoreTools(open => !open)}
+                className="flex w-full items-center justify-between rounded-xl px-4 py-2.5 text-sm font-semibold text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-gray-700 focus-visible:outline focus-visible:outline-2 focus-visible:outline-blue-500">
+                <span dir={dir}>{showMoreTools ? t.navigation.lessTools : t.navigation.moreTools}</span>
+                <span aria-hidden="true">{showMoreTools ? '−' : '+'}</span>
+              </button>
+              {showMoreTools && (
+                <div id="smite-extra-tools" className="mt-2 space-y-1">
+                  {tools.map(item => {
+                    const Icon = item.icon
+                    const active = location.pathname === item.path
+                    return (
+                      <Link key={item.path} to={item.path}
+                        aria-current={active ? 'page' : undefined}
+                        className={`flex items-center gap-3 px-4 py-2.5 rounded-xl text-sm transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-blue-500 ${
+                          active ? 'bg-blue-50 text-blue-700 dark:bg-blue-900/30 dark:text-blue-300'
+                            : 'text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-gray-700'
+                        }`}>
+                        <Icon size={18} aria-hidden="true" />
+                        <span dir={dir}>{item.label}</span>
+                      </Link>
+                    )
+                  })}
+                </div>
+              )}
+            </div>
           </nav>
           
           {/* Sidebar Footer */}
@@ -191,7 +226,7 @@ const Layout = ({ children }: LayoutProps) => {
         </aside>
 
         {/* Main Content */}
-        <main className="flex-1 overflow-auto bg-gray-50 dark:bg-gray-900" dir="ltr">
+        <main className="flex-1 overflow-auto bg-gray-50 dark:bg-gray-900" dir={dir}>
           {/* Mobile Header */}
           <div className="lg:hidden sticky top-0 z-30 bg-white dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700 px-4 py-3 flex items-center justify-between shadow-sm">
             <button
