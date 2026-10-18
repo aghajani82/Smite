@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
-import { Activity, ArrowRight, CircleAlert, Cpu, MemoryStick, Network, RefreshCw, Server, ShieldCheck } from 'lucide-react'
+import { Activity, ArrowRight, AlertCircle, Cpu, MemoryStick, Network, RefreshCw, Server, ShieldCheck } from 'lucide-react'
 import { useLanguage } from '../contexts/LanguageContext'
 import api from '../api/client'
 
@@ -125,7 +125,7 @@ const Dashboard = () => {
 
       {error && (
         <section role="alert" className="flex items-start gap-3 rounded-2xl border border-amber-300/50 bg-amber-50 dark:bg-amber-900/20 p-4 text-amber-900 dark:text-amber-200">
-          <CircleAlert size={20} className="shrink-0 mt-0.5" aria-hidden="true" />
+          <AlertCircle size={20} className="shrink-0 mt-0.5" aria-hidden="true" />
           <p className="text-sm">{t.dashboard.apiErrorHelp}</p>
         </section>
       )}
