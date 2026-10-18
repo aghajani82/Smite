@@ -63,8 +63,22 @@ class SignedInboundTest(unittest.TestCase):
             role="foreign", code=approval.code,
         ).secret.encode("ascii")
 
+        # Administrator-approved origin is deliberately independent of
+        # legacy self-reported Node metadata.
+        private = Path(self.work.name) / "trusted-nodes"
+        private.mkdir(mode=0o700)
+        pins = private / "approved-origins.json"
+        pins.write_text(json.dumps({"version": 1, "nodes": {
+            self.node_id: {"role": "foreign", "node_name": "node-kh",
+                           "origin": "https://node.example.org:443",
+                           "control_url": "https://node.example.org/control/secure/"}
+        }}))
+        pins.chmod(0o600)
         self.old = (settings.db_path, settings.smite_node_pairing_master_key,
-                    settings.smite_node_registration_mode, settings.panel_domain, settings.smite_panel_agent_auth_mode)
+                    settings.smite_node_registration_mode, settings.panel_domain,
+                    settings.smite_panel_agent_auth_mode,
+                    settings.smite_signed_node_origins_path)
+        settings.smite_signed_node_origins_path = str(pins)
         settings.db_path = str(self.db_path)
         settings.smite_node_pairing_master_key = self.master
         settings.smite_node_registration_mode = "signed"
@@ -85,7 +99,9 @@ class SignedInboundTest(unittest.TestCase):
 
     def restore(self):
         (settings.db_path, settings.smite_node_pairing_master_key,
-         settings.smite_node_registration_mode, settings.panel_domain, settings.smite_panel_agent_auth_mode) = self.old
+         settings.smite_node_registration_mode, settings.panel_domain,
+         settings.smite_panel_agent_auth_mode,
+         settings.smite_signed_node_origins_path) = self.old
         asyncio.run(self.engine.dispose())
 
     def request(self, *, path="/api/node-control/register", data=None, node_id=None,

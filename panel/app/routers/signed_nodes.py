@@ -20,6 +20,7 @@ from app.database import get_db
 from app.models import Node, Settings
 from app.config import settings
 from app.node_client import NodeClient
+from app.signed_node_origins import approved_node, control_url_matches, ApprovedOriginUnavailable
 from app.signed_node_registration import authenticated_node
 
 
@@ -136,13 +137,17 @@ async def signed_gateway_check(
         raise HTTPException(403, detail="Unauthorized Node")
     node = await _find_node(node_id, db)
     meta = node.node_metadata or {}
-    own_name = meta.get("node_name") or node.name
-    own_control = (meta.get("control_address") or "").rstrip("/")
-    expected_control = report.control_url.rstrip("/")
+    try:
+        pin = approved_node(node_id)
+    except ApprovedOriginUnavailable:
+        # Do not disclose whether an origin exists or who approved it.
+        return {"status": "ok", "gateway_ready": False}
     if (
-        meta.get("role") != "foreign"
-        or own_name != report.node_name
-        or not own_control or own_control != expected_control
+        pin["role"] != "foreign"
+        or meta.get("role") != "foreign"
+        or pin["node_name"] != report.node_name
+        or (node.name != report.node_name and meta.get("node_name") != report.node_name)
+        or not control_url_matches(pin, report.control_url)
     ):
         return {"status": "ok", "gateway_ready": False}
     try:

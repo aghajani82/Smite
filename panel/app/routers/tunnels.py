@@ -1099,6 +1099,20 @@ async def update_tunnel(
     if not tunnel:
         raise HTTPException(status_code=404, detail="Tunnel not found")
     
+    # Stage12: reject an unsafe Standard Backhaul edit BEFORE committing.
+    from app.uopti_backhaul_lifecycle import review_backhaul_edit
+    from app.uopti_backhaul_standard import StandardBackhaulSpecError
+    try:
+        standard_backhaul = review_backhaul_edit(
+            core=tunnel.core, old_spec=tunnel.spec,
+            proposed_spec=tunnel_update.spec,
+        ) if tunnel_update.spec is not None else (
+            tunnel.core == "backhaul"
+            and (tunnel.spec or {}).get("uopti_standard_backhaul") is True
+        )
+    except StandardBackhaulSpecError as exc:
+        raise HTTPException(400, "Unsafe Standard Backhaul update") from exc
+
     spec_changed = tunnel_update.spec is not None and tunnel_update.spec != tunnel.spec
     
     if tunnel_update.name is not None:
@@ -1123,7 +1137,8 @@ async def update_tunnel(
         try:
             needs_gost_forwarding = tunnel.type in ["tcp", "udp", "ws", "grpc", "tcpmux"] and tunnel.core == "gost"
             needs_rathole_server = tunnel.core == "rathole"
-            needs_backhaul_server = tunnel.core == "backhaul"
+            # Standard owns its server on the IR Node, not Panel.
+            needs_backhaul_server = tunnel.core == "backhaul" and not standard_backhaul
             needs_chisel_server = tunnel.core == "chisel"
             needs_frp_server = tunnel.core == "frp"
             needs_node_apply = tunnel.core in {"rathole", "backhaul", "chisel", "frp"}

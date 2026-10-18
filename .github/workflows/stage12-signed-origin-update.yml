@@ -1,0 +1,38 @@
+name: Stage12 Signed Origins and Backhaul Updates
+
+on:
+  push:
+    branches:
+      - feature/smite-stage12-pinned-agent-origins-20261018
+  pull_request:
+    paths:
+      - 'panel/app/signed_node_origins.py'
+      - 'panel/app/uopti_backhaul_lifecycle.py'
+      - 'panel/app/routers/signed_nodes.py'
+      - 'panel/app/routers/tunnels.py'
+      - 'panel/app/node_client.py'
+      - 'tests/test_stage12_signed_origins_and_updates.py'
+      - 'tests/test_signed_node_inbound_panel.py'
+      - '.github/workflows/stage12-signed-origin-update.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  offline-security:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install pinned Panel test requirements
+        run: |
+          python -m pip install 'fastapi==0.104.1' 'httpx==0.25.2' 'pydantic==2.5.0' 'pydantic-settings==2.1.0' 'cryptography==41.0.7' 'sqlalchemy==2.0.23' 'aiosqlite==0.19.0' 'python-jose[cryptography]==3.3.0' 'passlib[bcrypt]==1.7.4' 'bcrypt==4.0.1'
+      - name: Verify source syntax
+        run: |
+          python -m py_compile panel/app/signed_node_origins.py panel/app/uopti_backhaul_lifecycle.py panel/app/routers/signed_nodes.py panel/app/routers/tunnels.py panel/app/node_client.py tests/test_stage12_signed_origins_and_updates.py
+      - name: Test approved per-Node TLS/443 origins and fail-closed Backhaul edit
+        run: python -B tests/test_stage12_signed_origins_and_updates.py -v
+      - name: "Regression - signed Node registry and gateway check"
+        run: python -B tests/test_signed_node_inbound_panel.py -v
