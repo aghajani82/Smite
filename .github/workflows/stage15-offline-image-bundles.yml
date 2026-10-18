@@ -1,0 +1,83 @@
+name: Stage15 Unpublished Offline Panel Node Images
+
+on:
+  push:
+    branches:
+      - feature/smite-stage15-offline-image-bundles-20261018
+  pull_request:
+    paths:
+      - 'panel/**'
+      - 'node/**'
+      - 'frontend/**'
+      - 'tests/stage15_offline_bundle.py'
+      - 'tests/test_stage15_offline_bundle.py'
+      - '.github/workflows/stage15-offline-image-bundles.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  bundle-tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Verify manifest tamper detection and no-deployment
+        run: |
+          python -m py_compile tests/stage15_offline_bundle.py tests/test_stage15_offline_bundle.py
+          python -B tests/test_stage15_offline_bundle.py -v
+
+  offline-pair-artifact:
+    runs-on: ubuntu-latest
+    timeout-minutes: 65
+    needs: bundle-tests
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build both preview images from the same source commit
+        shell: bash
+        run: |
+          set -euo pipefail
+          docker build -f panel/Dockerfile -t smite-panel:stage15-local --build-arg SMITE_VERSION=2.0.0-rc.0 .
+          docker build -f node/Dockerfile -t smite-node:stage15-local --build-arg SMITE_VERSION=2.0.0-rc.0 node
+      - name: Smoke-check image filesystem without starting services
+        shell: bash
+        run: |
+          set -euo pipefail
+          for role in panel node; do
+            cid="$(docker create --entrypoint /bin/true "smite-$role:stage15-local")"
+            mkdir -p "$RUNNER_TEMP/image-$role"
+            docker cp "$cid:/app" "$RUNNER_TEMP/image-$role/app"
+            docker rm "$cid"
+            python3 -B tests/image_auth_smoke.py --role "$role" --root "$RUNNER_TEMP/image-$role/app"
+          done
+      - name: Save offline images with source and SHA256 manifest
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/stage15-bundle"
+          docker save smite-panel:stage15-local | gzip -1 > "$RUNNER_TEMP/stage15-bundle/smite-panel-stage15.docker.tar.gz"
+          docker save smite-node:stage15-local | gzip -1 > "$RUNNER_TEMP/stage15-bundle/smite-node-stage15.docker.tar.gz"
+          python3 -B tests/stage15_offline_bundle.py create \
+            --folder "$RUNNER_TEMP/stage15-bundle" \
+            --source-sha "$GITHUB_SHA" \
+            --panel-image-id "$(docker image inspect smite-panel:stage15-local --format '{{.Id}}')" \
+            --node-image-id "$(docker image inspect smite-node:stage15-local --format '{{.Id}}')"
+          python3 -B tests/stage15_offline_bundle.py verify \
+            --manifest "$RUNNER_TEMP/stage15-bundle/stage15-images.json" \
+            --expected-commit "$GITHUB_SHA"
+          sha256sum "$RUNNER_TEMP/stage15-bundle/stage15-images.json"
+          echo "NO_GHCR_PUSH=YES"
+          echo "NO_RELEASE_TAG=YES"
+          echo "NO_CONTAINER_START=YES"
+          echo "NO_IR_KH_INSTALL=YES"
+      - name: Upload disposable untrusted test images (3-day retention)
+        uses: actions/upload-artifact@v4
+        with:
+          name: smite-stage15-offline-images-${{ github.sha }}
+          path: ${{ runner.temp }}/stage15-bundle/
+          retention-days: 3
+          if-no-files-found: error
+          compression-level: 0
