@@ -87,6 +87,14 @@ async def signed_checkin(
     node = await _find_node(node_id, db)
     if not _role_matches(node, report.role):
         raise HTTPException(403, detail="Unauthorized Node")
+    # Only authenticated HMAC check-in (not admin reservation) clears the
+    # operator UI's "Waiting for pairing" marker. A forged legacy POST
+    # cannot upgrade a pending Node to signed/paired status.
+    if (node.node_metadata or {}).get("provisioning") == "reserved_for_pairing":
+        metadata = dict(node.node_metadata or {})
+        metadata["provisioning"] = "signed_checkin"
+        node.node_metadata = metadata
+        flag_modified(node, "node_metadata")
     node.last_seen = datetime.utcnow()
     node.status = "active"
     await db.commit()
