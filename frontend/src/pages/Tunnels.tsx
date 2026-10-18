@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { Plus, Trash2, Edit2, RotateCw } from 'lucide-react'
 import api from '../api/client'
 import { parseAddressPort, formatAddressPort } from '../utils/addressUtils'
+import { parseInboundPorts } from '../utils/inboundPorts'
 import { useLanguage } from '../contexts/LanguageContext'
 
 interface Tunnel {
@@ -1038,11 +1039,8 @@ const AddTunnelModal = ({ nodes, servers, onClose, onSuccess }: AddTunnelModalPr
       // Require the real inbound port. Never quietly ignore malformed values
       // or fall back to 8080 when the Backhaul form is in use.
       const portInput = formData.core === 'backhaul' ? backhaulState.public_port : formData.ports
-      const fields = portInput.split(',').map(port => port.trim())
-      const ports = fields.map(value => Number(value))
-      if (fields.length === 0 || fields.some(value => !/^[0-9]+$/.test(value)) ||
-          ports.some(port => !Number.isInteger(port) || port < 1 || port > 65535) ||
-          new Set(ports).size !== ports.length) {
+      const ports = parseInboundPorts(portInput)
+      if (ports === null) {
         alert(t.tunnels.invalidPorts)
         return
       }
