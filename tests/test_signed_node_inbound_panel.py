@@ -157,6 +157,40 @@ class SignedInboundTest(unittest.TestCase):
             "metadata": {"role": "foreign"}
         }).status_code, 403)
 
+    def test_reserved_foreign_node_only_becomes_paired_after_signed_checkin(self):
+        # Fresh clean-RC KH is offline: admin creates pending slot first.
+        with sqlite3.connect(self.db_path) as conn:
+            conn.execute(
+                "UPDATE nodes SET status='pending', metadata=? WHERE id=?",
+                (json.dumps({"role": "foreign", "node_name": "node-kh",
+                             "provisioning": "reserved_for_pairing"}), self.node_id),
+            )
+        initialize_replay_schema(self.db_path)
+        # No HMAC credentials: cannot make pending state appear paired.
+        rejected = self.client.post("/api/node-control/register", json={
+            "node_id": self.node_id, "role": "foreign"
+        })
+        self.assertEqual(rejected.status_code, 401)
+        with sqlite3.connect(self.db_path) as conn:
+            status, meta = conn.execute(
+                "SELECT status, metadata FROM nodes WHERE id=?", (self.node_id,)
+            ).fetchone()
+            self.assertEqual(status, "pending")
+            self.assertEqual(json.loads(meta)["provisioning"], "reserved_for_pairing")
+        body, headers = self.request()
+        accepted = self.client.post("/api/node-control/register", content=body, headers=headers)
+        self.assertEqual(accepted.status_code, 200, accepted.text)
+        with sqlite3.connect(self.db_path) as conn:
+            status, meta = conn.execute(
+                "SELECT status, metadata FROM nodes WHERE id=?", (self.node_id,)
+            ).fetchone()
+            self.assertEqual(status, "active")
+            self.assertEqual(json.loads(meta)["provisioning"], "signed_checkin")
+        self.assertEqual(
+            self.client.post("/api/node-control/register", content=body, headers=headers).status_code,
+            401,
+        )
+
     def test_authenticated_heartbeat_cannot_impersonate_node(self):
         initialize_replay_schema(self.db_path)
         path = "/api/node-control/frp-status"
