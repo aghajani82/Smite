@@ -191,6 +191,71 @@ class SignedInboundTest(unittest.TestCase):
             401,
         )
 
+    def test_frp_admission_failure_does_not_mark_pending_node_active(self):
+        """A signed but unsuccessful check-in must not fake Connected."""
+        initialize_replay_schema(self.db_path)
+        with sqlite3.connect(self.db_path) as conn:
+            conn.execute(
+                "UPDATE nodes SET status='pending', metadata=? WHERE id=?",
+                (json.dumps({
+                    "role": "foreign", "node_name": "node-kh",
+                    "provisioning": "reserved_for_pairing",
+                }), self.node_id),
+            )
+        original_domain = settings.panel_domain
+        try:
+            for failing in ("host", "token", "port"):
+                with self.subTest(failing=failing):
+                    if failing == "host":
+                        settings.panel_domain = "broken host"
+                        config = {"enabled": True, "port": 17000, "token": self.token}
+                    elif failing == "token":
+                        settings.panel_domain = "panel.example.org"
+                        config = {"enabled": True, "port": 17000, "token": ""}
+                    else:
+                        settings.panel_domain = "panel.example.org"
+                        config = {"enabled": True, "port": 0, "token": self.token}
+                    with sqlite3.connect(self.db_path) as conn:
+                        conn.execute(
+                            "UPDATE settings SET value=? WHERE key='frp'",
+                            (json.dumps(config),),
+                        )
+                    body, headers = self.request()
+                    rejected = self.client.post(
+                        "/api/node-control/register", content=body, headers=headers,
+                    )
+                    self.assertEqual(rejected.status_code, 503, rejected.text)
+                    with sqlite3.connect(self.db_path) as conn:
+                        row = conn.execute(
+                            "SELECT status, metadata FROM nodes WHERE id=?",
+                            (self.node_id,),
+                        ).fetchone()
+                    self.assertEqual(row[0], "pending")
+                    self.assertEqual(
+                        json.loads(row[1])["provisioning"], "reserved_for_pairing"
+                    )
+
+            with sqlite3.connect(self.db_path) as conn:
+                conn.execute(
+                    "UPDATE settings SET value=? WHERE key='frp'",
+                    (json.dumps({"enabled": True, "port": 17000,
+                                 "token": self.token}),),
+                )
+            body, headers = self.request()
+            ok = self.client.post(
+                "/api/node-control/register", content=body, headers=headers
+            )
+            self.assertEqual(ok.status_code, 200, ok.text)
+            with sqlite3.connect(self.db_path) as conn:
+                row = conn.execute(
+                    "SELECT status, metadata FROM nodes WHERE id=?",
+                    (self.node_id,),
+                ).fetchone()
+            self.assertEqual(row[0], "active")
+            self.assertEqual(json.loads(row[1])["provisioning"], "signed_checkin")
+        finally:
+            settings.panel_domain = original_domain
+
     def test_authenticated_heartbeat_cannot_impersonate_node(self):
         initialize_replay_schema(self.db_path)
         path = "/api/node-control/frp-status"
