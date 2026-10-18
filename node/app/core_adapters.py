@@ -6,6 +6,7 @@ import psutil
 import time
 import logging
 from pathlib import Path
+from app.frp_gateway_config import frp_client_server_addr, frp_client_server_port, frp_standard_wss_host, frp_tls_transport_yaml
 import shutil
 
 logger = logging.getLogger(__name__)
@@ -853,6 +854,10 @@ class FrpAdapter:
             config_file = self.config_dir / f"frps_{tunnel_id}.yaml"
             config_content = f"""bindPort: {bind_port}
 """
+            if frp_standard_wss_host():
+                if int(bind_port) != 7000 or not token:
+                    raise ValueError("Standard FRP WSS requires bind port 7000 and a token")
+                config_content += 'bindAddr: "127.0.0.1"\nproxyBindAddr: "127.0.0.1"\n'
             if token:
                 config_content += f"""auth:
   method: token
@@ -911,7 +916,9 @@ class FrpAdapter:
             logger.info(f"FRP tunnel {tunnel_id} received spec: {spec}")
             
             server_addr = spec.get('server_addr', '').strip()
-            server_port = spec.get('server_port', 7000)
+            server_addr = frp_client_server_addr(server_addr)
+            server_port = frp_client_server_port(spec, spec.get('server_port', 7000))
+            tls_transport = frp_tls_transport_yaml(spec)
             token = spec.get('token')
             tunnel_type = spec.get('type', 'tcp').lower()
             local_ip = spec.get('local_ip', '127.0.0.1')
@@ -952,7 +959,13 @@ serverPort: {server_port}
   token: "{token}"
 """
             
+            if tls_transport:
+                config_content += tls_transport
             config_content += "\nproxies:\n"
+            if frp_standard_wss_host():
+                if not token:
+                    raise ValueError("Standard FRP WSS requires a token")
+                config_content = "loginFailExit: false\n" + config_content
             for i, port_config in enumerate(ports):
                 if isinstance(port_config, dict):
                     local_port = port_config.get('local')
