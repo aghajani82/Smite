@@ -22,6 +22,19 @@ from app import node_pairing_store as pairing
 
 router = APIRouter()
 
+_NO_STORE_HEADERS = {
+    "Cache-Control": "no-store",
+    "Pragma": "no-cache",
+    "Referrer-Policy": "no-referrer",
+    "X-Content-Type-Options": "nosniff",
+}
+
+
+def _http_error(status_code: int, detail: str) -> HTTPException:
+    # FastAPI drops the injected Response object when an exception is raised.
+    return HTTPException(status_code=status_code, detail=detail, headers=_NO_STORE_HEADERS)
+
+
 
 class PairingIssueRequest(BaseModel):
     node_id: str = Field(min_length=8, max_length=80)
@@ -48,22 +61,22 @@ class PairingCredentialResponse(BaseModel):
 
 def _database_path() -> str:
     if settings.db_type != "sqlite":
-        raise HTTPException(status_code=503, detail="Node pairing database unavailable")
+        raise _http_error(status_code=503, detail="Node pairing database unavailable")
     return settings.db_path
 
 
 def _require_preview() -> bytes:
     if not settings.smite_node_pairing_preview_enabled:
-        raise HTTPException(status_code=503, detail="Node pairing is not enabled")
+        raise _http_error(status_code=503, detail="Node pairing is not enabled")
     master = settings.smite_node_pairing_master_key
     ingress = settings.smite_node_pairing_ingress_token
     # Fail closed: a valid Fernet key is checked by pairing._fernet.
     if not master or not ingress or len(ingress) < 32:
-        raise HTTPException(status_code=503, detail="Node pairing is not configured")
+        raise _http_error(status_code=503, detail="Node pairing is not configured")
     try:
         pairing._fernet(master)
     except pairing.PairingDenied as exc:
-        raise HTTPException(status_code=503, detail="Node pairing is not configured") from exc
+        raise _http_error(status_code=503, detail="Node pairing is not configured") from exc
     return master.encode("ascii")
 
 
@@ -90,9 +103,9 @@ async def issue_code(
             admin_id=admin.id, ttl_seconds=request.ttl_seconds,
         )
     except pairing.PairingDenied as exc:
-        raise HTTPException(status_code=409, detail="Pairing approval denied") from exc
+        raise _http_error(status_code=409, detail="Pairing approval denied") from exc
     except sqlite3.Error as exc:
-        raise HTTPException(status_code=503, detail="Pairing database unavailable") from exc
+        raise _http_error(status_code=503, detail="Pairing database unavailable") from exc
     return PairingCodeResponse(
         node_id=result.node_id, pairing_code=result.code,
         expires_at=result.expires_at,
@@ -116,7 +129,7 @@ async def redeem_code(
     master = _require_preview()
     expected = settings.smite_node_pairing_ingress_token
     if not hmac.compare_digest(x_smite_pairing_ingress, expected):
-        raise HTTPException(status_code=403, detail="Pairing ingress rejected")
+        raise _http_error(status_code=403, detail="Pairing ingress rejected")
     try:
         credential = await run_in_threadpool(
             pairing.redeem_code, _database_path(), master_key=master,
@@ -124,9 +137,9 @@ async def redeem_code(
             role=request.role,
         )
     except pairing.PairingDenied as exc:
-        raise HTTPException(status_code=403, detail="Pairing denied") from exc
+        raise _http_error(status_code=403, detail="Pairing denied") from exc
     except sqlite3.Error as exc:
-        raise HTTPException(status_code=503, detail="Pairing database unavailable") from exc
+        raise _http_error(status_code=503, detail="Pairing database unavailable") from exc
     return PairingCredentialResponse(
         node_id=credential.node_id, node_secret=credential.secret,
     )
