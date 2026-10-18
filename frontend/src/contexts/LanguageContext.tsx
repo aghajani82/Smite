@@ -114,6 +114,10 @@ interface Translations {
     subtitle: string
   }
   settings: {
+    tunnelAutoReapply: string
+    enableTunnelAutoReapply: string
+    tunnelAutoReapplyDescription: string
+    tunnelReapplyInterval: string
     title: string
     frpCommunication: string
     frpDescription: string
