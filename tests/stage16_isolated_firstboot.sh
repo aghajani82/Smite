@@ -40,7 +40,8 @@ for role in panel node; do
       --tmpfs /tmp:rw,nosuid,nodev --tmpfs /var/lib/smite-node:rw,nosuid,nodev \
       --tmpfs /etc/smite-node:rw,nosuid,nodev \
       -e NODE_API_PORT=8888 -e PANEL_CA_PATH=/tmp/no-external-panel-ca.crt \
-      -e PANEL_ADDRESS=127.0.0.1:8000 \
+      -e SMITE_NODE_PANEL_AUTH_MODE=paused -e SMITE_AGENT_AUTH_MODE=strict \
+      -e PANEL_ADDRESS=panel.example.com:443 \
       "$image" >/dev/null
     port=8888
   fi
@@ -122,7 +123,16 @@ import urllib.request
 with urllib.request.urlopen("http://127.0.0.1:8888/", timeout=8) as response:
     payload = json.load(response)
 assert payload == {"status": "ok", "service": "smite-node"}, payload
+import urllib.error
+try:
+    urllib.request.urlopen("http://127.0.0.1:8888/api/agent/status", timeout=8)
+except urllib.error.HTTPError as exc:
+    assert exc.code == 503, exc.code
+else:
+    raise AssertionError("Unpaired Node Agent API unexpectedly succeeded")
 print("NODE_FIRSTBOOT_LIVENESS=PASSED")
+print("NODE_UNPAIRED_AGENT_API=FAIL_CLOSED")
+print("NODE_OUTBOUND_REGISTRATION=PAUSED")
 print("NODE_SIGNED_REGISTRATION=NOT_TESTED")
 PY
   fi

@@ -49,6 +49,13 @@ the bundle manifest.
    client routing, reboot persistence, provider snapshots and rollback
    have NOT passed actual two-VPS integration acceptance.
 5. Standard mode only; Private Network remains out of scope.
+   The fresh **Foreign Node** can now boot in `paused` Panel auth mode:
+   it deliberately does not call the legacy unauthenticated HTTP/8000
+   registration endpoint. Agent API can be strict before pairing, with
+   rejected requests until a private identity is provisioned. This is
+   a **pending-pairing install state**, not an established connection.
+   Turning on `signed` requires a separately reviewed provisioning flow;
+   never change to `legacy` to make the UI show Connected.
 6. Full review/merge of stacked Smite/U-OPTI PRs is separate from
    production deployment, version tagging and installer update.
 
