@@ -983,15 +983,17 @@ interface AddTunnelModalProps {
 }
 
 const AddTunnelModal = ({ nodes, servers, onClose, onSuccess }: AddTunnelModalProps) => {
-  const { t } = useLanguage()
+  const { t, dir } = useLanguage()
+  const [showTechnicalSettings, setShowTechnicalSettings] = useState(false)
+  const [creating, setCreating] = useState(false)
   const [formData, setFormData] = useState({
     name: '',
-    core: 'gost',
+    core: 'frp',
     type: 'tcp',
     node_id: '',
     foreign_node_id: '',
     iran_node_id: '',
-    ports: '8080',  // Comma-separated ports (e.g., "8080,8081,8082")
+    ports: '',  // Must come from the actual 3x-UI inbound after installation.
     remote_ip: '127.0.0.1',
     rathole_remote_addr: '23333',
     rathole_token: '',
@@ -1003,7 +1005,7 @@ const AddTunnelModal = ({ nodes, servers, onClose, onSuccess }: AddTunnelModalPr
     node_ipv6: '',  // Optional IPv6 address for node (Rathole/Chisel)
     spec: {} as Record<string, any>,
   })
-  const [backhaulState, setBackhaulState] = useState<BackhaulFormState>(createDefaultBackhaulState())
+  const [backhaulState, setBackhaulState] = useState<BackhaulFormState>(() => ({ ...createDefaultBackhaulState(), public_port: '', target_port: '' }))
   const [backhaulAdvanced, setBackhaulAdvanced] = useState<BackhaulAdvancedState>(createDefaultBackhaulAdvancedState())
   const [showBackhaulAdvanced, setShowBackhaulAdvanced] = useState(false)
 
@@ -1022,28 +1024,29 @@ const AddTunnelModal = ({ nodes, servers, onClose, onSuccess }: AddTunnelModalPr
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
+    if (creating) return
+    if (!formData.iran_node_id || !formData.foreign_node_id) {
+      alert(t.tunnels.missingServers)
+      return
+    }
     try {
       let spec = getSpecForType(formData.core, formData.type)
       let tunnelType = formData.type
       
       spec.use_ipv6 = formData.use_ipv6 || false
       
-      // Parse comma-separated ports
-      const parsePorts = (portsStr: string): number[] => {
-        return portsStr
-          .split(',')
-          .map(p => p.trim())
-          .filter(p => p)
-          .map(p => parseInt(p))
-          .filter(p => !isNaN(p) && p > 0 && p <= 65535)
-      }
-      
-      const ports = parsePorts(formData.ports)
-      if (ports.length === 0) {
-        alert('Please enter at least one valid port')
+      // Require the real inbound port. Never quietly ignore malformed values
+      // or fall back to 8080 when the Backhaul form is in use.
+      const portInput = formData.core === 'backhaul' ? backhaulState.public_port : formData.ports
+      const fields = portInput.split(',').map(port => port.trim())
+      const ports = fields.map(value => Number(value))
+      if (fields.length === 0 || fields.some(value => !/^[0-9]+$/.test(value)) ||
+          ports.some(port => !Number.isInteger(port) || port < 1 || port > 65535) ||
+          new Set(ports).size !== ports.length) {
+        alert(t.tunnels.invalidPorts)
         return
       }
-      
+
       if (formData.core === 'gost' && (formData.type === 'tcp' || formData.type === 'udp' || formData.type === 'grpc' || formData.type === 'tcpmux')) {
         const remoteIp = formData.remote_ip || (formData.use_ipv6 ? '::1' : '127.0.0.1')
         // For GOST, ports are equal (listen_port = forward_to port)
@@ -1088,21 +1091,16 @@ const AddTunnelModal = ({ nodes, servers, onClose, onSuccess }: AddTunnelModalPr
         // CRITICAL: For Backhaul, the Ports field is in BackhaulForm, not in the main formData.ports
         // backhaulState.public_port contains the comma-separated ports from the Backhaul form
         // We should use backhaulState.public_port, NOT formData.ports (which is for other cores)
-        console.log('Backhaul tunnel creation - formData.ports:', formData.ports, 'type:', typeof formData.ports)
-        console.log('Backhaul tunnel creation - backhaulState.public_port:', backhaulState.public_port)
         
         // Use backhaulState.public_port (from BackhaulForm) - it has the correct comma-separated ports
         // Only fallback to formData.ports if backhaulState.public_port is empty
-        const portsToUse = backhaulState.public_port && backhaulState.public_port.trim() 
-          ? backhaulState.public_port 
-          : (formData.ports || '8080')
+        const portsToUse = backhaulState.public_port.trim()
         
         const updatedBackhaulState = {
           ...backhaulState,
           public_port: portsToUse,
           target_port: portsToUse
         }
-        console.log('Backhaul tunnel creation - updatedBackhaulState.public_port (final):', updatedBackhaulState.public_port)
         spec = buildBackhaulSpec(updatedBackhaulState, backhaulAdvanced)
         spec.use_ipv6 = formData.use_ipv6 || false
         // buildBackhaulSpec should already build ports array from public_port (formData.ports)
@@ -1125,12 +1123,6 @@ const AddTunnelModal = ({ nodes, servers, onClose, onSuccess }: AddTunnelModalPr
               return `${listenPart}=${targetHost}:${p}`
             })
           }
-        }
-        // Ensure ports array is properly formatted and has all ports
-        if (spec.ports && Array.isArray(spec.ports) && spec.ports.length > 0) {
-          console.log('Backhaul tunnel creation - final ports:', spec.ports, 'count:', spec.ports.length)
-        } else {
-          console.warn('Backhaul tunnel creation - no ports found! formData.ports:', formData.ports, 'publicPorts:', updatedBackhaulState.public_port)
         }
         tunnelType = backhaulState.transport
       }
@@ -1163,11 +1155,14 @@ const AddTunnelModal = ({ nodes, servers, onClose, onSuccess }: AddTunnelModalPr
         iran_node_id: formData.iran_node_id || formData.node_id || null,
         spec: spec,
       }
+      setCreating(true)
       await api.post('/tunnels', payload)
       onSuccess()
     } catch (error) {
       console.error('Failed to create tunnel:', error)
       alert('Failed to create tunnel')
+    } finally {
+      setCreating(false)
     }
   }
 
@@ -1212,9 +1207,13 @@ const AddTunnelModal = ({ nodes, servers, onClose, onSuccess }: AddTunnelModalPr
   }
 
   return (
-    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-[100] overflow-auto">
-      <div className="bg-white dark:bg-gray-800 rounded-lg p-4 w-full max-w-xl my-4 max-h-[90vh] overflow-y-auto">
-        <h2 className="text-xl font-bold text-gray-900 dark:text-white mb-4">{t.tunnels.createTunnel}</h2>
+    <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-[100] overflow-auto p-3 sm:p-5" dir={dir}>
+      <div className="bg-white dark:bg-gray-800 rounded-2xl border border-gray-200 dark:border-gray-700 shadow-2xl p-5 sm:p-6 w-full max-w-xl my-4 max-h-[90vh] overflow-y-auto">
+        <h2 className="text-xl font-bold text-gray-900 dark:text-white mb-2">{t.tunnels.createTunnel}</h2>
+        <p className="text-sm text-gray-500 dark:text-gray-400 mb-5">{t.tunnels.basicSetupHint}</p>
+        {(nodes.length === 0 || servers.length === 0) && (
+          <p role="alert" className="mb-4 rounded-xl border border-amber-300 bg-amber-50 dark:bg-amber-900/20 dark:text-amber-200 text-amber-900 px-4 py-3 text-sm">{t.tunnels.missingServers}</p>
+        )}
         <form onSubmit={handleSubmit} className="space-y-4">
           <div>
             <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
@@ -1332,6 +1331,18 @@ const AddTunnelModal = ({ nodes, servers, onClose, onSuccess }: AddTunnelModalPr
             </div>
           </div>
 
+          {(formData.core === 'frp' || formData.core === 'backhaul') && (
+            <div className="rounded-xl border border-blue-100 dark:border-blue-900/50 bg-blue-50/60 dark:bg-blue-900/10 px-4 py-3">
+              <button type="button" aria-expanded={showTechnicalSettings}
+                onClick={() => setShowTechnicalSettings(value => !value)}
+                className="w-full flex items-center justify-between text-sm font-semibold text-blue-700 dark:text-blue-300 focus-visible:outline focus-visible:outline-2 focus-visible:outline-blue-500 rounded">
+                {showTechnicalSettings ? t.tunnels.hideAdvancedSettings : t.tunnels.advancedSettings}
+                <span aria-hidden="true">{showTechnicalSettings ? '−' : '+'}</span>
+              </button>
+              {showTechnicalSettings && <p className="mt-2 text-xs text-slate-600 dark:text-slate-300">{t.tunnels.advancedHelp}</p>}
+            </div>
+          )}
+
           {formData.core === 'gost' && (formData.type === 'tcp' || formData.type === 'udp' || formData.type === 'grpc' || formData.type === 'tcpmux') && (
             <div className="grid grid-cols-2 gap-4">
               <div>
@@ -1382,6 +1393,7 @@ const AddTunnelModal = ({ nodes, servers, onClose, onSuccess }: AddTunnelModalPr
                 }
               }}
               onOpenAdvanced={() => setShowBackhaulAdvanced(true)}
+              showTechnicalSettings={showTechnicalSettings}
               acceptUdpVisible={
                 backhaulState.transport === 'tcp' || backhaulState.transport === 'tcpmux'
               }
@@ -1490,8 +1502,8 @@ const AddTunnelModal = ({ nodes, servers, onClose, onSuccess }: AddTunnelModalPr
           
           {formData.core === 'frp' && (
             <>
-              <div className="grid grid-cols-2 gap-4">
-                <div>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                {showTechnicalSettings && <div>
                   <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
                     Bind Port
                   </label>
@@ -1510,10 +1522,10 @@ const AddTunnelModal = ({ nodes, servers, onClose, onSuccess }: AddTunnelModalPr
                   <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
                     FRP server port on panel (default: 7000)
                   </p>
-                </div>
+                </div>}
                 <div>
                   <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                    Ports
+                    {t.tunnels.inboundPort}
                   </label>
                   <input
                     type="text"
@@ -1530,12 +1542,13 @@ const AddTunnelModal = ({ nodes, servers, onClose, onSuccess }: AddTunnelModalPr
                   </p>
                 </div>
               </div>
-              <div>
+              {showTechnicalSettings && <div>
                 <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
                   Token (Optional - Auto-generated if empty)
                 </label>
                 <input
-                  type="text"
+                  type="password"
+                  autoComplete="off"
                   value={formData.frp_token}
                   onChange={(e) =>
                     setFormData({ ...formData, frp_token: e.target.value })
@@ -1544,12 +1557,12 @@ const AddTunnelModal = ({ nodes, servers, onClose, onSuccess }: AddTunnelModalPr
                   placeholder="Leave empty for auto-generation"
                 />
                 <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">Authentication token (will be auto-generated if not provided)</p>
-              </div>
+              </div>}
             </>
           )}
           
           {/* v4 to v6 tunnel checkbox - only for Rathole, Backhaul, Chisel, FRP (not GOST) */}
-          {formData.core !== 'gost' && (
+          {showTechnicalSettings && formData.core !== 'gost' && (
             <>
               <div className="flex items-center gap-2">
                 <input
@@ -1579,9 +1592,10 @@ const AddTunnelModal = ({ nodes, servers, onClose, onSuccess }: AddTunnelModalPr
             </button>
             <button
               type="submit"
-              className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700"
+              disabled={creating || nodes.length === 0 || servers.length === 0}
+              className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed"
             >
-              {t.tunnels.createTunnel}
+              {creating ? t.tunnels.creatingTunnel : t.tunnels.createTunnel}
             </button>
           </div>
         </form>
