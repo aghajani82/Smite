@@ -20,7 +20,7 @@ from app.database import get_db
 from app.models import Node, Settings
 from app.config import settings
 from app.node_client import NodeClient
-from app.signed_node_origins import approved_node, ApprovedOriginUnavailable
+from app.signed_node_origins import approved_node, control_url_matches, ApprovedOriginUnavailable
 from app.signed_node_registration import authenticated_node
 
 
@@ -147,7 +147,7 @@ async def signed_gateway_check(
         or meta.get("role") != "foreign"
         or pin["node_name"] != report.node_name
         or (node.name != report.node_name and meta.get("node_name") != report.node_name)
-        or pin["control_url"] != report.control_url.rstrip("/")
+        or not control_url_matches(pin, report.control_url)
     ):
         return {"status": "ok", "gateway_ready": False}
     try:
