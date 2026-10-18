@@ -60,6 +60,8 @@ interface Translations {
     logout: string
     light: string
     dark: string
+    moreTools: string
+    lessTools: string
   }
   nodes: {
     title: string
@@ -209,6 +211,8 @@ const translations: Record<Language, Translations> = {
       logout: 'Logout',
       light: 'Light',
       dark: 'Dark',
+      moreTools: 'More tools',
+      lessTools: 'Hide tools',
     },
     nodes: {
       title: 'Iran Nodes',
@@ -360,6 +364,8 @@ const translations: Record<Language, Translations> = {
       logout: 'خروج',
       light: 'روشن',
       dark: 'تاریک',
+      moreTools: 'ابزارهای بیشتر',
+      lessTools: 'بستن ابزارها',
     },
     nodes: {
       title: 'نودهای ایران',
