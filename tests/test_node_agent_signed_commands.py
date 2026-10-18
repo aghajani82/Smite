@@ -154,6 +154,18 @@ class AgentGuardTest(unittest.TestCase):
         ).status_code, 401)
         self.assertEqual(self.adapters.apply_calls, [])
 
+    def test_signed_exact_tunnel_status_query_and_tamper(self):
+        path = "/api/agent/tunnels/status?tunnel_id=demo-123"
+        body, headers = self.signed("GET", path, nonce="6" * 32)
+        self.assertEqual(body, b"")
+        response = self.client.get(path, headers=headers)
+        self.assertEqual(response.status_code, 200, response.text)
+        self.assertEqual(response.json()["data"], {"running": False})
+        self.assertEqual(self.client.get(
+            "/api/agent/tunnels/status?tunnel_id=demo-124", headers=headers
+        ).status_code, 401)
+        self.assertEqual(self.client.get(path, headers=headers).status_code, 401)
+
     def test_wrong_http_target_and_clock_skew_denied(self):
         body, headers = self.signed("GET", "/api/agent/status", nonce="4" * 32)
         self.assertEqual(self.client.get("/api/agent/status?x=1", headers=headers).status_code, 401)
