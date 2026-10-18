@@ -82,7 +82,7 @@ def _control_address(control: str, approved_origin: str, role: str) -> str:
         raise ApprovedOriginUnavailable("Control hostname not approved")
     # Normalized path is for matching legacy U-OPTI gateway evidence ONLY;
     # outgoing signed Agent traffic uses /api/agent/* on that origin.
-    if any(ch.isspace() for ch in parts.path) or "//" in parts.path:
+    if any(ch.isspace() for ch in parts.path) or "//" in parts.path or ".." in parts.path or "%" in parts.path or "\\" in parts.path:
         raise ApprovedOriginUnavailable("Control path invalid")
     return base + parts.path.rstrip("/")
 
@@ -127,3 +127,11 @@ def approved_node(node_id: str) -> dict[str, str]:
     control_url = _control_address(found.get("control_url"), origin, role)
     return {"node_id": node_id, "role": role, "node_name": name,
             "origin": origin, "control_url": control_url}
+
+
+def control_url_matches(pin: dict[str, str], claimed: str) -> bool:
+    """Compare a paired Node's claimed URL after strict, safe canonicalization."""
+    try:
+        return _control_address(claimed, pin["origin"], pin["role"]) == pin["control_url"]
+    except (ApprovedOriginUnavailable, KeyError, TypeError):
+        return False
