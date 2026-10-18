@@ -49,6 +49,13 @@ the bundle manifest.
    client routing, reboot persistence, provider snapshots and rollback
    have NOT passed actual two-VPS integration acceptance.
 5. Standard mode only; Private Network remains out of scope.
+   **Stage18 pre-enrollment:** Admin-only `POST /api/node-pairing/reserve`
+   creates a PENDING Foreign Node ID with no IP address or external
+   registration. The preview flag, valid private Fernet master and migrated
+   pairing tables must all be present. Admin can then issue a short-lived
+   pairing code to the reserved ID using the existing UI and store.
+   It does NOT pair the Node, switch to signed mode, contact KH, or
+   open any ports; HTTPS/443 gateway admission remains separate.
    The fresh **Foreign Node** can now boot in `paused` Panel auth mode:
    it deliberately does not call the legacy unauthenticated HTTP/8000
    registration endpoint. Agent API can be strict before pairing, with

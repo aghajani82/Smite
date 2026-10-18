@@ -8,6 +8,7 @@ on:
       - 'panel/main.py'
       - 'node/app/pairing_client.py'
       - 'tests/test_node_pairing_http.py'
+      - 'tests/test_node_pairing_reservation.py'
       - '.github/workflows/node-pairing-http-preview.yml'
   push:
     branches:
@@ -35,6 +36,8 @@ jobs:
       - name: Check Python syntax
         run: |
           python -m py_compile panel/app/config.py panel/app/routers/node_pairing.py \
-            node/app/pairing_client.py tests/test_node_pairing_http.py
+            node/app/pairing_client.py tests/test_node_pairing_http.py tests/test_node_pairing_reservation.py
       - name: Exercise preview API and strict TLS Node client offline
-        run: python -B tests/test_node_pairing_http.py -v
+        run: |
+          python -B tests/test_node_pairing_http.py -v
+          python -B tests/test_node_pairing_reservation.py -v
