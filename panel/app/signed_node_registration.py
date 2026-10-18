@@ -140,7 +140,7 @@ async def authenticated_node(request: Request) -> tuple[str, bytes]:
         target = (raw + (b"?" + query if query else b"")).decode("ascii")
     except UnicodeDecodeError as exc:
         raise HTTPException(400, detail="Malformed request") from exc
-    if target not in ("/api/node-control/register", "/api/node-control/frp-status"):
+    if target not in ("/api/node-control/register", "/api/node-control/frp-status", "/api/node-control/gateway-check"):
         raise HTTPException(404, detail="Not found")
     try:
         node_id = await run_in_threadpool(
