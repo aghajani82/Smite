@@ -200,6 +200,10 @@ async def _restore_backhaul_servers():
             for tunnel in tunnels:
                 if tunnel.core != "backhaul":
                     continue
+                # U-OPTI Standard WS Backhaul server runs on the paired IR
+                # Node, not as a duplicate wildcard listener on the Panel.
+                if (tunnel.spec or {}).get("uopti_standard_backhaul") is True:
+                    continue
 
                 try:
                     backhaul_manager.start_server(tunnel.id, tunnel.spec or {})
