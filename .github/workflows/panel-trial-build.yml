@@ -1,0 +1,33 @@
+name: Smite Panel Trial Image Build
+
+on:
+  push:
+    branches:
+      - feature/admin-api-auth-and-ui-20261018
+  pull_request:
+    paths:
+      - "panel/**"
+      - "frontend/**"
+      - "tests/**"
+      - ".github/workflows/panel-trial-build.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  panel-trial-image:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+      - name: Build an isolated Smite trial image (do not publish or deploy)
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: panel/Dockerfile
+          push: false
+          tags: smite-panel:security-trial
+          build-args: |
+            SMITE_VERSION=0.1.7-security-trial
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
