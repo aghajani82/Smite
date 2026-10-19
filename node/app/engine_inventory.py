@@ -60,8 +60,22 @@ def _trusted_manifest(path: Path) -> dict | None:
     if not isinstance(declared, dict) or not set(declared).issubset(ENGINES):
         raise EngineInventoryUnavailable("Invalid engine inventory declarations")
     for name, item in declared.items():
-        if not isinstance(item, dict) or set(item) != {"sha256"} or not isinstance(item["sha256"], str) or not _SHA256.fullmatch(item["sha256"]):
+        if not isinstance(item, dict) or not isinstance(item.get("sha256"), str) or not _SHA256.fullmatch(item["sha256"]):
             raise EngineInventoryUnavailable("Invalid engine artifact digest")
+        # Managed FRP requires *both* roles: a pinned frpc AND frps.
+        # Old frpc-only declarations remain parseable for safe inventory
+        # migration, but can never produce "ready" until frps is pinned.
+        fields = set(item)
+        if name == "frp":
+            if fields not in ({"sha256"}, {"sha256", "server_sha256"}):
+                raise EngineInventoryUnavailable("Unknown FRP engine manifest fields")
+            if "server_sha256" in item and (
+                not isinstance(item["server_sha256"], str)
+                or not _SHA256.fullmatch(item["server_sha256"])
+            ):
+                raise EngineInventoryUnavailable("Invalid FRP server digest")
+        elif fields != {"sha256"}:
+            raise EngineInventoryUnavailable("Unknown engine manifest fields")
     return declared
 
 
@@ -104,9 +118,25 @@ def engine_inventory() -> dict:
                 result[name] = "unavailable"
                 continue
             digest = hashlib.sha256(binary.read_bytes()).hexdigest()
-            result[name] = (
-                "ready" if digest == declared[name]["sha256"] else "unavailable"
-            )
+            if digest != declared[name]["sha256"]:
+                result[name] = "unavailable"
+                continue
+            if name == "frp":
+                server_digest = declared[name].get("server_sha256")
+                server = Path("/usr/local/bin/frps")
+                # An older frpc-only manifest must never claim FRP ready.
+                if server_digest is None or server.is_symlink():
+                    result[name] = "unavailable"
+                    continue
+                st_server = server.lstat()
+                if (not stat.S_ISREG(st_server.st_mode)
+                    or st_server.st_uid != 0
+                    or not st_server.st_mode & 0o111
+                    or st_server.st_mode & 0o022
+                    or hashlib.sha256(server.read_bytes()).hexdigest() != server_digest):
+                    result[name] = "unavailable"
+                    continue
+            result[name] = "ready"
         except OSError:
             result[name] = "unavailable"
     return {"mode": "managed", "engines": result}
