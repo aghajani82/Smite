@@ -9,11 +9,18 @@ async def engine_pair_readiness(iran_node_id: str, foreign_node_id: str, client)
         return {name: "select-nodes" for name in ENGINES}
     values = []
     for node_id in (iran_node_id, foreign_node_id):
-        inventory = await client.get_engine_inventory(node_id)
+        try:
+            inventory = await client.get_engine_inventory(node_id)
+        except Exception:
+            # A failed signed read is never evidence that an engine exists.
+            return {name: "unavailable" for name in ENGINES}
         if (
             not isinstance(inventory, dict)
             or inventory.get("mode") != "managed"
             or not isinstance(inventory.get("engines"), dict)
+            or set(inventory["engines"]) != set(ENGINES)
+            or any(state not in {"ready", "not-installed", "unavailable"}
+                   for state in inventory["engines"].values())
         ):
             return {name: "unavailable" for name in ENGINES}
         values.append(inventory["engines"])
