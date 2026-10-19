@@ -72,8 +72,16 @@ def read_identity(file: str | Path) -> tuple[str, bytes]:
     return node_id, secret.encode("ascii")
 
 
+REPLAY_SCHEMA_VERSION = 1
+
+
 class DurableNonceStore:
-    """Persistent atomic register interface for node_auth.verify_request."""
+    """Persistent, pre-provisioned replay store; NEVER re-create at request time.
+
+    Strict Agent requests must fail closed when the replay DB disappears,
+    loses its schema or belongs to another paired Node identity. Bootstrap
+    is a separate explicit provisioning operation, never a request fallback.
+    """
 
     skew_seconds = node_auth.MAX_CLOCK_SKEW
 
@@ -83,29 +91,98 @@ class DurableNonceStore:
             raise ValueError("Invalid replay capacity")
         self.max_entries = max_entries
 
+    @staticmethod
+    def initialize_new(database: str | Path, node_id: str) -> None:
+        """ONE-TIME explicit offline enrollment only; never called by API.
+
+        Refuses existing files, even if damaged or empty, to avoid clearing
+        historical nonces. Caller must pair the Node first and retain the
+        store through container recreation. Failed bootstrap needs review,
+        not an automatic delete/retry.
+        """
+        if not isinstance(node_id, str) or not _NODE_ID.fullmatch(node_id):
+            raise AgentAuthUnavailable("Invalid replay store Node identity")
+        path = Path(database)
+        _private_parent(path)
+        fd = None
+        try:
+            fd = os.open(
+                path, os.O_CREAT | os.O_EXCL | os.O_WRONLY |
+                getattr(os, "O_NOFOLLOW", 0), 0o600,
+            )
+            os.fsync(fd)
+            os.close(fd)
+            fd = None
+            # The database path is now an existing, private file. Opening in
+            # SQLite mode=rw must never silently recreate it.
+            with closing(sqlite3.connect(
+                path.absolute().as_uri() + "?mode=rw",
+                uri=True, timeout=5, isolation_level=None,
+            )) as conn:
+                conn.execute("PRAGMA busy_timeout=5000")
+                conn.execute("BEGIN IMMEDIATE")
+                conn.execute(
+                    "CREATE TABLE agent_nonces "
+                    "(node_id TEXT NOT NULL, nonce TEXT NOT NULL, "
+                    "expires_at INTEGER NOT NULL, PRIMARY KEY(node_id,nonce))"
+                )
+                conn.execute(
+                    "CREATE TABLE replay_store_identity "
+                    "(node_id TEXT NOT NULL PRIMARY KEY)"
+                )
+                conn.execute(
+                    "INSERT INTO replay_store_identity(node_id) VALUES (?)",
+                    (node_id,),
+                )
+                conn.execute(f"PRAGMA user_version={REPLAY_SCHEMA_VERSION}")
+                conn.commit()
+            # Durable initial path creation: flush the containing directory.
+            directory = os.open(
+                path.parent, os.O_RDONLY | getattr(os, "O_DIRECTORY", 0) |
+                getattr(os, "O_NOFOLLOW", 0),
+            )
+            try:
+                os.fsync(directory)
+            finally:
+                os.close(directory)
+        except (sqlite3.Error, OSError) as exc:
+            raise AgentAuthUnavailable("Replay store bootstrap unavailable") from exc
+        finally:
+            if fd is not None:
+                os.close(fd)
+
     def _open(self) -> sqlite3.Connection:
         _private_parent(self.database)
+        # No O_CREAT, CREATE TABLE IF NOT EXISTS or silent fallback in any
+        # request path. SQLite mode=rw refuses missing files even under races.
         try:
-            flags = os.O_CREAT | os.O_EXCL | os.O_WRONLY | getattr(os, "O_NOFOLLOW", 0)
-            try:
-                fd = os.open(self.database, flags, 0o600)
-                os.close(fd)
-            except FileExistsError:
-                pass
             entry = self.database.lstat()
             if (
                 not stat.S_ISREG(entry.st_mode)
                 or entry.st_uid != os.geteuid()
                 or stat.S_IMODE(entry.st_mode) != 0o600
+                or entry.st_nlink != 1
             ):
                 raise AgentAuthUnavailable("Unsafe replay database permissions")
-            conn = sqlite3.connect(self.database, timeout=5, isolation_level=None)
-            conn.execute("PRAGMA busy_timeout=5000")
-            conn.execute(
-                "CREATE TABLE IF NOT EXISTS agent_nonces "
-                "(node_id TEXT NOT NULL, nonce TEXT NOT NULL, expires_at INTEGER NOT NULL,"
-                " PRIMARY KEY(node_id,nonce))"
+            conn = sqlite3.connect(
+                self.database.absolute().as_uri() + "?mode=rw",
+                uri=True, timeout=5, isolation_level=None,
             )
+            try:
+                conn.execute("PRAGMA busy_timeout=5000")
+                if conn.execute("PRAGMA user_version").fetchone() != (REPLAY_SCHEMA_VERSION,):
+                    raise AgentAuthUnavailable("Replay database schema untrusted")
+                conn.execute("SELECT node_id,nonce,expires_at FROM agent_nonces LIMIT 0")
+                conn.execute("SELECT node_id FROM replay_store_identity LIMIT 0")
+                # Directory entry must still point to the opened DB. A local
+                # adversarial same-UID writer remains outside this draft's
+                # production trust model; do not treat this as full openat2.
+                after = self.database.lstat()
+                if (entry.st_dev, entry.st_ino) != (after.st_dev, after.st_ino):
+                    raise AgentAuthUnavailable("Replay database replaced")
+            except BaseException:
+                conn.close()
+                raise
             return conn
         except (sqlite3.Error, OSError) as exc:
             raise AgentAuthUnavailable("Replay database unavailable") from exc
@@ -116,6 +193,12 @@ class DurableNonceStore:
         with closing(self._open()) as conn:
             try:
                 conn.execute("BEGIN IMMEDIATE")
+                saved = conn.execute(
+                    "SELECT node_id FROM replay_store_identity"
+                ).fetchall()
+                if saved != [(node_id,)]:
+                    conn.rollback()
+                    raise AgentAuthUnavailable("Replay store paired identity mismatch")
                 conn.execute("DELETE FROM agent_nonces WHERE expires_at < ?", (now,))
                 count = conn.execute("SELECT COUNT(*) FROM agent_nonces").fetchone()[0]
                 if count >= self.max_entries:
