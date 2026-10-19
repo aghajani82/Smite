@@ -23,9 +23,20 @@ means that FRP, Backhaul, GOST, Rathole, or Chisel is installed.
   create and atomically update it after independent download/hash
   verification, safely mounting the desired binary and rollback.
 - An engine being `ready` is distinct from being **running** or
-  **reachable** on a 443 route. The Panel's tunnel creation UX still
-  needs managed admission + per-node readiness checks before any
-  activation. All public ports and existing tunnels are unchanged.
+  **reachable** on a 443 route. Create Tunnel now shows the signed
+  two-Node state and disables creation unless BOTH explicitly selected
+  Nodes report `ready` in managed mode. A failed inventory probe
+  fails closed; the legacy UI behavior remains in Stable.
+- Managed create, spec-changing edit and single/bulk reapply are all
+  gated server-side before their side effects. Reapply selects the
+  original stored foreign Node, not the first available foreign Node.
+  GOST (a forward-mode engine) also persists its explicit IR/KH pair
+  when managed. No managed engine can be inferred from a bundled binary.
+- UI readiness is a convenience only: the Panel rechecks on requests
+  and each signed Node Agent rejects unregistered Apply. Engine
+  inventory does NOT install software, guarantee network reachability,
+  validate a 443 route or authorize production activation.
+  All public ports and existing Stable tunnels are unchanged.
 
 Never deploy the managed mode to a real VPS until those remaining
 gates and two-host acceptance pass.
