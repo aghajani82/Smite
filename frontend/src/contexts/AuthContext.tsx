@@ -5,7 +5,7 @@ interface AuthContextType {
   isAuthenticated: boolean
   username: string | null
   login: (token: string, username: string) => void
-  logout: () => void
+  logout: () => Promise<boolean>
   checkAuth: () => Promise<boolean>
 }
 
@@ -27,6 +27,14 @@ export const AuthProvider = ({ children }: AuthProviderProps) => {
   const [isAuthenticated, setIsAuthenticated] = useState(false)
   const [username, setUsername] = useState<string | null>(null)
 
+  const clearLocalSession = () => {
+    localStorage.removeItem('token')
+    localStorage.removeItem('username')
+    delete api.defaults.headers.common['Authorization']
+    setIsAuthenticated(false)
+    setUsername(null)
+  }
+
   useEffect(() => {
     const token = localStorage.getItem('token')
     const savedUsername = localStorage.getItem('username')
@@ -34,7 +42,7 @@ export const AuthProvider = ({ children }: AuthProviderProps) => {
     if (token && savedUsername) {
       // Verify token is still valid
       checkAuth().catch(() => {
-        logout()
+        clearLocalSession()
       })
     }
   }, [])
@@ -58,8 +66,8 @@ export const AuthProvider = ({ children }: AuthProviderProps) => {
       setUsername(response.data.username || localStorage.getItem('username'))
       return true
     } catch (error) {
-      // Token is invalid, logout
-      logout()
+      // A failed /me check is not a user-initiated global sign-out.
+      clearLocalSession()
       return false
     }
   }
@@ -72,12 +80,25 @@ export const AuthProvider = ({ children }: AuthProviderProps) => {
     setUsername(username)
   }
 
-  const logout = () => {
-    localStorage.removeItem('token')
-    localStorage.removeItem('username')
-    delete api.defaults.headers.common['Authorization']
-    setIsAuthenticated(false)
-    setUsername(null)
+  const logout = async (): Promise<boolean> => {
+    if (!localStorage.getItem('token')) {
+      clearLocalSession()
+      return true
+    }
+    try {
+      // Wait for server acknowledgment BEFORE deleting the only bearer
+      // that lets us retry revocation after a transient network failure.
+      await api.post('/auth/logout', {}, { timeout: 7000 })
+    } catch (error: any) {
+      if (error?.response?.status !== 401) {
+        // Keep the account available for one-click retry; do not pretend
+        // that a network timeout revoked a valid seven-day JWT.
+        return false
+      }
+      // Already revoked or expired is equivalent to a successful logout.
+    }
+    clearLocalSession()
+    return true
   }
 
   return (
