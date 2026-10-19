@@ -21,7 +21,7 @@ async function rejectStatus(url, status) {
 test('wrong setup password or MFA confirmation does NOT invalidate a valid session', async () => {
   for (const url of [
     '/auth/2fa/setup', '/auth/2fa/enable', '/auth/2fa/disable',
-    '/auth/login',
+    '/auth/login', '/auth/logout',
   ]) {
     memory.set('token', 'valid-session')
     memory.set('username', 'operator')
@@ -55,4 +55,19 @@ test('login and settings keep the user-requested simple authenticator sequence',
   assert.match(settings, /\/auth\/2fa\/enable/)
   assert.match(settings, /\/auth\/2fa\/disable/)
   assert.doesNotMatch(settings, /api\.qrserver\.com|chart\.googleapis\.com/)
+})
+
+
+test('operator sign-out is server-confirmed and warns on network failure', () => {
+  const root = path.resolve(__dirname, '../src')
+  const context = fs.readFileSync(path.join(root, 'contexts/AuthContext.tsx'), 'utf8')
+  const layout = fs.readFileSync(path.join(root, 'components/Layout.tsx'), 'utf8')
+  const settings = fs.readFileSync(path.join(root, 'components/TwoFactorSettings.tsx'), 'utf8')
+  assert.match(context, /await api\.post\('\/auth\/logout'/)
+  assert.match(context, /if \(error\?\.response\?\.status !== 401\)/)
+  assert.match(context, /return false[\s\S]*clearLocalSession\(\)/)
+  assert.match(layout, /const revoked = await logout\(\)/)
+  assert.match(layout, /setLogoutFailed\(true\)/)
+  assert.match(layout, /Sign out on all devices/)
+  assert.match(settings, /localStorage\.removeItem\('token'\)/)
 })
