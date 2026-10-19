@@ -18,6 +18,9 @@ from app.config import settings
 
 
 ENGINES = ("backhaul", "frp", "gost", "rathole", "chisel")
+# Production binaries are always expected to be owned by root (uid 0).
+# Unit tests patch only this reference to their disposable fixture owner.
+ROOT_BINARY_UID = 0
 _SHA256 = re.compile(r"^[0-9a-f]{64}$")
 
 
@@ -111,7 +114,7 @@ def engine_inventory() -> dict:
             if (
                 binary.is_symlink()
                 or not stat.S_ISREG(st.st_mode)
-                or st.st_uid != 0
+                or st.st_uid != ROOT_BINARY_UID
                 or not st.st_mode & 0o111
                 or st.st_mode & 0o022
             ):
@@ -130,7 +133,7 @@ def engine_inventory() -> dict:
                     continue
                 st_server = server.lstat()
                 if (not stat.S_ISREG(st_server.st_mode)
-                    or st_server.st_uid != 0
+                    or st_server.st_uid != ROOT_BINARY_UID
                     or not st_server.st_mode & 0o111
                     or st_server.st_mode & 0o022
                     or hashlib.sha256(server.read_bytes()).hexdigest() != server_digest):
