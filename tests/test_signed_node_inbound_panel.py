@@ -256,6 +256,60 @@ class SignedInboundTest(unittest.TestCase):
         finally:
             settings.panel_domain = original_domain
 
+    def test_signed_panel_commands_require_checkin_and_admin_name_pin(self):
+        """A redeemed key, legacy active row, or changed name is never readiness."""
+        from app.node_client import NodeClient
+
+        def update(status, mark, name="node-kh", meta_name="node-kh"):
+            with sqlite3.connect(self.db_path) as connection:
+                connection.execute(
+                    "UPDATE nodes SET status=?,name=?,metadata=? WHERE id=?",
+                    (status, name, json.dumps({
+                        "role": "foreign", "node_name": meta_name,
+                        "provisioning": mark, "api_address": "http://unsafe.test:8888",
+                    }), self.node_id),
+                )
+
+        client = NodeClient()
+        with (
+            patch("app.node_client.AsyncSessionLocal", self.Session),
+            patch("app.node_client.signed_agent_call", new_callable=AsyncMock) as call,
+        ):
+            call.return_value = {"status": "ok", "active_tunnels": 0}
+
+            def status():
+                return asyncio.run(client.get_tunnel_status(self.node_id))
+
+            for state, marker in (
+                ("pending", "reserved_for_pairing"),
+                ("active", "reserved_for_pairing"),
+                ("active", None),
+                ("pending", "signed_checkin"),
+            ):
+                with self.subTest(state=state, marker=marker):
+                    update(state, marker)
+                    self.assertEqual(status()["status"], "error")
+            call.assert_not_awaited()
+
+            update("pending", "reserved_for_pairing")
+            initialize_replay_schema(self.db_path)
+            body, headers = self.request()
+            response = self.client.post(
+                "/api/node-control/register", content=body, headers=headers
+            )
+            self.assertEqual(response.status_code, 200, response.text)
+            self.assertEqual(status()["status"], "ok")
+            call.assert_awaited_once()
+            call.reset_mock()
+
+            update("active", "signed_checkin", name="wrong-name")
+            self.assertEqual(status()["status"], "error")
+            update("active", "signed_checkin", meta_name="wrong-name")
+            self.assertEqual(status()["status"], "error")
+            update("pending", "signed_checkin")
+            self.assertEqual(status()["status"], "error")
+            call.assert_not_awaited()
+
     def test_authenticated_heartbeat_cannot_impersonate_node(self):
         initialize_replay_schema(self.db_path)
         path = "/api/node-control/frp-status"

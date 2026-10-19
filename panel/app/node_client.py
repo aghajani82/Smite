@@ -77,12 +77,22 @@ class NodeClient:
                 node = result.scalar_one_or_none()
                 if node is None:
                     return {"status": "error", "message": "Node not found"}
+                # Pairing-code redemption creates a key, NOT permission
+                # to send commands. Legacy active rows are also untrusted.
+                metadata = node.node_metadata or {}
+                if (node.status != "active"
+                        or metadata.get("provisioning") != "signed_checkin"):
+                    raise SignedAgentUnavailable("Signed Node not yet registered")
                 # Never route HMAC credentials to historical, anonymous
                 # Node.metadata.api_address / control_address / FRP ports.
                 # The signed endpoint must be approved out of band.
                 pin = approved_node(node_id)
-                if pin["role"] != (node.node_metadata or {}).get("role"):
-                    raise ApprovedOriginUnavailable("Node role differs from approved identity")
+                if (pin["role"] != metadata.get("role")
+                        or pin["node_name"] != node.name
+                        or pin["node_name"] != metadata.get("node_name")):
+                    raise ApprovedOriginUnavailable(
+                        "Node role or name differs from approved identity"
+                    )
                 address, using_frp = pin["origin"], False
 
             return await signed_agent_call(
