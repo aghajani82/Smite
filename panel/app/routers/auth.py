@@ -149,9 +149,30 @@ async def get_current_user_info(current_user: Admin = Depends(get_current_user))
 
 
 @router.post("/logout")
-async def logout():
-    """Logout endpoint (client-side token removal)"""
-    return {"message": "Logged out successfully"}
+async def logout(
+    response: Response,
+    current_user: Admin = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Sign out everywhere: atomically revoke ALL existing JWT sessions.
+
+    JWTs are otherwise valid until expiration (7 days). Reusing the
+    existing auth_version avoids storing bearer tokens or adding a risky
+    session migration during the clean-RC stage. No MFA secret or code
+    is required for an ordinary sign-out.
+    """
+    result = await db.execute(
+        update(Admin)
+        .where(Admin.id == current_user.id)
+        .where(Admin.auth_version == (current_user.auth_version or 0))
+        .values(auth_version=Admin.auth_version + 1)
+    )
+    if result.rowcount != 1:
+        await db.rollback()
+        raise HTTPException(status_code=409, detail="Session changed; please sign in again")
+    await db.commit()
+    response.headers["Cache-Control"] = "no-store"
+    return {"message": "Signed out on all devices"}
 
 
 
