@@ -15,6 +15,7 @@ lab="$(mktemp -d)"
 chmod 700 "$lab"
 cleanup() {
   docker rm -f "$cid" >/dev/null 2>&1 || true
+  sudo chown -R "$(id -u):$(id -g)" "$lab" 2>/dev/null || true
   rm -rf -- "$lab"
 }
 trap cleanup EXIT
@@ -32,6 +33,9 @@ with open(path, "x", encoding="ascii") as stream:
 os.chmod(path, 0o600)
 PY
 initial_id_sha="$(sha256sum "$lab/identity/node-identity.json" | awk '{print $1}')"
+# Simulate the root-owned 0700 host credential volume from real KH.
+# Never lower the permission requirements in Smite to fit a CI runner.
+sudo chown -R 0:0 "$lab/identity" "$lab/replay"
 
 # Boot command identical in all three modes. Underlying Node import needs
 # writable ephemeral adapter config; identity is a separate readonly bind.
@@ -173,16 +177,16 @@ except urllib.error.HTTPError as error:
     assert error.code == 401, error.code
 else: raise AssertionError("Unsigned apply was not blocked")
 PY
-test -s "$lab/replay/agent-replay.sqlite3"
-test "$(stat -c %a "$lab/replay/agent-replay.sqlite3")" = 600
-test "$(sha256sum "$lab/identity/node-identity.json" | awk '{print $1}')" = "$initial_id_sha"
+sudo test -s "$lab/replay/agent-replay.sqlite3"
+test "$(sudo stat -c %a "$lab/replay/agent-replay.sqlite3")" = 600
+test "$(sudo sha256sum "$lab/identity/node-identity.json" | awk '{print $1}')" = "$initial_id_sha"
 stop_node
 echo "STAGE23_SIGNED_IDENTITY_READONLY_AGENT=PASS"
 echo "STAGE23_STRICT_NO_REPLAY_OR_UNSIGNED_APPLY=PASS"
 
 # Phase 4: Roll back to paused without mounting identity. The generated key
 # and replay DB survive unmodified on the host. No legacy auth is activated.
-replay_before="$(sha256sum "$lab/replay/agent-replay.sqlite3" | awk '{print $1}')"
+replay_before="$(sudo sha256sum "$lab/replay/agent-replay.sqlite3" | awk '{print $1}')"
 start_node paused no
 docker exec -i "$cid" python3 - <<'PY'
 import urllib.request, urllib.error
@@ -194,8 +198,8 @@ except urllib.error.HTTPError as e: assert e.code == 503, e.code
 else: raise AssertionError("Rolled-back Node allowed unsigned Agent request")
 PY
 stop_node
-test "$(sha256sum "$lab/identity/node-identity.json" | awk '{print $1}')" = "$initial_id_sha"
-test "$(sha256sum "$lab/replay/agent-replay.sqlite3" | awk '{print $1}')" = "$replay_before"
+test "$(sudo sha256sum "$lab/identity/node-identity.json" | awk '{print $1}')" = "$initial_id_sha"
+test "$(sudo sha256sum "$lab/replay/agent-replay.sqlite3" | awk '{print $1}')" = "$replay_before"
 echo "STAGE23_PAUSED_ROLLBACK_PRIVATE_STATE_PRESERVED=PASS"
 
 # Phase 5: Re-enable signed after paused mode. Replayed nonce from before
@@ -221,6 +225,6 @@ with fetch("b"*32) as response:
     assert json.load(response)["status"] == "ok"
 PY
 stop_node
-test "$(sha256sum "$lab/identity/node-identity.json" | awk '{print $1}')" = "$initial_id_sha"
+test "$(sudo sha256sum "$lab/identity/node-identity.json" | awk '{print $1}')" = "$initial_id_sha"
 echo "STAGE23_SIGNED_REENABLE_REPLAY_PERSISTENCE=PASS"
 echo "STAGE23_VPS_PORTS_REGISTRY_PRODUCTION=UNTOUCHED"
