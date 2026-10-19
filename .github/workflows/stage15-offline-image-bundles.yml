@@ -10,6 +10,7 @@ on:
       - 'node/**'
       - 'frontend/**'
       - 'tests/stage16_isolated_firstboot.sh'
+      - 'tests/stage23_node_identity_rollback.sh'
       - 'tests/stage15_offline_bundle.py'
       - 'tests/test_stage15_offline_bundle.py'
       - '.github/workflows/stage15-offline-image-bundles.yml'
@@ -57,6 +58,11 @@ jobs:
       - name: Gate archive creation on isolated Panel + Node first boot
         shell: bash
         run: bash tests/stage16_isolated_firstboot.sh
+      - name: Gate archives on immutable Node identity and signed/paused rollback
+        if: github.event_name == 'pull_request'
+        shell: bash
+        run: bash tests/stage23_node_identity_rollback.sh
+
       - name: Save offline images with source and SHA256 manifest
         shell: bash
         run: |
