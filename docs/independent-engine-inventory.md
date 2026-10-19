@@ -55,5 +55,25 @@ actual Docker restart preserves inventory and rejects replayed signed
 requests; exact rollback returns to `not-installed`. This is a
 throwaway-runner test, NOT a public 443 route or production deployment.
 
+## Strict Agent vs. Docker healthcheck (pre-clean-rebuild gate)
+
+- The old Node Docker healthcheck performed an **unsigned**
+  `GET /api/agent/status`. Strict Agent authentication correctly rejects
+  that call; a working Node could therefore be falsely marked unhealthy.
+- The reviewed Node now exposes **`GET /healthz`**, excluded from
+  OpenAPI, accepting only an actual loopback socket peer (IPv4/IPv6) and
+  only after its adapter manager is initialized. The response contains
+  merely `{"status":"ok"}`; it cannot read tunnels, engines, identity
+  or authentication secrets. Spoofed X-Forwarded-For does not grant access.
+- Docker Compose checks `http://127.0.0.1:<NODE_API_PORT>/healthz`.
+  All `/api/agent/*` endpoints, **including status and inventory**,
+  remain HMAC protected in strict mode. No unsigned Agent exception was
+  added. The legacy profile remains usable.
+- Unit tests enforce 200 on local-ready, 503 before initialization,
+  403 from non-loopback clients and the unaffected Agent auth boundary.
+  Additional PR-only U-OPTI CI exercises a real isolated Node and signed
+  API under Docker Compose force-recreation. These results are **not**
+  permission to rebuild a live IR/KH machine.
+
 Never deploy the managed mode to a real VPS until those remaining
 gates and two-host acceptance pass.
