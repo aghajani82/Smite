@@ -8,6 +8,10 @@ on:
     paths:
       - 'node/app/core_adapters.py'
       - 'node/app/engine_inventory.py'
+      - 'node/app/routers/local_health.py'
+      - 'node/main.py'
+      - 'node/docker-compose.yml'
+      - 'tests/test_node_local_health.py'
       - 'tests/test_managed_engine_restart.py'
       - '.github/workflows/managed-engine-restart.yml'
 
@@ -26,6 +30,13 @@ jobs:
       - name: Install minimal runtime dependencies
         run: |
           python -m pip install 'psutil==7.1.0' 'pydantic==2.5.0' 'pydantic-settings==2.1.0'
+      - name: Install unit-test dependency for local ASGI route
+        run: |
+          python -m pip install 'fastapi==0.104.1'
+      - name: Verify local health is never an unsigned Agent bypass
+        run: |
+          python -m py_compile node/app/routers/local_health.py tests/test_node_local_health.py
+          python -B tests/test_node_local_health.py -v
       - name: Verify restart and direct Apply deny absent engine before side effects
         run: |
           python -m py_compile node/app/core_adapters.py tests/test_managed_engine_restart.py
