@@ -28,7 +28,7 @@ services:
       - PANEL_API_PORT=${PANEL_API_PORT:-8000}
     restart: unless-stopped
     healthcheck:
-      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:${NODE_API_PORT:-8888}/api/agent/status')"]
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:${NODE_API_PORT:-8888}/healthz')"]
       interval: 30s
       timeout: 10s
       retries: 3
