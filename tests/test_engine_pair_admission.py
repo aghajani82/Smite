@@ -40,6 +40,28 @@ class EnginePairTest(unittest.IsolatedAsyncioTestCase):
         with self.assertRaises(HTTPException):
             await require_engine_ready_pair("backhaul", "ir", "kh", self.client)
 
+    async def test_malformed_and_unreachable_signed_inventory_fail_closed(self):
+        self.status["ir"]["engines"]["backhaul"] = "ready"
+        self.status["kh"]["engines"]["backhaul"] = "ready"
+        self.status["kh"]["engines"]["frp"] = "unexpected"
+        states = await engine_pair_readiness("ir", "kh", self.client)
+        self.assertEqual(set(states.values()), {"unavailable"})
+        with self.assertRaises(HTTPException) as rejected:
+            await require_engine_ready_pair("backhaul", "ir", "kh", self.client)
+        self.assertEqual(rejected.exception.status_code, 409)
+
+        self.status["kh"] = {"mode": "managed", "engines": {"backhaul": "ready"}}
+        self.assertEqual(
+            (await engine_pair_readiness("ir", "kh", self.client))["backhaul"],
+            "unavailable",
+        )
+
+        self.client.get_engine_inventory = AsyncMock(side_effect=TimeoutError())
+        self.assertEqual(
+            set((await engine_pair_readiness("ir", "kh", self.client)).values()),
+            {"unavailable"},
+        )
+
     async def test_invalid_nodes_and_engines_are_denied(self):
         for left, right in (("", "kh"), ("ir", ""), ("ir", "ir")):
             state = await engine_pair_readiness(left, right, self.client)
