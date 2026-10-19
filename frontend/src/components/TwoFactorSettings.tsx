@@ -36,7 +36,7 @@ const words = {
 export default function TwoFactorSettings() {
   const { language } = useLanguage()
   const text = words[language]
-  const { login, logout } = useAuth()
+  const { login } = useAuth()
   const [status, setStatus] = useState<Status | null>(null)
   const [enrollment, setEnrollment] = useState<Enrollment | null>(null)
   const [recovery, setRecovery] = useState<string[]>([])
@@ -159,7 +159,11 @@ export default function TwoFactorSettings() {
               <button className={buttonClass} disabled={busy || !password || !code.trim()} type="button"
                 onClick={() => void act('/auth/2fa/disable', { password, code: code.trim() }, () => {
                   // All earlier access tokens are invalidated by the server.
-                  logout()
+                  // Disabling MFA already invalidated all JWT sessions.
+                  // Clear browser state without retrying an invalid bearer.
+                  localStorage.removeItem('token')
+                  localStorage.removeItem('username')
+                  delete api.defaults.headers.common['Authorization']
                   window.location.assign('/login')
                 })}>{busy ? text.pending : text.disableConfirm}</button>
             </div>
