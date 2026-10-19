@@ -45,7 +45,7 @@ class SignedInboundTest(unittest.TestCase):
                 session.add(Node(
                     id=self.node_id, name="node-kh",
                     fingerprint="fingerprint-kh-test", status="pending",
-                    node_metadata={"role": "foreign", "node_name": "node-kh", "control_address": "https://node.example.org/control/secure/", "api_address": "https://node.example.org"}
+                    node_metadata={"role": "foreign", "node_name": "node-kh", "provisioning": "reserved_for_pairing", "control_address": "https://node.example.org/control/secure/", "api_address": "https://node.example.org"}
                 ))
                 session.add(DbSettings(key="frp", value={
                     "enabled": True, "port": 17000, "token": self.token,
