@@ -1015,6 +1015,56 @@ const AddTunnelModal = ({ nodes, servers, onClose, onSuccess }: AddTunnelModalPr
   const [backhaulAdvanced, setBackhaulAdvanced] = useState<BackhaulAdvancedState>(createDefaultBackhaulAdvancedState())
   const [showBackhaulAdvanced, setShowBackhaulAdvanced] = useState(false)
 
+  // Only the paired Nodes can report readiness. UI never infers an
+  // installed engine from a bundled executable or old Stable settings.
+  const [engineReadiness, setEngineReadiness] = useState<{
+    pair: string
+    mode: 'loading' | 'legacy' | 'managed' | 'unavailable'
+    engines: Record<string, string>
+  }>({ pair: '', mode: 'loading', engines: {} })
+  const selectedPair = `${formData.iran_node_id || formData.node_id}|${formData.foreign_node_id}`
+  useEffect(() => {
+    let cancelled = false
+    const iran_node_id = formData.iran_node_id || formData.node_id
+    const foreign_node_id = formData.foreign_node_id
+    const pair = `${iran_node_id}|${foreign_node_id}`
+    setEngineReadiness({ pair, mode: 'loading', engines: {} })
+    api.get('/tunnels/engines', { params: { iran_node_id, foreign_node_id } })
+      .then(({ data }) => {
+        if (cancelled) return
+        if (data?.mode === 'legacy') {
+          setEngineReadiness({ pair, mode: 'legacy', engines: {} })
+        } else if (data?.mode === 'managed' && data.engines && typeof data.engines === 'object') {
+          setEngineReadiness({ pair, mode: 'managed', engines: data.engines })
+        } else {
+          setEngineReadiness({ pair, mode: 'unavailable', engines: {} })
+        }
+      })
+      .catch(() => {
+        if (!cancelled) setEngineReadiness({ pair, mode: 'unavailable', engines: {} })
+      })
+    return () => { cancelled = true }
+  }, [formData.iran_node_id, formData.node_id, formData.foreign_node_id])
+
+  const engineState = engineReadiness.pair === selectedPair
+    ? engineReadiness.engines[formData.core]
+    : undefined
+  const engineReady = engineReadiness.pair === selectedPair && (
+    engineReadiness.mode === 'legacy' ||
+    (engineReadiness.mode === 'managed' && engineState === 'ready')
+  )
+  const managedEngineMessage = engineReadiness.pair !== selectedPair || engineReadiness.mode === 'loading'
+    ? (dir === 'rtl' ? 'در حال بررسی وضعیت موتور...' : 'Checking engine availability…')
+    : engineReadiness.mode === 'unavailable' || (engineReadiness.mode === 'managed' && engineState === 'unavailable')
+      ? (dir === 'rtl' ? 'وضعیت موتور در سرورها قابل تأیید نیست. اتصال امن IR و KH را بررسی کنید.' : 'Engine status unavailable. Check the secure IR/KH connection.')
+      : engineReadiness.mode === 'managed' && engineState === 'select-nodes'
+        ? (dir === 'rtl' ? 'ابتدا هر دو سرور IR و KH را انتخاب کنید.' : 'Select both IR and KH nodes first.')
+        : engineReadiness.mode === 'managed' && engineState === 'not-installed'
+          ? (dir === 'rtl' ? 'این موتور هنوز روی هر دو سرور آماده نیست. ابتدا از U-OPTI نصب کنید.' : 'Engine not ready on both nodes. Install it through U-OPTI first.')
+          : engineReadiness.mode === 'managed' && engineState === 'ready'
+            ? (dir === 'rtl' ? 'موتور روی هر دو سرور آماده است.' : 'Engine ready on both nodes.')
+            : (dir === 'rtl' ? 'وضعیت موتور تأیید نشده است.' : 'Engine availability is not verified.')
+
   // Auto-populate remote_ip with foreign server IP when GOST is selected
   useEffect(() => {
     if (formData.core === 'gost' && formData.foreign_node_id) {
@@ -1033,6 +1083,10 @@ const AddTunnelModal = ({ nodes, servers, onClose, onSuccess }: AddTunnelModalPr
     if (creating) return
     if (!formData.iran_node_id || !formData.foreign_node_id) {
       alert(t.tunnels.missingServers)
+      return
+    }
+    if (!engineReady) {
+      alert(managedEngineMessage)
       return
     }
     try {
@@ -1334,6 +1388,12 @@ const AddTunnelModal = ({ nodes, servers, onClose, onSuccess }: AddTunnelModalPr
             </div>
           </div>
 
+          {engineReadiness.mode !== 'legacy' && (
+            <p role="status" aria-live="polite" className={`text-sm rounded-lg px-3 py-2 border ${engineReady ? 'border-green-200 text-green-800 dark:text-green-200' : 'border-amber-200 text-amber-900 dark:text-amber-200'}`}>
+              {managedEngineMessage}
+            </p>
+          )}
+
           {(formData.core === 'frp' || formData.core === 'backhaul') && (
             <div className="rounded-xl border border-blue-100 dark:border-blue-900/50 bg-blue-50/60 dark:bg-blue-900/10 px-4 py-3">
               <button type="button" aria-expanded={showTechnicalSettings}
@@ -1595,7 +1655,7 @@ const AddTunnelModal = ({ nodes, servers, onClose, onSuccess }: AddTunnelModalPr
             </button>
             <button
               type="submit"
-              disabled={creating || nodes.length === 0 || servers.length === 0}
+              disabled={creating || !engineReady || nodes.length === 0 || servers.length === 0}
               className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed"
             >
               {creating ? t.tunnels.creatingTunnel : t.tunnels.createTunnel}
