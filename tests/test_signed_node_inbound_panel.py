@@ -315,6 +315,22 @@ class SignedInboundTest(unittest.TestCase):
         path = "/api/node-control/frp-status"
         payload = {"node_id": self.node_id, "connected": True, "remote_port": 18476}
         body, headers = self.request(path=path, data=payload)
+        pending = self.client.post(path, content=body, headers=headers)
+        self.assertEqual(pending.status_code, 403, pending.text)
+        with sqlite3.connect(self.db_path) as conn:
+            status, raw_meta = conn.execute(
+                "SELECT status,metadata FROM nodes WHERE id=?", (self.node_id,)
+            ).fetchone()
+        self.assertEqual(status, "pending")
+        self.assertNotIn("frp_connected", json.loads(raw_meta))
+        # Only an authenticated signed registration may enable telemetry.
+        register_body, register_headers = self.request()
+        registered = self.client.post(
+            "/api/node-control/register",
+            content=register_body, headers=register_headers,
+        )
+        self.assertEqual(registered.status_code, 200, registered.text)
+        body, headers = self.request(path=path, data=payload)
         response = self.client.post(path, content=body, headers=headers)
         self.assertEqual(response.status_code, 200, response.text)
         self.assertEqual(response.json()["status"], "success")
@@ -362,10 +378,30 @@ class SignedInboundTest(unittest.TestCase):
                 url, headers={"Authorization": "Bearer bad"}
             ).status_code, (401, 403))
         with patch("app.routers.nodes.NodeClient.get_tunnel_status",
-                   new_callable=AsyncMock, return_value={"status": "ok"}):
+                   new_callable=AsyncMock, return_value={"status": "ok"}) as probe:
             result = self.client.get("/api/nodes", headers=headers)
         self.assertEqual(result.status_code, 200, result.text)
         self.assertEqual(len(result.json()), 1)
+        self.assertEqual(
+            result.json()[0]["metadata"]["connection_status"],
+            "waiting-for-pairing",
+        )
+        probe.assert_not_awaited()
+        # Even an FRP hint inserted in the DB cannot bypass pending status.
+        with sqlite3.connect(self.db_path) as conn:
+            conn.execute(
+                "UPDATE nodes SET metadata=? WHERE id=?",
+                (json.dumps({"role": "foreign", "node_name": "node-kh",
+                             "frp_connected": True}), self.node_id),
+            )
+        with patch("app.routers.nodes.NodeClient.get_tunnel_status",
+                   new_callable=AsyncMock, return_value={"status": "ok"}) as probe:
+            pending = self.client.get("/api/nodes", headers=headers)
+        self.assertEqual(
+            pending.json()[0]["metadata"]["connection_status"],
+            "waiting-for-pairing",
+        )
+        probe.assert_not_awaited()
         self.assertEqual(
             self.client.get("/api/nodes/" + self.node_id, headers=headers).status_code, 200
         )
@@ -380,6 +416,17 @@ class SignedInboundTest(unittest.TestCase):
         params = {"node_id": self.node_id, "node_name": "node-kh",
                   "control_url": "https://node.example.org/control/secure/"}
         self.assertEqual(self.client.post(path, json=params).status_code, 401)
+        body, headers = self.request(path=path, data=params)
+        with patch("app.routers.signed_nodes.NodeClient.get_tunnel_status",
+                   new_callable=AsyncMock, return_value={"status": "ok"}) as check:
+            pending = self.client.post(path, content=body, headers=headers)
+        self.assertEqual(pending.json(), {"status": "ok", "gateway_ready": False})
+        check.assert_not_awaited()
+        register_body, register_headers = self.request()
+        self.assertEqual(self.client.post(
+            "/api/node-control/register", content=register_body,
+            headers=register_headers,
+        ).status_code, 200)
         body, headers = self.request(path=path, data=params)
         with patch("app.routers.signed_nodes.NodeClient.get_tunnel_status",
                    new_callable=AsyncMock, return_value={"status": "ok"}) as check:
@@ -399,6 +446,46 @@ class SignedInboundTest(unittest.TestCase):
         settings.smite_panel_agent_auth_mode = "legacy"
         body, headers = self.request(path=path, data=params)
         self.assertEqual(self.client.post(path, content=body, headers=headers).status_code, 503)
+
+    def test_gateway_check_rejects_each_name_mismatch_and_no_probe(self):
+        """Both DB Node.name and approved metadata name must match exactly."""
+        initialize_replay_schema(self.db_path)
+        reg_body, reg_headers = self.request()
+        self.assertEqual(self.client.post(
+            "/api/node-control/register", content=reg_body,
+            headers=reg_headers,
+        ).status_code, 200)
+        path = "/api/node-control/gateway-check"
+        data = {"node_id": self.node_id, "node_name": "node-kh",
+                "control_url": "https://node.example.org/control/secure/"}
+        for column in ("name", "metadata"):
+            with sqlite3.connect(self.db_path) as conn:
+                if column == "name":
+                    conn.execute(
+                        "UPDATE nodes SET name=? WHERE id=?",
+                        ("unexpected-node", self.node_id),
+                    )
+                else:
+                    conn.execute(
+                        "UPDATE nodes SET metadata=? WHERE id=?",
+                        (json.dumps({"role": "foreign", "node_name": "unexpected-node",
+                                     "provisioning": "signed_checkin"}), self.node_id),
+                    )
+            body, headers = self.request(path=path, data=data)
+            with patch("app.routers.signed_nodes.NodeClient.get_tunnel_status",
+                       new_callable=AsyncMock, return_value={"status": "ok"}) as checker:
+                denied = self.client.post(path, content=body, headers=headers)
+            self.assertEqual(
+                denied.json(), {"status": "ok", "gateway_ready": False},
+                (column, denied.text),
+            )
+            checker.assert_not_awaited()
+            with sqlite3.connect(self.db_path) as conn:
+                conn.execute(
+                    "UPDATE nodes SET name=?, metadata=? WHERE id=?",
+                    ("node-kh", json.dumps({"role": "foreign", "node_name": "node-kh",
+                                             "provisioning": "signed_checkin"}), self.node_id),
+                )
 
     def test_atomic_replay_across_parallel_db_users(self):
         initialize_replay_schema(self.db_path)
