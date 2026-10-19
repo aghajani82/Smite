@@ -13,6 +13,7 @@ on:
       - 'node/docker-compose.yml'
       - 'tests/test_node_local_health.py'
       - 'tests/test_managed_engine_restart.py'
+      - 'tests/test_managed_frp_pair.py'
       - '.github/workflows/managed-engine-restart.yml'
 
 permissions:
@@ -41,3 +42,4 @@ jobs:
         run: |
           python -m py_compile node/app/core_adapters.py tests/test_managed_engine_restart.py
           python -B tests/test_managed_engine_restart.py -v
+          python -B tests/test_managed_frp_pair.py -v
