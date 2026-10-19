@@ -7,6 +7,7 @@ rotating that key requires an explicit MFA re-enrollment procedure.
 import base64
 import hashlib
 import hmac
+import io
 import secrets
 import struct
 import time
@@ -47,6 +48,29 @@ def new_secret() -> str:
 def provisioning_uri(username: str, secret: str) -> str:
     label = quote("Smite:" + username, safe="")
     return f"otpauth://totp/{label}?secret={secret}&issuer=Smite&algorithm=SHA1&digits=6&period=30"
+
+
+def local_qr_data_uri(uri: str) -> str:
+    """Encode an authenticator QR completely inside the Panel process.
+
+    The TOTP secret must never be sent to a remote QR image service, CDN,
+    logging endpoint, or unauthenticated route. The caller serves it only
+    from the password-confirmed MFA enrollment API with no-store headers.
+    SVG generation embeds QR geometry, not executable HTML.
+    """
+    import qrcode
+    import qrcode.image.svg
+
+    stream = io.BytesIO()
+    qr = qrcode.make(
+        uri,
+        image_factory=qrcode.image.svg.SvgPathImage,
+        error_correction=qrcode.constants.ERROR_CORRECT_M,
+        border=4,
+        box_size=8,
+    )
+    qr.save(stream)
+    return "data:image/svg+xml;base64," + base64.b64encode(stream.getvalue()).decode("ascii")
 
 
 def totp(secret: str, counter: int) -> str:

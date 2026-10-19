@@ -1,6 +1,8 @@
 """Real MFA integration and RFC 6238 regression tests; no Panel or Node services."""
 import asyncio
+import base64
 import os
+import xml.etree.ElementTree as ET
 import tempfile
 import unittest
 from datetime import datetime
@@ -89,6 +91,16 @@ class TwoFactorEndToEnd(unittest.TestCase):
         self.assertEqual(setup.status_code, 200, setup.text)
         secret = setup.json()["secret"]
         self.assertIn("otpauth://totp/", setup.json()["otpauth_uri"])
+        # The QR must be rendered entirely inside the Panel, with no
+        # third-party image link containing the authenticator secret.
+        qr_data = setup.json()["qr_data_uri"]
+        self.assertTrue(qr_data.startswith("data:image/svg+xml;base64,"))
+        svg = base64.b64decode(qr_data.split(",", 1)[1], validate=True)
+        doc = ET.fromstring(svg)
+        self.assertTrue(doc.tag.endswith("svg"))
+        self.assertTrue(any(child.tag.endswith("path") for child in doc))
+        self.assertNotIn(b"otpauth://", svg)
+        self.assertNotIn(secret.encode(), svg)
         self.assertEqual(setup.headers.get("Cache-Control"), "no-store")
         self.assertNotIn(secret, str(setup.headers))
         bad_enable = self.client.post("/api/auth/2fa/enable", headers=headers, json={"password": "password-strong-test", "code": "0000000"})
@@ -136,6 +148,7 @@ class TwoFactorEndToEnd(unittest.TestCase):
             json={"password": "password-strong-test", "code": recovery[1]},
         )
         self.assertEqual(disable.status_code, 200, disable.text)
+        self.assertEqual(disable.headers.get("Cache-Control"), "no-store")
         self.assertEqual(self.client.get("/api/auth/2fa/status", headers=new_headers).status_code, 401)
         self.assertEqual(log_in().status_code, 200)
 

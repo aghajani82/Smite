@@ -223,7 +223,12 @@ async def mfa_setup(
     current_user.totp_pending_secret = mfa.seal_secret(secret)
     await db.commit()
     response.headers["Cache-Control"] = "no-store"
-    return {"secret": secret, "otpauth_uri": mfa.provisioning_uri(current_user.username, secret)}
+    uri = mfa.provisioning_uri(current_user.username, secret)
+    return {
+        "secret": secret,
+        "otpauth_uri": uri,
+        "qr_data_uri": mfa.local_qr_data_uri(uri),
+    }
 
 
 @router.post("/2fa/enable")
@@ -263,6 +268,7 @@ async def mfa_enable(
 @router.post("/2fa/disable")
 async def mfa_disable(
     data: MfaConfirmRequest,
+    response: Response,
     current_user: Admin = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
@@ -285,4 +291,5 @@ async def mfa_disable(
     current_user.mfa_failures = 0
     current_user.mfa_locked_until = None
     await db.commit()
+    response.headers["Cache-Control"] = "no-store"
     return {"enabled": False}
