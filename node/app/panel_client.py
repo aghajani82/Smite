@@ -27,7 +27,12 @@ class PanelClient:
         self.frp_panel_url: Optional[str] = None
     
     async def start(self):
-        """Start client and connect to panel"""
+        """Start client and connect to panel, unless initial pairing is pending."""
+        if settings.smite_node_panel_auth_mode == "paused":
+            # Fresh KH install deliberately starts without credentials. Do not
+            # open a legacy verify=False client or contact public TCP/8000.
+            logger.info("Node pairing pending: outbound Panel registration is paused")
+            return
         if settings.smite_node_panel_auth_mode == "signed":
             # Do not instantiate the legacy verify=False client or require
             # its custom CA when public CA / hostname verification is used.
@@ -54,7 +59,9 @@ class PanelClient:
             self.client = None
     
     async def register_with_panel(self):
-        """Auto-register with panel"""
+        """Auto-register only after explicit signed pairing admission."""
+        if settings.smite_node_panel_auth_mode == "paused":
+            return False
         if settings.smite_node_panel_auth_mode == "signed":
             return await self._register_signed()
         if not self.client:
@@ -226,6 +233,8 @@ class PanelClient:
     
     async def _report_frp_status(self, remote_port: int):
         """Report FRP connection status to panel"""
+        if settings.smite_node_panel_auth_mode == "paused":
+            return
         if settings.smite_node_panel_auth_mode == "signed":
             try:
                 await signed_frp_status(connected=True, remote_port=remote_port)

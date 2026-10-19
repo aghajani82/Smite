@@ -194,6 +194,30 @@ async def list_nodes(db: AsyncSession = Depends(get_db)):
     node_responses = []
     
     async def check_node_status(node):
+        # In signed registration mode, a legacy active flag or an early FRP
+        # heartbeat is NOT proof of enrolled HMAC identity. Keep such Nodes
+        # visibly pending and never call out to the remote destination.
+        metadata = node.node_metadata.copy() if node.node_metadata else {}
+        if settings.smite_node_registration_mode == "signed" and (
+            node.status != "active"
+            or metadata.get("provisioning") != "signed_checkin"
+        ):
+            metadata["connection_status"] = "waiting-for-pairing"
+            return NodeResponse(
+                id=node.id,
+                name=node.name,
+                fingerprint=node.fingerprint,
+                status=node.status,
+                registered_at=node.registered_at,
+                last_seen=node.last_seen,
+                metadata=metadata,
+            )
+        # FRP_connected is merely the LAST heartbeat. In signed mode it
+        # must never override failed authenticated Agent liveness and
+        # mislead the operator into thinking KH is reachable right now.
+        frp_hint = bool(metadata.get("frp_connected")) and (
+            settings.smite_node_registration_mode != "signed"
+        )
         connection_status = "failed"
         try:
             response = await client.get_tunnel_status(node.id, "")
@@ -202,24 +226,24 @@ async def list_nodes(db: AsyncSession = Depends(get_db)):
             else:
                 error_msg = response.get("message", "Node disconnected") if response else "Node not responding"
                 if "timeout" in error_msg.lower() or "connection" in error_msg.lower():
-                    if node.node_metadata and node.node_metadata.get("frp_connected"):
+                    if frp_hint:
                         connection_status = "connected"
                     else:
                         connection_status = "reconnecting"
                 else:
                     connection_status = "failed"
         except httpx.ConnectError:
-            if node.node_metadata and node.node_metadata.get("frp_connected"):
+            if frp_hint:
                 connection_status = "connected"
             else:
                 connection_status = "connecting"
         except httpx.TimeoutException:
-            if node.node_metadata and node.node_metadata.get("frp_connected"):
+            if frp_hint:
                 connection_status = "connected"
             else:
                 connection_status = "reconnecting"
         except Exception:
-            if node.node_metadata and node.node_metadata.get("frp_connected"):
+            if frp_hint:
                 connection_status = "connected"
             else:
                 connection_status = "failed"

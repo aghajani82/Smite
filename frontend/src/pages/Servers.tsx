@@ -198,11 +198,12 @@ const Servers = () => {
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap">
                     {(() => {
-                      const connStatus = server.metadata?.connection_status || 'failed'
+                      const connStatus = server.metadata?.provisioning === 'reserved_for_pairing' ? 'waiting-for-pairing' : (server.metadata?.connection_status || 'failed')
                       const getStatusColor = (status: string) => {
                         switch (status) {
                           case 'connected':
                             return 'bg-green-100 dark:bg-green-900/30 text-green-800 dark:text-green-200'
+                          case 'waiting-for-pairing':
                           case 'connecting':
                           case 'reconnecting':
                             return 'bg-yellow-100 dark:bg-yellow-900/30 text-yellow-800 dark:text-yellow-200'
@@ -216,6 +217,7 @@ const Servers = () => {
                         switch (status) {
                           case 'connected':
                             return <CheckCircle size={12} className="text-green-600 dark:text-green-400" />
+                          case 'waiting-for-pairing':
                           case 'connecting':
                           case 'reconnecting':
                             return <AlertCircle size={12} className="text-yellow-600 dark:text-yellow-400" />
@@ -233,6 +235,8 @@ const Servers = () => {
                             return 'Connecting'
                           case 'reconnecting':
                             return 'Reconnecting'
+                          case 'waiting-for-pairing':
+                            return 'Waiting for pairing'
                           case 'failed':
                             return 'Failed'
                           default:
@@ -272,6 +276,7 @@ const Servers = () => {
       {showAddModal && (
         <AddServerModal
           onClose={() => setShowAddModal(false)}
+          securePreview={pairingPreviewEnabled}
           onSuccess={() => {
             setShowAddModal(false)
             fetchServers()
@@ -293,11 +298,12 @@ const Servers = () => {
 }
 
 interface AddServerModalProps {
+  securePreview: boolean
   onClose: () => void
   onSuccess: () => void
 }
 
-const AddServerModal = ({ onClose, onSuccess }: AddServerModalProps) => {
+const AddServerModal = ({ onClose, onSuccess, securePreview }: AddServerModalProps) => {
   const { t } = useLanguage()
   const [name, setName] = useState('')
   const [ipAddress, setIpAddress] = useState('')
@@ -306,7 +312,12 @@ const AddServerModal = ({ onClose, onSuccess }: AddServerModalProps) => {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     try {
-      await api.post('/nodes', { 
+      if (securePreview) {
+        await api.post('/node-pairing/reserve', { name }, {
+          headers: { 'Cache-Control': 'no-store' },
+        })
+      } else {
+        await api.post('/nodes', { 
         name, 
         ip_address: ipAddress, 
         api_port: parseInt(apiPort) || 8888,
@@ -314,17 +325,18 @@ const AddServerModal = ({ onClose, onSuccess }: AddServerModalProps) => {
           role: 'foreign'  // Set role to foreign for servers
         } 
       })
+      }
       onSuccess()
-    } catch (error) {
-      console.error('Failed to add server:', error)
-      alert('Failed to add server')
+    } catch {
+      alert(securePreview ? 'Unable to reserve Node. Check secure pairing readiness.' : 'Failed to add server')
     }
   }
 
   return (
     <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
       <div className="bg-white dark:bg-gray-800 rounded-lg p-6 w-full max-w-md">
-        <h2 className="text-xl font-bold text-gray-900 dark:text-white mb-4">Add Foreign Server</h2>
+        <h2 className="text-xl font-bold text-gray-900 dark:text-white mb-4">{securePreview ? 'Prepare secure Foreign Node' : 'Add Foreign Server'}</h2>
+        {securePreview && <p className="text-sm text-gray-600 dark:text-gray-300 mb-4">Reserve KH with just a name. Pair it securely over HTTPS/443 after installation; no IP or port needed.</p>}
         <form onSubmit={handleSubmit} className="space-y-4">
           <div>
             <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
@@ -338,6 +350,7 @@ const AddServerModal = ({ onClose, onSuccess }: AddServerModalProps) => {
               required
             />
           </div>
+          {!securePreview && <>
           <div>
             <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
               IP Address
@@ -366,6 +379,7 @@ const AddServerModal = ({ onClose, onSuccess }: AddServerModalProps) => {
               required
             />
           </div>
+          </>}
           <div className="flex gap-3 justify-end">
             <button
               type="button"
@@ -378,7 +392,7 @@ const AddServerModal = ({ onClose, onSuccess }: AddServerModalProps) => {
               type="submit"
               className="px-5 py-2.5 bg-gradient-to-r from-blue-600 to-indigo-600 text-white rounded-lg hover:from-blue-700 hover:to-indigo-700 transition-all duration-200 font-medium shadow-sm hover:shadow-md"
             >
-              {t.dashboard.addServer}
+              {securePreview ? 'Reserve Node' : t.dashboard.addServer}
             </button>
           </div>
         </form>

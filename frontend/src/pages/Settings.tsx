@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react'
 import api from '../api/client'
+import TwoFactorSettings from '../components/TwoFactorSettings'
 import { useLanguage } from '../contexts/LanguageContext'
 
 interface FrpSettings {
@@ -130,6 +131,7 @@ const Settings = () => {
       )}
 
       <div className="space-y-6">
+        <TwoFactorSettings />
         {/* FRP Communication Settings */}
         <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 p-6">
           <h2 className="text-lg font-semibold text-gray-900 dark:text-white mb-4">{t.settings.frpCommunication}</h2>

@@ -8,6 +8,8 @@ on:
     paths:
       - 'node/app/agent_auth.py'
       - 'node/app/config.py'
+      - 'node/app/engine_inventory.py'
+      - 'panel/app/node_client.py'
       - 'node/app/routers/agent.py'
       - 'panel/app/agent_request_signer.py'
       - 'tests/test_node_agent_signed_commands.py'
@@ -33,7 +35,7 @@ jobs:
       - name: Python syntax
         run: |
           python -m py_compile \
-            node/app/agent_auth.py node/app/config.py \
+            node/app/agent_auth.py node/app/config.py node/app/engine_inventory.py \
             node/app/routers/agent.py panel/app/agent_request_signer.py \
             tests/test_node_agent_signed_commands.py
       - name: Agent runtime auth, replay persistence and cross-role signing tests

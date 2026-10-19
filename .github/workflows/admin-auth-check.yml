@@ -4,10 +4,13 @@ on:
   push:
     branches:
       - feature/admin-api-auth-and-ui-20261018
+      - feature/smite-simple-operator-ui-20261018
   pull_request:
     paths:
       - "panel/**"
       - "tests/test_admin_api_auth.py"
+      - "tests/test_totp_mfa.py"
+      - "tests/test_session_logout.py"
       - ".github/workflows/admin-auth-check.yml"
 
 permissions:
@@ -26,4 +29,7 @@ jobs:
       - name: Install panel dependencies
         run: python -m pip install -r panel/requirements.txt
       - name: Ensure admin API requires JWT and bootstrap routes remain reachable
-        run: python -m unittest discover -s tests -p test_admin_api_auth.py -v
+        run: |
+          python -m unittest discover -s tests -p test_admin_api_auth.py -v
+          python -m unittest discover -s tests -p test_totp_mfa.py -v
+          python -m unittest discover -s tests -p test_session_logout.py -v

@@ -77,12 +77,22 @@ class NodeClient:
                 node = result.scalar_one_or_none()
                 if node is None:
                     return {"status": "error", "message": "Node not found"}
+                # Pairing-code redemption creates a key, NOT permission
+                # to send commands. Legacy active rows are also untrusted.
+                metadata = node.node_metadata or {}
+                if (node.status != "active"
+                        or metadata.get("provisioning") != "signed_checkin"):
+                    raise SignedAgentUnavailable("Signed Node not yet registered")
                 # Never route HMAC credentials to historical, anonymous
                 # Node.metadata.api_address / control_address / FRP ports.
                 # The signed endpoint must be approved out of band.
                 pin = approved_node(node_id)
-                if pin["role"] != (node.node_metadata or {}).get("role"):
-                    raise ApprovedOriginUnavailable("Node role differs from approved identity")
+                if (pin["role"] != metadata.get("role")
+                        or pin["node_name"] != node.name
+                        or pin["node_name"] != metadata.get("node_name")):
+                    raise ApprovedOriginUnavailable(
+                        "Node role or name differs from approved identity"
+                    )
                 address, using_frp = pin["origin"], False
 
             return await signed_agent_call(
@@ -175,6 +185,18 @@ class NodeClient:
             except Exception as e:
                 return {"status": "error", "message": f"Error: {str(e)}"}
     
+    async def get_engine_inventory(self, node_id: str) -> Dict[str, Any]:
+        """Explicit signed read-only inventory, with NO legacy fallback.
+
+        The core-only install starts with no enrolled engines. Never infer
+        readiness from the Node image containing bundled binaries.
+        """
+        if settings.smite_panel_agent_auth_mode != "signed":
+            return {"status": "unavailable", "message": "Managed inventory requires signed Node control"}
+        return await self._signed_agent_request(
+            node_id, method="GET", target="/api/agent/engines", timeout=3.0,
+        )
+
     async def get_tunnel_status(self, node_id: str, tunnel_id: str = "") -> Dict[str, Any]:
         """Get tunnel status from node"""
         if settings.smite_panel_agent_auth_mode == "signed":

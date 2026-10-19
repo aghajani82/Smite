@@ -69,10 +69,14 @@ class AgentGuardTest(unittest.TestCase):
             settings.smite_agent_auth_mode,
             settings.smite_agent_identity_path,
             settings.smite_agent_replay_db,
+            settings.smite_engine_inventory_mode,
+            settings.smite_engine_manifest_path,
         )
         settings.smite_agent_auth_mode = "strict"
         settings.smite_agent_identity_path = str(self.ident)
         settings.smite_agent_replay_db = str(self.replay)
+        settings.smite_engine_inventory_mode = "legacy"
+        settings.smite_engine_manifest_path = str(work / "engine-state" / "engines.json")
         self.addCleanup(self.restore)
         self.adapters = FakeAdapters()
         self.app = FastAPI()
@@ -86,6 +90,8 @@ class AgentGuardTest(unittest.TestCase):
             settings.smite_agent_auth_mode,
             settings.smite_agent_identity_path,
             settings.smite_agent_replay_db,
+            settings.smite_engine_inventory_mode,
+            settings.smite_engine_manifest_path,
         ) = self.prior
 
     def signed(self, method, target, *, payload=None, nonce=None, now=None, secret=None):
@@ -96,6 +102,62 @@ class AgentGuardTest(unittest.TestCase):
             timestamp=int(time.time()) if now is None else now,
             nonce=nonce,
         )
+
+
+    def test_core_only_inventory_blocks_apply_even_with_valid_hmac(self):
+        settings.smite_engine_inventory_mode = "managed"
+        path = "/api/agent/engines"
+        self.assertEqual(self.client.get(path).status_code, 401)
+        body, headers = self.signed("GET", path, nonce="a" * 32)
+        self.assertEqual(body, b"")
+        inventory = self.client.get(path, headers=headers)
+        self.assertEqual(inventory.status_code, 200, inventory.text)
+        self.assertEqual(inventory.json()["mode"], "managed")
+        self.assertTrue(all(state == "not-installed" for state in inventory.json()["engines"].values()))
+        self.assertEqual(self.client.get(path, headers=headers).status_code, 401)
+
+        for core in ("frp", "backhaul", "gost", "rathole", "chisel", "unrecognized"):
+            payload = {"tunnel_id": "attempt-" + core, "core": core, "type": "tcp", "spec": {}}
+            data, signature = self.signed("POST", "/api/agent/tunnels/apply", payload=payload)
+            denied = self.client.post("/api/agent/tunnels/apply", content=data, headers=signature)
+            self.assertEqual(denied.status_code, 409, (core, denied.text))
+        self.assertEqual(self.adapters.apply_calls, [])
+
+    def test_manifest_enrollment_requires_root_owned_sha_and_exact_binary(self):
+        from unittest.mock import patch
+        from app.engine_inventory import binary_path_for_engine
+        settings.smite_engine_inventory_mode = "managed"
+        location = Path(settings.smite_engine_manifest_path)
+        location.parent.mkdir(mode=0o700)
+        executable = location.parent / "verified-binary"
+        executable.write_bytes(b"fixture binary without execution")
+        executable.chmod(0o700)
+        import hashlib
+        valid_hash = hashlib.sha256(executable.read_bytes()).hexdigest()
+        location.write_text(json.dumps({
+            "schema": 1, "engines": {"backhaul": {"sha256": valid_hash}}
+        }))
+        location.chmod(0o600)
+        from app.engine_inventory import engine_inventory
+        with patch("app.engine_inventory.binary_path_for_engine", return_value=executable):
+            ready = engine_inventory()
+            # The real production binary must be ROOT owned. CI fixtures are
+            # runner owned, so patching the owner is not permitted; the
+            # invalid fixture must stay unavailable.
+            self.assertEqual(ready["engines"]["backhaul"], "unavailable")
+            self.assertEqual(ready["engines"]["frp"], "not-installed")
+
+            location.chmod(0o644)
+            body, header = self.signed("GET", "/api/agent/engines")
+            self.assertEqual(self.client.get("/api/agent/engines", headers=header).status_code, 503)
+            location.chmod(0o600)
+            executable.write_bytes(b"modified")
+            self.assertEqual(engine_inventory()["engines"]["backhaul"], "unavailable")
+
+    def test_legacy_mode_preserves_existing_apply_without_registry(self):
+        from app.engine_inventory import engine_inventory
+        self.assertEqual(engine_inventory()["mode"], "legacy")
+        self.assertEqual(engine_inventory()["engines"]["frp"], "unmanaged")
 
     def test_legacy_defaults_unchanged_when_explicitly_selected(self):
         settings.smite_agent_auth_mode = "legacy"

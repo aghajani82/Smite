@@ -20,7 +20,28 @@ const Layout = ({ children }: LayoutProps) => {
     return saved ? JSON.parse(saved) : false
   })
   const [sidebarOpen, setSidebarOpen] = useState(false)
+  const [showMoreTools, setShowMoreTools] = useState(() =>
+    ['/core-health', '/logs', '/settings'].includes(window.location.pathname)
+  )
   const [version, setVersion] = useState('v0.1.0')
+  const [loggingOut, setLoggingOut] = useState(false)
+  const [logoutFailed, setLogoutFailed] = useState(false)
+
+  const handleLogout = async () => {
+    if (loggingOut) return
+    setLoggingOut(true)
+    setLogoutFailed(false)
+    try {
+      const revoked = await logout()
+      if (revoked) {
+        navigate('/login')
+      } else {
+        setLogoutFailed(true)
+      }
+    } finally {
+      setLoggingOut(false)
+    }
+  }
 
   useEffect(() => {
     localStorage.setItem('darkMode', JSON.stringify(darkMode))
@@ -33,6 +54,9 @@ const Layout = ({ children }: LayoutProps) => {
 
   useEffect(() => {
     setSidebarOpen(false)
+    if (['/core-health', '/logs', '/settings'].includes(location.pathname)) {
+      setShowMoreTools(true)
+    }
   }, [location.pathname])
 
   useEffect(() => {
@@ -53,6 +77,8 @@ const Layout = ({ children }: LayoutProps) => {
     { path: '/nodes', label: t.navigation.nodes, icon: Network },
     { path: '/servers', label: t.navigation.servers, icon: Globe },
     { path: '/tunnels', label: t.navigation.tunnels, icon: Activity },
+  ]
+  const tools = [
     { path: '/core-health', label: t.navigation.coreHealth, icon: Heart },
     { path: '/logs', label: t.navigation.logs, icon: FileText },
     { path: '/settings', label: t.navigation.settings, icon: Settings },
@@ -125,6 +151,33 @@ const Layout = ({ children }: LayoutProps) => {
                 </Link>
               )
             })}
+            <div className="mt-5 pt-4 border-t border-gray-200 dark:border-gray-700">
+              <button type="button" aria-expanded={showMoreTools} aria-controls="smite-extra-tools"
+                onClick={() => setShowMoreTools(open => !open)}
+                className="flex w-full items-center justify-between rounded-xl px-4 py-2.5 text-sm font-semibold text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-gray-700 focus-visible:outline focus-visible:outline-2 focus-visible:outline-blue-500">
+                <span dir={dir}>{showMoreTools ? t.navigation.lessTools : t.navigation.moreTools}</span>
+                <span aria-hidden="true">{showMoreTools ? '−' : '+'}</span>
+              </button>
+              {showMoreTools && (
+                <div id="smite-extra-tools" className="mt-2 space-y-1">
+                  {tools.map(item => {
+                    const Icon = item.icon
+                    const active = location.pathname === item.path
+                    return (
+                      <Link key={item.path} to={item.path}
+                        aria-current={active ? 'page' : undefined}
+                        className={`flex items-center gap-3 px-4 py-2.5 rounded-xl text-sm transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-blue-500 ${
+                          active ? 'bg-blue-50 text-blue-700 dark:bg-blue-900/30 dark:text-blue-300'
+                            : 'text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-gray-700'
+                        }`}>
+                        <Icon size={18} aria-hidden="true" />
+                        <span dir={dir}>{item.label}</span>
+                      </Link>
+                    )
+                  })}
+                </div>
+              )}
+            </div>
           </nav>
           
           {/* Sidebar Footer */}
@@ -149,15 +202,24 @@ const Layout = ({ children }: LayoutProps) => {
               </div>
               <div className="px-4">
                 <button
-                  onClick={() => {
-                    logout()
-                    navigate('/login')
-                  }}
-                  className="w-full flex items-center justify-center gap-2 text-red-600 dark:text-red-400 hover:text-red-700 dark:hover:text-red-300 transition-colors"
+                  onClick={() => void handleLogout()}
+                  disabled={loggingOut}
+                  title={language === 'fa' ? 'خروج از تمام دستگاه‌ها' : 'Sign out on all devices'}
+                  className="w-full flex items-center justify-center gap-2 text-red-600 dark:text-red-400 hover:text-red-700 dark:hover:text-red-300 transition-colors disabled:opacity-50"
                 >
                   <LogOut size={18} />
-                  <span className="text-sm font-medium">{t.navigation.logout}</span>
+                  <span className="text-sm font-medium">{loggingOut ? (language === 'fa' ? 'در حال خروج…' : 'Signing out…') : t.navigation.logout}</span>
                 </button>
+                <p className="mt-1 text-center text-xs text-gray-500 dark:text-gray-400">
+                  {language === 'fa' ? 'خروج از همه دستگاه‌ها' : 'Sign out on all devices'}
+                </p>
+                {logoutFailed && (
+                  <p role="alert" className="mt-2 text-xs text-red-600 dark:text-red-400 text-center">
+                    {language === 'fa'
+                      ? 'ارتباط با سرور برقرار نشد. خروج انجام نشده؛ دوباره تلاش کنید.'
+                      : 'Server unreachable. Sign-out was not completed; please retry.'}
+                  </p>
+                )}
               </div>
             </div>
             <div className="flex flex-col items-center gap-2 text-xs text-gray-500 dark:text-gray-400 pt-2 border-t border-gray-200 dark:border-gray-700">
@@ -191,7 +253,7 @@ const Layout = ({ children }: LayoutProps) => {
         </aside>
 
         {/* Main Content */}
-        <main className="flex-1 overflow-auto bg-gray-50 dark:bg-gray-900" dir="ltr">
+        <main className="flex-1 overflow-auto bg-gray-50 dark:bg-gray-900" dir={dir}>
           {/* Mobile Header */}
           <div className="lg:hidden sticky top-0 z-30 bg-white dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700 px-4 py-3 flex items-center justify-between shadow-sm">
             <button

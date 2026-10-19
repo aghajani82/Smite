@@ -9,7 +9,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.config import settings
-from app.routers import agent
+from app.routers import agent, local_health
 from app.panel_client import PanelClient
 from app.core_adapters import AdapterManager
 
@@ -99,6 +99,7 @@ app.add_middleware(
 
 
 app.include_router(agent.router, prefix="/api/agent", tags=["agent"])
+app.include_router(local_health.router)
 
 
 @app.get("/")

@@ -8,7 +8,15 @@ Never enable before Nginx, TLS and Node client integration are reviewed.
 from __future__ import annotations
 
 import hmac
+import secrets
 import sqlite3
+
+from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError, SQLAlchemyError
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from app.database import get_db
+from app.models import Node
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Response, status
 from pydantic import BaseModel, Field
@@ -34,6 +42,17 @@ def _http_error(status_code: int, detail: str) -> HTTPException:
     # FastAPI drops the injected Response object when an exception is raised.
     return HTTPException(status_code=status_code, detail=detail, headers=_NO_STORE_HEADERS)
 
+
+
+class PairingReserveRequest(BaseModel):
+    # Only a name is supplied by admin; never self-asserted IPs or credentials.
+    name: str = Field(min_length=2, max_length=64, pattern=r"^[A-Za-z0-9][A-Za-z0-9_.-]*$")
+
+
+class PairingReserveResponse(BaseModel):
+    node_id: str
+    name: str
+    status: str
 
 
 class PairingIssueRequest(BaseModel):
@@ -124,6 +143,46 @@ async def pairing_capabilities(
         # Critical: the legacy Node register and Agent APIs are NOT guarded.
         "legacy_node_auth_enforced": False,
     }
+
+
+@router.post("/reserve", response_model=PairingReserveResponse, status_code=201)
+async def reserve_foreign_node(
+    request: PairingReserveRequest,
+    response: Response,
+    admin: Admin = Depends(auth.get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Admin-only empty Foreign slot; no Node calls or legacy registration."""
+    _no_store(response)
+    _require_preview()
+    if not await run_in_threadpool(_schema_ready):
+        raise _http_error(503, "Pairing database migration is required")
+    try:
+        duplicate = await db.execute(select(Node.id).where(Node.name == request.name))
+        if duplicate.first() is not None:
+            raise _http_error(409, "Node name already exists")
+        record = Node(
+            name=request.name,
+            fingerprint="reserved-" + secrets.token_hex(16),
+            status="pending",
+            node_metadata={
+                "role": "foreign",
+                "node_name": request.name,
+                "provisioning": "reserved_for_pairing",
+            },
+        )
+        db.add(record)
+        await db.commit()
+        await db.refresh(record)
+    except IntegrityError as exc:
+        await db.rollback()
+        raise _http_error(409, "Node reservation conflict") from exc
+    except SQLAlchemyError as exc:
+        await db.rollback()
+        raise _http_error(503, "Node reservation unavailable") from exc
+    return PairingReserveResponse(
+        node_id=record.id, name=record.name, status="pending"
+    )
 
 
 @router.post("/issue", response_model=PairingCodeResponse)

@@ -14,6 +14,8 @@ interface Translations {
     signingIn: string
     loginFailed: string
     checkCredentials: string
+    twoFactorCode: string
+    twoFactorHint: string
   }
   dashboard: {
     title: string
@@ -30,6 +32,24 @@ interface Translations {
     addNode: string
     addServer: string
     loadingDashboard: string
+    simpleSubtitle: string
+    apiUnavailable: string
+    apiReachable: string
+    apiErrorHelp: string
+    refresh: string
+    lastUpdated: string
+    viewNodes: string
+    stepIran: string
+    stepForeign: string
+    stepTunnel: string
+    simpleSteps: string
+    simpleStepsHelp: string
+    statusUnknown: string
+    added: string
+    notAdded: string
+    overview: string
+    activeTunnels: string
+    noData: string
   }
   navigation: {
     dashboard: string
@@ -42,6 +62,8 @@ interface Translations {
     logout: string
     light: string
     dark: string
+    moreTools: string
+    lessTools: string
   }
   nodes: {
     title: string
@@ -76,6 +98,14 @@ interface Translations {
     reapplyAll: string
     confirmReapplyAll: string
     reapplyAllSuccess: string
+    basicSetupHint: string
+    advancedSettings: string
+    hideAdvancedSettings: string
+    advancedHelp: string
+    inboundPort: string
+    missingServers: string
+    invalidPorts: string
+    creatingTunnel: string
   }
   coreHealth: {
     title: string
@@ -86,6 +116,10 @@ interface Translations {
     subtitle: string
   }
   settings: {
+    tunnelAutoReapply: string
+    enableTunnelAutoReapply: string
+    tunnelAutoReapplyDescription: string
+    tunnelReapplyInterval: string
     title: string
     frpCommunication: string
     frpDescription: string
@@ -137,6 +171,8 @@ const translations: Record<Language, Translations> = {
       signingIn: 'Signing in...',
       loginFailed: 'Login failed. Please check your credentials.',
       checkCredentials: 'Login failed. Please check your credentials.',
+      twoFactorCode: 'Authenticator or recovery code',
+      twoFactorHint: 'Enter the 6-digit code or a recovery code',
     },
     dashboard: {
       title: 'Dashboard',
@@ -153,6 +189,24 @@ const translations: Record<Language, Translations> = {
       addNode: 'Add Iran Server',
       addServer: 'Add Foreign Server',
       loadingDashboard: 'Loading dashboard...',
+      simpleSubtitle: 'Your servers and tunnels, without the complicated settings.',
+      apiUnavailable: 'Panel status temporarily unavailable',
+      apiReachable: 'Panel API responded',
+      apiErrorHelp: 'Could not refresh panel status. The last values may be outdated. Please retry. This does not necessarily mean the tunnel is offline.',
+      refresh: 'Refresh',
+      lastUpdated: 'Last updated',
+      viewNodes: 'View registered nodes',
+      stepIran: 'Add your Iran server',
+      stepForeign: 'Add your foreign server',
+      stepTunnel: 'Create your tunnel',
+      simpleSteps: 'Getting started',
+      simpleStepsHelp: 'Install both servers first. Configure the inbound port and tunnel afterward.',
+      statusUnknown: 'Unverified',
+      added: 'Registered',
+      notAdded: 'Not registered',
+      overview: 'Active tunnels',
+      activeTunnels: 'Reported by the Panel',
+      noData: 'Resource status is not available yet.',
     },
     navigation: {
       dashboard: 'Dashboard',
@@ -165,6 +219,8 @@ const translations: Record<Language, Translations> = {
       logout: 'Logout',
       light: 'Light',
       dark: 'Dark',
+      moreTools: 'More tools',
+      lessTools: 'Hide tools',
     },
     nodes: {
       title: 'Iran Nodes',
@@ -199,6 +255,14 @@ const translations: Record<Language, Translations> = {
       reapplyAll: 'Reapply All',
       confirmReapplyAll: 'Are you sure you want to reapply all tunnels?',
       reapplyAllSuccess: 'Success',
+      basicSetupHint: 'First connect both servers, then enter the actual inbound port from 3x-UI.',
+      advancedSettings: 'Advanced settings',
+      hideAdvancedSettings: 'Hide advanced settings',
+      advancedHelp: 'These options are only needed for a custom transport or token. Default values are preserved.',
+      inboundPort: '3x-UI inbound port',
+      missingServers: 'Register your Iran and foreign servers before creating a tunnel.',
+      invalidPorts: 'Enter valid port numbers from 1 to 65535, separated by commas.',
+      creatingTunnel: 'Creating...',
     },
     coreHealth: {
       title: 'Core Health',
@@ -262,6 +326,8 @@ const translations: Record<Language, Translations> = {
       signingIn: 'در حال ورود...',
       loginFailed: 'ورود ناموفق بود. لطفاً اطلاعات خود را بررسی کنید.',
       checkCredentials: 'ورود ناموفق بود. لطفاً اطلاعات خود را بررسی کنید.',
+      twoFactorCode: 'کد Authenticator یا بازیابی',
+      twoFactorHint: 'کد شش‌رقمی یا کد بازیابی را وارد کنید',
     },
     dashboard: {
       title: 'داشبورد',
@@ -278,6 +344,24 @@ const translations: Record<Language, Translations> = {
       addNode: 'افزودن سرور ایران',
       addServer: 'افزودن سرور خارجی',
       loadingDashboard: 'در حال بارگذاری داشبورد...',
+      simpleSubtitle: 'وضعیت سرورها و تونل‌ها، ساده و بدون تنظیمات شلوغ.',
+      apiUnavailable: 'وضعیت پنل فعلاً قابل دریافت نیست',
+      apiReachable: 'پاسخ از API پنل دریافت شد',
+      apiErrorHelp: 'دریافت وضعیت جدید موفق نبود. اطلاعات قبلی ممکن است قدیمی باشند. دوباره تلاش کنید؛ این خطا لزوماً به معنی قطع بودن تونل نیست.',
+      refresh: 'به‌روزرسانی',
+      lastUpdated: 'آخرین بررسی',
+      viewNodes: 'مشاهده نودهای ثبت‌شده',
+      stepIran: 'افزودن سرور ایران',
+      stepForeign: 'افزودن سرور خارج',
+      stepTunnel: 'ساخت تونل',
+      simpleSteps: 'شروع سریع',
+      simpleStepsHelp: 'اول نصب هر دو سرور را کامل کنید؛ تنظیم پورت و ساخت تونل بعد از نصب است.',
+      statusUnknown: 'تأیید نشده',
+      added: 'ثبت شده',
+      notAdded: 'ثبت نشده',
+      overview: 'تونل‌های فعال',
+      activeTunnels: 'طبق گزارش پنل',
+      noData: 'اطلاعات منابع سیستم هنوز در دسترس نیست.',
     },
     navigation: {
       dashboard: 'داشبورد',
@@ -290,6 +374,8 @@ const translations: Record<Language, Translations> = {
       logout: 'خروج',
       light: 'روشن',
       dark: 'تاریک',
+      moreTools: 'ابزارهای بیشتر',
+      lessTools: 'بستن ابزارها',
     },
     nodes: {
       title: 'نودهای ایران',
@@ -324,6 +410,14 @@ const translations: Record<Language, Translations> = {
       reapplyAll: 'اعمال مجدد همه',
       confirmReapplyAll: 'آیا از اعمال مجدد همه تونل‌ها مطمئن هستید؟',
       reapplyAllSuccess: 'موفقیت',
+      basicSetupHint: 'اول هر دو سرور را وصل کنید و سپس پورت واقعی Inbound سنایی را وارد کنید.',
+      advancedSettings: 'تنظیمات پیشرفته',
+      hideAdvancedSettings: 'بستن تنظیمات پیشرفته',
+      advancedHelp: 'این گزینه‌ها فقط برای حالت سفارشی، توکن یا روش انتقال متفاوت لازم‌اند. مقادیر قبلی حفظ می‌شوند.',
+      inboundPort: 'پورت Inbound سنایی',
+      missingServers: 'قبل از ساخت تونل، سرور ایران و خارج را ثبت کنید.',
+      invalidPorts: 'پورت‌ها را با اعداد ۱ تا ۶۵۵۳۵ و جداشده با کاما وارد کنید.',
+      creatingTunnel: 'در حال ساخت...',
     },
     coreHealth: {
       title: 'سلامت هسته',

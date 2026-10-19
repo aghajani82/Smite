@@ -9,6 +9,7 @@ on:
       - 'panel/app/routers/node_pairing.py'
       - 'frontend/tsconfig.pairing.json'
       - 'tests/test_node_pairing_http.py'
+      - 'tests/test_node_pairing_reservation.py'
       - 'tests/test_node_pairing_admin_ui.py'
       - '.github/workflows/node-pairing-admin-ui.yml'
   push:
@@ -54,6 +55,8 @@ jobs:
             'passlib[bcrypt]==1.7.4' 'bcrypt==4.0.1' \
             'python-jose[cryptography]==3.3.0'
       - name: Test authenticated capabilities and staged enrollment
-        run: python -B tests/test_node_pairing_http.py -v
+        run: |
+          python -B tests/test_node_pairing_http.py -v
+          python -B tests/test_node_pairing_reservation.py -v
       - name: Check UI security invariants
         run: python -B tests/test_node_pairing_admin_ui.py -v

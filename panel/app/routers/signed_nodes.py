@@ -87,10 +87,8 @@ async def signed_checkin(
     node = await _find_node(node_id, db)
     if not _role_matches(node, report.role):
         raise HTTPException(403, detail="Unauthorized Node")
-    node.last_seen = datetime.utcnow()
-    node.status = "active"
-    await db.commit()
-
+    # Do not mark a Node active until ALL admission checks are successful.
+    # A 503 from invalid Panel FRP config must leave a reserved KH pending.
     # Signed response over verified TLS. Never pull FRP endpoint from a
     # self-asserted Node-supplied address as the legacy route currently does.
     meta = {}
@@ -110,6 +108,17 @@ async def signed_checkin(
             "enabled": True, "server_addr": host,
             "server_port": port, "token": token,
         }
+    # Only authenticated HMAC check-in (not admin reservation) clears the
+    # operator UI's "Waiting for pairing" marker. No partial DB transition
+    # if the FRP host, port or token is unavailable.
+    if (node.node_metadata or {}).get("provisioning") == "reserved_for_pairing":
+        metadata = dict(node.node_metadata or {})
+        metadata["provisioning"] = "signed_checkin"
+        node.node_metadata = metadata
+        flag_modified(node, "node_metadata")
+    node.last_seen = datetime.utcnow()
+    node.status = "active"
+    await db.commit()
     return {"id": node.id, "status": "active", "metadata": meta}
 
 
@@ -137,6 +146,10 @@ async def signed_gateway_check(
         raise HTTPException(403, detail="Unauthorized Node")
     node = await _find_node(node_id, db)
     meta = node.node_metadata or {}
+    # A redeemed pairing code is not a completed signed registration.
+    # Never perform an outbound readiness probe on a pending/legacy Node.
+    if node.status != "active" or meta.get("provisioning") != "signed_checkin":
+        return {"status": "ok", "gateway_ready": False}
     try:
         pin = approved_node(node_id)
     except ApprovedOriginUnavailable:
@@ -146,7 +159,8 @@ async def signed_gateway_check(
         pin["role"] != "foreign"
         or meta.get("role") != "foreign"
         or pin["node_name"] != report.node_name
-        or (node.name != report.node_name and meta.get("node_name") != report.node_name)
+        or node.name != report.node_name
+        or meta.get("node_name") != report.node_name
         or not control_url_matches(pin, report.control_url)
     ):
         return {"status": "ok", "gateway_ready": False}
@@ -173,6 +187,10 @@ async def signed_frp_status(
     metadata = dict(node.node_metadata or {})
     if not _role_matches(node, metadata.get("role", "")):
         raise HTTPException(403, detail="Unauthorized Node")
+    # Signed FRP telemetry is never a substitute for authenticated
+    # registration. Otherwise a paired-but-pending KH could look connected.
+    if node.status != "active" or metadata.get("provisioning") != "signed_checkin":
+        raise HTTPException(403, detail="Signed Node registration incomplete")
     metadata["frp_connected"] = report.connected
     if report.connected:
         metadata["frp_remote_port"] = report.remote_port

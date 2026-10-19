@@ -9,6 +9,8 @@ on:
       - 'panel/**'
       - 'node/**'
       - 'frontend/**'
+      - 'tests/stage16_isolated_firstboot.sh'
+      - 'tests/stage23_node_identity_rollback.sh'
       - 'tests/stage15_offline_bundle.py'
       - 'tests/test_stage15_offline_bundle.py'
       - '.github/workflows/stage15-offline-image-bundles.yml'
@@ -53,6 +55,14 @@ jobs:
             docker rm "$cid"
             python3 -B tests/image_auth_smoke.py --role "$role" --root "$RUNNER_TEMP/image-$role/app"
           done
+      - name: Gate archive creation on isolated Panel + Node first boot
+        shell: bash
+        run: bash tests/stage16_isolated_firstboot.sh
+      - name: Gate archives on immutable Node identity and signed/paused rollback
+        if: github.event_name == 'pull_request'
+        shell: bash
+        run: bash tests/stage23_node_identity_rollback.sh
+
       - name: Save offline images with source and SHA256 manifest
         shell: bash
         run: |
@@ -71,7 +81,7 @@ jobs:
           sha256sum "$RUNNER_TEMP/stage15-bundle/stage15-images.json"
           echo "NO_GHCR_PUSH=YES"
           echo "NO_RELEASE_TAG=YES"
-          echo "NO_CONTAINER_START=YES"
+          echo "ONLY_ISOLATED_CI_FIRSTBOOT=YES"
           echo "NO_IR_KH_INSTALL=YES"
       - name: Upload disposable untrusted test images (3-day retention)
         uses: actions/upload-artifact@v4
