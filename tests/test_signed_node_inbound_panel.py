@@ -447,6 +447,35 @@ class SignedInboundTest(unittest.TestCase):
         body, headers = self.request(path=path, data=params)
         self.assertEqual(self.client.post(path, content=body, headers=headers).status_code, 503)
 
+    def test_stale_signed_frp_hint_cannot_fake_connected_status(self):
+        """An authenticated failure beats last known FRP telemetry."""
+        initialize_replay_schema(self.db_path)
+        body, headers = self.request()
+        self.assertEqual(
+            self.client.post("/api/node-control/register",
+                             content=body, headers=headers).status_code, 200
+        )
+        with sqlite3.connect(self.db_path) as database:
+            database.execute(
+                "UPDATE nodes SET metadata=? WHERE id=?",
+                (json.dumps({"role": "foreign", "node_name": "node-kh",
+                             "provisioning": "signed_checkin",
+                             "frp_connected": True, "frp_remote_port": 18476}),
+                 self.node_id),
+            )
+        token = auth.create_access_token({"sub": "test-admin"})
+        headers = {"Authorization": "Bearer " + token}
+        with patch("app.routers.nodes.NodeClient.get_tunnel_status",
+                   new_callable=AsyncMock, return_value={
+                       "status": "error", "message": "connection timeout"
+                   }) as probe:
+            response = self.client.get("/api/nodes", headers=headers)
+        self.assertEqual(response.status_code, 200, response.text)
+        data = response.json()[0]
+        self.assertEqual(data["metadata"]["connection_status"], "reconnecting")
+        self.assertNotEqual(data["metadata"]["connection_status"], "connected")
+        probe.assert_awaited_once()
+
     def test_gateway_check_rejects_each_name_mismatch_and_no_probe(self):
         """Both DB Node.name and approved metadata name must match exactly."""
         initialize_replay_schema(self.db_path)

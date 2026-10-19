@@ -212,6 +212,12 @@ async def list_nodes(db: AsyncSession = Depends(get_db)):
                 last_seen=node.last_seen,
                 metadata=metadata,
             )
+        # FRP_connected is merely the LAST heartbeat. In signed mode it
+        # must never override failed authenticated Agent liveness and
+        # mislead the operator into thinking KH is reachable right now.
+        frp_hint = bool(metadata.get("frp_connected")) and (
+            settings.smite_node_registration_mode != "signed"
+        )
         connection_status = "failed"
         try:
             response = await client.get_tunnel_status(node.id, "")
@@ -220,24 +226,24 @@ async def list_nodes(db: AsyncSession = Depends(get_db)):
             else:
                 error_msg = response.get("message", "Node disconnected") if response else "Node not responding"
                 if "timeout" in error_msg.lower() or "connection" in error_msg.lower():
-                    if node.node_metadata and node.node_metadata.get("frp_connected"):
+                    if frp_hint:
                         connection_status = "connected"
                     else:
                         connection_status = "reconnecting"
                 else:
                     connection_status = "failed"
         except httpx.ConnectError:
-            if node.node_metadata and node.node_metadata.get("frp_connected"):
+            if frp_hint:
                 connection_status = "connected"
             else:
                 connection_status = "connecting"
         except httpx.TimeoutException:
-            if node.node_metadata and node.node_metadata.get("frp_connected"):
+            if frp_hint:
                 connection_status = "connected"
             else:
                 connection_status = "reconnecting"
         except Exception:
-            if node.node_metadata and node.node_metadata.get("frp_connected"):
+            if frp_hint:
                 connection_status = "connected"
             else:
                 connection_status = "failed"
