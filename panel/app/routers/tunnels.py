@@ -11,6 +11,8 @@ import time
 from app.database import get_db
 from app.models import Tunnel, Node
 from app.node_client import NodeClient
+from app.config import settings
+from app.engine_admission import engine_pair_readiness, require_engine_ready_pair, ENGINES
 
 
 router = APIRouter()
@@ -136,6 +138,16 @@ def parse_ports_from_spec(spec: dict) -> list:
     return ports if ports else []
 
 
+@router.get("/engines")
+async def engine_readiness(iran_node_id: str = "", foreign_node_id: str = ""):
+    """Read-only signed readiness; no installation or tunnel side effects."""
+    if settings.smite_engine_management_mode != "managed":
+        return {"mode": "legacy", "engines": {name: "unmanaged" for name in ENGINES}}
+    return {"mode": "managed", "engines": await engine_pair_readiness(
+        iran_node_id, foreign_node_id, NodeClient(),
+    )}
+
+
 @router.post("", response_model=TunnelResponse)
 async def create_tunnel(tunnel: TunnelCreate, request: Request, db: AsyncSession = Depends(get_db)):
     """Create a new tunnel and auto-apply it"""
@@ -213,6 +225,16 @@ async def create_tunnel(tunnel: TunnelCreate, request: Request, db: AsyncSession
             result = await db.execute(select(Node).where(Node.id == node_id_to_check))
             node = result.scalar_one_or_none()
     
+    if settings.smite_engine_management_mode == "managed":
+        # Signed HTTPS/443 preflight BEFORE writing any Tunnel DB state.
+        # Bundled binaries are NOT individually installed engines.
+        await require_engine_ready_pair(
+            tunnel.core,
+            iran_node.id if iran_node else (node.id if node else ""),
+            foreign_node.id if foreign_node else "",
+            NodeClient(),
+        )
+
     tunnel_node_id = tunnel.iran_node_id or tunnel.node_id or ""
     
     foreign_node_id_to_store = foreign_node.id if foreign_node else None
