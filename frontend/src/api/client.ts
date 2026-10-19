@@ -20,13 +20,14 @@ api.interceptors.response.use(
     // In particular, do not kick an already signed-in operator out of
     // Settings when they mistype the 2FA setup or disable confirmation.
     const url = String(error.config?.url || '').split('?')[0]
-    const factorInputError = [
+    const authFlowInputError = [
       '/auth/login',
+      '/auth/logout',
       '/auth/2fa/setup',
       '/auth/2fa/enable',
       '/auth/2fa/disable',
     ].some(path => url === path || url === '/api' + path)
-    if (error.response?.status === 401 && !factorInputError) {
+    if (error.response?.status === 401 && !authFlowInputError) {
       localStorage.removeItem('token')
       localStorage.removeItem('username')
       delete api.defaults.headers.common['Authorization']
