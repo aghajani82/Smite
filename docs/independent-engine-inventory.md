@@ -30,6 +30,14 @@ means that FRP, Backhaul, GOST, Rathole, or Chisel is installed.
 - Managed create, spec-changing edit and single/bulk reapply are all
   gated server-side before their side effects. Reapply selects the
   original stored foreign Node, not the first available foreign Node.
+- **Node restart restoration is also an activation path.** In managed
+  mode, restoring previously persisted tunnels refuses a missing,
+  invalid or unready enrollment before launching a tunnel process.
+  Previously saved specifications are retained for future repair;
+  they are not automatically destroyed. Direct internal adapter Apply
+  checks readiness before removing any existing active configuration.
+  Legacy mode retains its existing behavior. These checks are
+  unit-tested in `tests/test_managed_engine_restart.py`.
   GOST (a forward-mode engine) also persists its explicit IR/KH pair
   when managed. No managed engine can be inferred from a bundled binary.
 - UI readiness is a convenience only: the Panel rechecks on requests
@@ -37,6 +45,15 @@ means that FRP, Backhaul, GOST, Rathole, or Chisel is installed.
   inventory does NOT install software, guarantee network reachability,
   validate a 443 route or authorize production activation.
   All public ports and existing Stable tunnels are unchanged.
+
+Isolated U-OPTI CI also starts the real Node API with the reviewed
+source inside a pinned Docker image, network namespace disabled, no
+published ports and strict signed Agent authentication. Before Backhaul
+enrollment, a signed inventory returns `not-installed` and Apply is
+HTTP 409; after a verified enrolled binary it returns `ready`. An
+actual Docker restart preserves inventory and rejects replayed signed
+requests; exact rollback returns to `not-installed`. This is a
+throwaway-runner test, NOT a public 443 route or production deployment.
 
 Never deploy the managed mode to a real VPS until those remaining
 gates and two-host acceptance pass.
