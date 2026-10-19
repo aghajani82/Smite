@@ -241,7 +241,23 @@ async def create_tunnel(tunnel: TunnelCreate, request: Request, db: AsyncSession
             node_id_to_check = tunnel.iran_node_id or tunnel.node_id
             result = await db.execute(select(Node).where(Node.id == node_id_to_check))
             node = result.scalar_one_or_none()
-    
+
+        if settings.smite_engine_management_mode == "managed" and tunnel.core == "gost":
+            # GOST is a forward, not a reverse engine. It still needs an
+            # explicit, persisted IR/KH pair for signed inventory admission.
+            if node is None or (node.node_metadata or {}).get("role") != "iran":
+                raise HTTPException(status_code=400, detail="Select a valid Iran Node for GOST")
+            foreign_node_id_val = tunnel.foreign_node_id or ""
+            result = await db.execute(
+                select(Node).where(Node.id == foreign_node_id_val)
+            )
+            foreign_node = result.scalar_one_or_none()
+            if (foreign_node is None
+                    or (foreign_node.node_metadata or {}).get("role") != "foreign"
+                    or foreign_node.id == node.id):
+                raise HTTPException(status_code=400, detail="Select a valid foreign Node for GOST")
+            iran_node = node
+
     if settings.smite_engine_management_mode == "managed":
         # Signed HTTPS/443 preflight BEFORE writing any Tunnel DB state.
         # Bundled binaries are NOT individually installed engines.
