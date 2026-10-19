@@ -1387,6 +1387,26 @@ class AdapterManager:
                     failed += 1
                     continue
                 
+                # Signed Apply is not the only activation path: persisted
+                # tunnels also restore on Node startup. In managed mode do
+                # not start any engine without a current, verified enrollment.
+                # Leave the saved specification intact for a future approved
+                # reapply after the engine is independently installed.
+                from app.config import settings
+                if settings.smite_engine_inventory_mode == "managed":
+                    from app.engine_inventory import (
+                        require_engine_ready, EngineInventoryUnavailable,
+                    )
+                    try:
+                        require_engine_ready(tunnel_core)
+                    except EngineInventoryUnavailable:
+                        logger.warning(
+                            "Skipping saved tunnel %s: managed engine %s not ready",
+                            tunnel_id, tunnel_core,
+                        )
+                        failed += 1
+                        continue
+
                 adapter = self.get_adapter(tunnel_core)
                 if not adapter:
                     logger.warning(f"Tunnel {tunnel_id}: Unknown core {tunnel_core}, skipping")
@@ -1419,7 +1439,14 @@ class AdapterManager:
         import logging
         logger = logging.getLogger(__name__)
         logger.info(f"Applying tunnel {tunnel_id}: core={tunnel_core}")
-        
+
+        # Defense in depth for future internal callers and restore paths:
+        # reject unavailable engines BEFORE removing a running tunnel.
+        from app.config import settings
+        if settings.smite_engine_inventory_mode == "managed":
+            from app.engine_inventory import require_engine_ready
+            require_engine_ready(tunnel_core)
+
         if tunnel_id in self.active_tunnels:
             logger.info(f"Tunnel {tunnel_id} already exists, removing it first")
             await self.remove_tunnel(tunnel_id)
