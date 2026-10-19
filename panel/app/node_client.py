@@ -185,6 +185,18 @@ class NodeClient:
             except Exception as e:
                 return {"status": "error", "message": f"Error: {str(e)}"}
     
+    async def get_engine_inventory(self, node_id: str) -> Dict[str, Any]:
+        """Explicit signed read-only inventory, with NO legacy fallback.
+
+        The core-only install starts with no enrolled engines. Never infer
+        readiness from the Node image containing bundled binaries.
+        """
+        if settings.smite_panel_agent_auth_mode != "signed":
+            return {"status": "unavailable", "message": "Managed inventory requires signed Node control"}
+        return await self._signed_agent_request(
+            node_id, method="GET", target="/api/agent/engines", timeout=3.0,
+        )
+
     async def get_tunnel_status(self, node_id: str, tunnel_id: str = "") -> Dict[str, Any]:
         """Get tunnel status from node"""
         if settings.smite_panel_agent_auth_mode == "signed":
