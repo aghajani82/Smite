@@ -64,6 +64,12 @@ class ManagedFrpPair(unittest.TestCase):
         server_patcher.start()
         self.addCleanup(server_patcher.stop)
 
+        # CI fixtures are created by the unprivileged GitHub runner; the
+        # actual production requirement stays hardcoded to uid 0.
+        owner_patcher = patch.object(inventory, "ROOT_BINARY_UID", os.geteuid())
+        owner_patcher.start()
+        self.addCleanup(owner_patcher.stop)
+
     def record(self, item):
         self.manifest.write_text(json.dumps({"schema": 1, "engines": {"frp": item}}))
         self.manifest.chmod(0o600)
@@ -93,6 +99,14 @@ class ManagedFrpPair(unittest.TestCase):
         self.assertEqual(self.status(), "ready")
         self.server.unlink()
         self.assertEqual(self.status(), "unavailable")
+
+    def test_non_root_binary_owner_is_denied_in_production_policy(self):
+        self.record({"sha256": self.sha_client, "server_sha256": self.sha_server})
+        self.assertEqual(self.status(), "ready")
+        # Simulate an owner mismatch, including a normal process mounting
+        # binaries created by a different uid.
+        with patch.object(inventory, "ROOT_BINARY_UID", -1):
+            self.assertEqual(self.status(), "unavailable")
 
     def test_client_corrupt_and_server_digest_malformed_rejected(self):
         self.record({"sha256": self.sha_client, "server_sha256": "X" * 64})
