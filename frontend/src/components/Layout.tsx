@@ -24,6 +24,24 @@ const Layout = ({ children }: LayoutProps) => {
     ['/core-health', '/logs', '/settings'].includes(window.location.pathname)
   )
   const [version, setVersion] = useState('v0.1.0')
+  const [loggingOut, setLoggingOut] = useState(false)
+  const [logoutFailed, setLogoutFailed] = useState(false)
+
+  const handleLogout = async () => {
+    if (loggingOut) return
+    setLoggingOut(true)
+    setLogoutFailed(false)
+    try {
+      const revoked = await logout()
+      if (revoked) {
+        navigate('/login')
+      } else {
+        setLogoutFailed(true)
+      }
+    } finally {
+      setLoggingOut(false)
+    }
+  }
 
   useEffect(() => {
     localStorage.setItem('darkMode', JSON.stringify(darkMode))
@@ -184,15 +202,24 @@ const Layout = ({ children }: LayoutProps) => {
               </div>
               <div className="px-4">
                 <button
-                  onClick={() => {
-                    logout()
-                    navigate('/login')
-                  }}
-                  className="w-full flex items-center justify-center gap-2 text-red-600 dark:text-red-400 hover:text-red-700 dark:hover:text-red-300 transition-colors"
+                  onClick={() => void handleLogout()}
+                  disabled={loggingOut}
+                  title={language === 'fa' ? 'خروج از تمام دستگاه‌ها' : 'Sign out on all devices'}
+                  className="w-full flex items-center justify-center gap-2 text-red-600 dark:text-red-400 hover:text-red-700 dark:hover:text-red-300 transition-colors disabled:opacity-50"
                 >
                   <LogOut size={18} />
-                  <span className="text-sm font-medium">{t.navigation.logout}</span>
+                  <span className="text-sm font-medium">{loggingOut ? (language === 'fa' ? 'در حال خروج…' : 'Signing out…') : t.navigation.logout}</span>
                 </button>
+                <p className="mt-1 text-center text-xs text-gray-500 dark:text-gray-400">
+                  {language === 'fa' ? 'خروج از همه دستگاه‌ها' : 'Sign out on all devices'}
+                </p>
+                {logoutFailed && (
+                  <p role="alert" className="mt-2 text-xs text-red-600 dark:text-red-400 text-center">
+                    {language === 'fa'
+                      ? 'ارتباط با سرور برقرار نشد. خروج انجام نشده؛ دوباره تلاش کنید.'
+                      : 'Server unreachable. Sign-out was not completed; please retry.'}
+                  </p>
+                )}
               </div>
             </div>
             <div className="flex flex-col items-center gap-2 text-xs text-gray-500 dark:text-gray-400 pt-2 border-t border-gray-200 dark:border-gray-700">
