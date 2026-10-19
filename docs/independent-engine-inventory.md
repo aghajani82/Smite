@@ -75,5 +75,26 @@ throwaway-runner test, NOT a public 443 route or production deployment.
   API under Docker Compose force-recreation. These results are **not**
   permission to rebuild a live IR/KH machine.
 
+## FRP is now an explicit TWO-binary engine (managed preview)
+
+- The `frp` engine has **two independent role binaries**:
+  `/usr/local/bin/frpc` and `/usr/local/bin/frps`. A managed FRP
+  manifest can enroll both exact SHA-256 values using
+  `{"sha256":"<frpc digest>","server_sha256":"<frps digest>"}`.
+- `ready` requires both files to be root-owned, executable, not
+  group/world-writable, not symlinks and matching **both** digests.
+  Client-only legacy manifest metadata remains parseable but returns
+  **`unavailable`**, not a false readiness claim.
+- Backhaul enrollment and FRP enrollment are separate. The Smite
+  Panel still defines user tunnel protocol, inbound port and path
+  after software installation and pairing; `ready` is not evidence
+  that a network tunnel is connected.
+- GitHub PR tests `tests/test_managed_frp_pair.py` cover the
+  both-ready case, frpc-only fail-closed behavior, missing/tampered
+  frps, malformed digest and *no Backhaul required*.
+- This checks **inventory readiness**, not host install approval:
+  U-OPTI's real-host installation and rollback must remain HOLD
+  until reviewed two-host tests and recovery admission pass.
+
 Never deploy the managed mode to a real VPS until those remaining
 gates and two-host acceptance pass.
