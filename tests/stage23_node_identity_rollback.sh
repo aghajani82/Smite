@@ -121,6 +121,24 @@ PY
 stop_node
 echo "STAGE23_MISSING_IDENTITY_SIGNED=FAIL_CLOSED"
 
+# Phase 2.5: deliberate, one-time offline bootstrap BEFORE the first
+# authenticated Agent request. The Node runtime itself must never create a
+# missing replay database. All mounts and files are disposable PR CI state.
+docker run --rm -i --network none --read-only \
+  --security-opt no-new-privileges --cap-drop ALL --pids-limit 64 \
+  --mount "type=bind,source=$lab/identity,target=/run/smite-node-identity,readonly" \
+  --mount "type=bind,source=$lab/replay,target=/var/lib/smite-node/auth" \
+  --entrypoint python3 "$image" - <<'PY'
+from app.agent_auth import DurableNonceStore, read_identity
+node_id, _secret = read_identity("/run/smite-node-identity/node-identity.json")
+assert node_id == "stage23-kh-reserved-0001"
+DurableNonceStore.initialize_new(
+    "/var/lib/smite-node/auth/agent-replay.sqlite3", node_id)
+PY
+sudo test -s "$lab/replay/agent-replay.sqlite3"
+test "$(sudo stat -c %a "$lab/replay/agent-replay.sqlite3")" = 600
+echo "STAGE23_OFFLINE_REPLAY_BOOTSTRAP=PASS"
+
 # Phase 3: Paired identity visible INSIDE Node, but mount is immutable.
 start_node signed yes
 docker exec -i "$cid" python3 - <<'PY'
