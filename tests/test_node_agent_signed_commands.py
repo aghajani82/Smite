@@ -61,6 +61,7 @@ class AgentGuardTest(unittest.TestCase):
         self.replay = replay_dir / "replay.sqlite3"
         self.node_id = "bbbbbbbb-1111-2222-3333-444444444444"
         self.secret = "b" * 64
+        DurableNonceStore.initialize_new(self.replay, self.node_id)
         self.ident.write_text(json.dumps({
             "node_id": self.node_id, "node_secret": self.secret, "version": 1
         }))
@@ -270,6 +271,47 @@ class AgentGuardTest(unittest.TestCase):
         self.assertEqual(self.client.get(
             "/api/agent/status", headers=headers
         ).status_code, 503)
+
+    def test_replay_file_loss_never_silently_reinitializes(self):
+        # First commit a real signed nonce to durable SQLite.
+        body, headers = self.signed("GET", "/api/agent/status", nonce="e" * 32)
+        self.assertEqual(self.client.get("/api/agent/status", headers=headers).status_code, 200)
+        self.replay.unlink()
+        self.assertFalse(self.replay.exists())
+        # Even a perfectly signed request MUST fail closed (503).
+        fresh, new_headers = self.signed("GET", "/api/agent/status", nonce="d" * 32)
+        self.assertEqual(self.client.get("/api/agent/status", headers=new_headers).status_code, 503)
+        # The original nonce cannot be given a new blank store.
+        self.assertEqual(self.client.get("/api/agent/status", headers=headers).status_code, 503)
+        self.assertFalse(self.replay.exists())
+        # No request-side provisioning, even after a new FastAPI app.
+        replacement = FastAPI()
+        replacement.state.adapter_manager = FakeAdapters()
+        replacement.include_router(router, prefix="/api/agent")
+        with TestClient(replacement) as restarted:
+            self.assertEqual(restarted.get("/api/agent/status", headers=new_headers).status_code, 503)
+        self.assertFalse(self.replay.exists())
+
+    def test_initialization_is_explicit_nonrepeatable_and_node_bound(self):
+        with self.assertRaises(AgentAuthUnavailable):
+            DurableNonceStore.initialize_new(self.replay, self.node_id)
+        self.assertTrue(self.replay.exists())
+        with self.assertRaises(AgentAuthUnavailable):
+            DurableNonceStore(self.replay).register(
+                "other-node-id", "a" * 32, int(time.time()))
+        # The original enrollment remains usable after mismatched access.
+        self.assertTrue(DurableNonceStore(self.replay).register(
+            self.node_id, "b" * 32, int(time.time())))
+
+    def test_empty_schema_and_symlinked_store_fail_closed(self):
+        self.replay.unlink()
+        self.replay.write_bytes(b"")
+        self.replay.chmod(0o600)
+        _, headers = self.signed("GET", "/api/agent/status", nonce="c" * 32)
+        self.assertEqual(self.client.get("/api/agent/status", headers=headers).status_code, 503)
+        self.replay.unlink()
+        self.replay.symlink_to(self.ident)
+        self.assertEqual(self.client.get("/api/agent/status", headers=headers).status_code, 503)
 
     def test_atomic_replay_under_parallel_attempts(self):
         store = DurableNonceStore(self.replay)
