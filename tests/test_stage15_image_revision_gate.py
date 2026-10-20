@@ -95,7 +95,13 @@ class RevisionGateTest(unittest.TestCase):
             job = parts[1].split("\n  build-", 1)[0]
             self.assertIn("docker/build-push-action@v5", job)
             self.assertIn(f"file: ./{role}/Dockerfile", job)
-            self.assertIn("push: true", job)
+            self.assertIn(
+                "outputs: type=image,name=${{ env.REGISTRY }}/"
+                "${{ needs.prepare.outputs.image_prefix }}-" + role +
+                ",push-by-digest=true,name-canonical=true,push=true", job
+            )
+            self.assertNotIn("tags: ", job)
+            self.assertNotIn("push: true", job)
             self.assertIn("SMITE_SOURCE_SHA=${{ github.sha }}", job)
 
     def test_cli_untrusted_file_and_wrong_source_hold(self):
