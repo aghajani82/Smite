@@ -40,6 +40,57 @@ again.
   symlink, duplicate initialization, and normal replay concurrency.
   The existing legacy mode remains the default and unchanged.
 
+## First paired-Node provisioning: now implemented, offline and opt-in (2026-10-20)
+
+[Existing Smite Draft #16](https://github.com/aghajani82/Smite/pull/16)
+now includes `node/app/replay_enrollment.py` and negative regression
+`tests/test_replay_enrollment_offline.py`. This is **not** an HTTP
+endpoint, server startup hook, automatic pairing or an enabled release.
+
+1. The operator must **already** have a paired private Node identity,
+   with strict 0600 file, owned by the current Node process UID, inside a
+   0700 owned, persistent identity directory. The replay database lives
+   in a **separate** 0700 owned persistent directory. Both paths must be
+   absolute and neither existing state nor symlinks may be overwritten.
+2. **Explicit** `--confirm-first-provision` is mandatory. The helper
+   reads the existing Node ID without printing its secret.
+3. Before creating any SQLite file it durably writes a 0600
+   `replay-enrollment.json` marker **next to the identity**, on the
+   identity's independent persisted volume; this contains only schema,
+   Node ID and replay path. It is **not a credential**.
+4. Only then call the reviewed `DurableNonceStore.initialize_new()`.
+   The helper checks the same paired identity still exists and that
+   the created SQLite identity matches the approved Node.
+5. Any existing marker, database or ambiguous permissions result in
+   **HOLD**. A partially failed first enrollment keeps the marker and
+   any SQLite state for **manual review**. No automatic deletion,
+   recreation, key rotation or recovery command exists.
+6. The marker survives loss of the **replay DB volume alone** if the
+   independent identity volume survives, so a second attempt cannot
+   misinterpret DB loss as first boot. Loss/rollback of **both** volumes
+   and stale **same-Node** replay snapshots remain unresolved risks.
+
+No command should be run on current IR/KH. For a separately approved,
+disposable **KH sandbox** only, the future operator invocation format is:
+
+```bash
+# KH — APPROVED DISPOSABLE SANDBOX ONLY. NOT FOR LIVE IR/KH.
+python3 -m app.replay_enrollment \
+  --identity /etc/smite-node/identity/node-identity.json \
+  --replay-db /var/lib/smite-node/auth/agent-replay.sqlite3 \
+  --confirm-first-provision
+```
+
+Both parent locations must already be securely mounted, writable,
+owned and 0700; **this tool does not create those mounts or directories**.
+It does NOT change `SMITE_AGENT_AUTH_MODE` from its default `legacy`,
+restart services, reach the Panel, or authorize activation.
+
+CI checks explicit opt-in, no secret logging, first bootstrap success,
+one-time denial, later DB-loss rejection, failure halfway through
+provisioning, unsafe permissions/symlinks and valid signed nonce replay
+persistence. This is supported by the existing strict Agent test workflow.
+
 ## Recovery policy, **not** yet implemented
 
 Never fix a missing/failed nonce database by silently creating a new
@@ -54,9 +105,10 @@ the paired key before admitting traffic. The HTTP status remains 503
 until an independently approved recovery is finished.
 
 Do not provision this on current IR/KH nodes. The existing U-OPTI
-installer and container mounts do not yet integrate a privileged,
-idempotent first-enrollment and restore lifecycle. The Node
-`node/app/agent_auth.py` primitive is not a production installer.
+installer and container mounts do not yet integrate this **explicit**
+operator-only bootstrap, mount admission or a safe **restore lifecycle**.
+The new `node/app/replay_enrollment.py` tool is an offline first-boot
+primitive, NOT a production installer or recovery procedure.
 
 ## Remaining limitations
 
