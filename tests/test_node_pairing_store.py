@@ -81,6 +81,66 @@ class PairingStoreTest(unittest.TestCase):
         with self.assertRaises(store.PairingDenied):
             self.redeem(approval.code)
 
+    def test_offline_master_recovers_both_active_and_revoked_rows_without_modifying_db(self):
+        self.redeem(self.issue().code)
+        self.redeem(self.issue(node_id=self.kh, role="foreign").code,
+                    node_id=self.kh, role="foreign")
+        self.assertTrue(store.revoke_node(self.db, node_id=self.ir, now=self.now + 3))
+        self.db.chmod(0o600)
+        before = self.db.read_bytes()
+        self.assertEqual(store.validate_restored_pairing_master(
+            self.db, master_key=self.master), 2)
+        self.assertEqual(before, self.db.read_bytes())
+        with self.assertRaises(store.PairingDenied):
+            store.validate_restored_pairing_master(
+                self.db, master_key=self.other_master)
+        self.assertEqual(before, self.db.read_bytes())
+
+    def test_offline_master_rejects_corruption_empty_or_missing_store(self):
+        self.redeem(self.issue().code)
+        self.db.chmod(0o600)
+        with sqlite3.connect(self.db) as conn:
+            conn.execute("UPDATE smite_node_identities SET encrypted_secret='damaged'")
+        with self.assertRaises(store.PairingDenied):
+            store.validate_restored_pairing_master(
+                self.db, master_key=self.master)
+        with sqlite3.connect(self.db) as conn:
+            conn.execute("DELETE FROM smite_node_identities")
+        with self.assertRaises(store.PairingDenied):
+            store.validate_restored_pairing_master(
+                self.db, master_key=self.master)
+        self.db.unlink()
+        with self.assertRaises(store.PairingDenied):
+            store.validate_restored_pairing_master(
+                self.db, master_key=self.master)
+        self.assertFalse(self.db.exists())
+
+    def test_offline_master_rejects_unsafe_or_hot_database(self):
+        self.redeem(self.issue().code)
+        self.db.chmod(0o600)
+        run = lambda: store.validate_restored_pairing_master(
+            self.db, master_key=self.master)
+        self.assertEqual(run(), 1)
+        self.db.chmod(0o644)
+        with self.assertRaises(store.PairingDenied):
+            run()
+        self.db.chmod(0o600)
+        alias = Path(self.work.name) / "alias.db"
+        alias.symlink_to(self.db)
+        with self.assertRaises(store.PairingDenied):
+            store.validate_restored_pairing_master(
+                alias, master_key=self.master)
+        for suffix in ("-wal", "-shm", "-journal"):
+            sidecar = Path(str(self.db) + suffix)
+            sidecar.write_bytes(b"unreviewed")
+            with self.assertRaises(store.PairingDenied):
+                run()
+            sidecar.unlink()
+        with sqlite3.connect(self.db) as conn:
+            conn.execute("PRAGMA journal_mode=WAL")
+        with self.assertRaises(store.PairingDenied):
+            run()
+
     def test_wrong_node_or_role_does_not_consume_code(self):
         approval = self.issue()
         with self.assertRaises(store.PairingDenied):
