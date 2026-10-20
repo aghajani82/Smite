@@ -14,7 +14,8 @@ hold() { echo "HOLD: $*" >&2; exit 2; }
 
 [[ "${GITHUB_REPOSITORY,,}" == "aghajani82/smite" ]] || hold "Unexpected repository"
 [[ "${GITHUB_REPOSITORY_OWNER,,}" == "aghajani82" ]] || hold "Unexpected owner"
-[[ "$GITHUB_REF" =~ ^refs/heads/(main|next|beta|tst)$ || "$GITHUB_REF" =~ ^refs/tags/v[0-9][a-zA-Z0-9._-]*$ ]] || hold "Unapproved publication ref"
+[[ "${GITHUB_EVENT_NAME:-}" == "workflow_dispatch" ]] || hold "Only manually dispatched publishing is authorized"
+[[ "$GITHUB_REF" =~ ^refs/tags/v[0-9]+\.[0-9]+\.[0-9]+(-[A-Za-z0-9][A-Za-z0-9.-]*)?$ ]] || hold "Only reviewed version tags may be signed"
 [[ "$GITHUB_SHA" =~ ^[a-f0-9]{40}$ ]] || hold "Source SHA must be immutable commit"
 [[ "$SMITE_IMAGE_ROLE" == "panel" || "$SMITE_IMAGE_ROLE" == "node" ]] || hold "Invalid image role"
 [[ "$SMITE_IMAGE_DIGEST" =~ ^sha256:[a-f0-9]{64}$ ]] || hold "Missing immutable registry digest"
