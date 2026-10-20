@@ -6,6 +6,9 @@ commands, GitHub deployment, or VPS access.
 from concurrent.futures import ThreadPoolExecutor
 import importlib.util
 import json
+import os
+import subprocess
+import sys
 from pathlib import Path
 import sqlite3
 import tempfile
@@ -159,6 +162,92 @@ class PairingStoreTest(unittest.TestCase):
             store.get_active_secret(self.db, master_key=self.master, node_id=self.ir)
         with self.assertRaises(store.PairingDenied):
             self.issue()
+
+
+    def test_revocation_cancels_stale_codes_in_same_transaction(self):
+        code = self.issue()
+        credential = self.redeem(code.code)
+        # Recreate an unsafe outstanding row in the isolated fixture, as
+        # could occur after a partial old snapshot: revocation must consume it.
+        with sqlite3.connect(self.db) as conn:
+            conn.execute(
+                "UPDATE smite_node_pairing_codes SET consumed_at=NULL "
+                "WHERE node_id=?", (self.ir,)
+            )
+        self.assertTrue(store.revoke_node(self.db, node_id=self.ir, now=self.now + 7))
+        with sqlite3.connect(self.db) as conn:
+            self.assertEqual(conn.execute(
+                "SELECT COUNT(*) FROM smite_node_pairing_codes "
+                "WHERE node_id=? AND consumed_at IS NULL", (self.ir,)
+            ).fetchone()[0], 0)
+            self.assertEqual(conn.execute(
+                "SELECT revoked_at FROM smite_node_identities WHERE node_id=?",
+                (self.ir,),
+            ).fetchone()[0], self.now + 7)
+        with self.assertRaises(store.PairingDenied):
+            self.redeem(code.code)
+        with self.assertRaises(store.PairingDenied):
+            store.get_active_secret(self.db, master_key=self.master, node_id=self.ir)
+        self.assertNotIn(credential.secret.encode(), self.db.read_bytes())
+
+    def test_revoke_missing_db_never_recreates_it(self):
+        missing = Path(self.work.name) / "missing-panel.sqlite3"
+        with self.assertRaises(store.PairingDenied):
+            store.revoke_node(missing, node_id=self.ir)
+        self.assertFalse(missing.exists())
+
+    def test_operator_cli_requires_pause_backup_fresh_uuid_and_private_db(self):
+        code = self.issue()
+        old = self.redeem(code.code).secret
+        self.db.chmod(0o600)
+        cmd = [sys.executable, "-B", str(PATH),
+               "--database", str(self.db), "--node-id", self.ir]
+        no_permission = subprocess.run(
+            cmd, capture_output=True, text=True, timeout=10
+        )
+        self.assertEqual(no_permission.returncode, 2)
+        self.assertFalse(store.revoke_node(
+            self.db, node_id="not-enrolled-node", now=self.now + 1
+        ))
+        approved = cmd + [
+            "--confirm-signed-panel-and-node-paused",
+            "--confirm-reviewed-panel-db-backup",
+            "--confirm-replacement-uses-new-node-id",
+        ]
+        first = subprocess.run(
+            approved, capture_output=True, text=True, timeout=10
+        )
+        self.assertEqual(first.returncode, 0, first.stderr)
+        self.assertIn("SAME_NODE_ID_REKEY=FORBIDDEN", first.stdout)
+        self.assertIn("RELEASE_OR_ACTIVATION_AUTHORIZED=NO", first.stdout)
+        self.assertNotIn(old, first.stdout + first.stderr)
+        with self.assertRaises(store.PairingDenied):
+            store.get_active_secret(self.db, master_key=self.master, node_id=self.ir)
+        second = subprocess.run(
+            approved, capture_output=True, text=True, timeout=10
+        )
+        self.assertEqual(second.returncode, 2)
+        self.assertIn("HOLD", second.stderr)
+
+    def test_cli_rejects_world_readable_or_symlinked_panel_db(self):
+        self.redeem(self.issue().code)
+        approved = [sys.executable, "-B", str(PATH),
+                    "--database", str(self.db), "--node-id", self.ir,
+                    "--confirm-signed-panel-and-node-paused",
+                    "--confirm-reviewed-panel-db-backup",
+                    "--confirm-replacement-uses-new-node-id"]
+        unsafe = subprocess.run(approved, capture_output=True, text=True, timeout=10)
+        self.assertEqual(unsafe.returncode, 2)
+        alias = Path(self.work.name) / "alias.db"
+        alias.symlink_to(self.db)
+        self.db.chmod(0o600)
+        cmd = approved.copy()
+        cmd[cmd.index(str(self.db))] = str(alias)
+        symlink = subprocess.run(cmd, capture_output=True, text=True, timeout=10)
+        self.assertEqual(symlink.returncode, 2)
+        self.assertEqual(store.get_active_secret(
+            self.db, master_key=self.master, node_id=self.ir
+        ).__len__(), 64)
 
     def test_schema_reentrant_and_no_wiring_to_live_endpoints(self):
         store.initialize_schema(self.db)

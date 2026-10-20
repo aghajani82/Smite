@@ -9,12 +9,16 @@ Smite's admin JWT secret. Never store the master key in the SQLite database.
 from __future__ import annotations
 
 from dataclasses import dataclass
+import argparse
 from contextlib import closing
 import hashlib
 import json
+import os
 from pathlib import Path
 import re
 import secrets
+import stat
+import sys
 import sqlite3
 import time
 
@@ -263,18 +267,94 @@ def get_active_secret(
 def revoke_node(
     database_path: str | Path, *, node_id: str, now: int | None = None
 ) -> bool:
-    """Atomic revocation; future credential reads must fail."""
+    """Atomic irreversible old-Node revocation + outstanding-code cancellation.
+
+    A revoked Node ID can NEVER receive a fresh secret through issue_code.
+    Recovery uses a NEW admin-approved Node ID plus fresh identity/replay
+    storage; no silent in-place same-ID key replacement is offered.
+    This function NEVER creates a missing Panel database.
+    """
     _validate_node_id(node_id)
-    with closing(_open_database(database_path)) as conn:
-        conn.execute("BEGIN IMMEDIATE")
-        try:
-            result = conn.execute(
-                "UPDATE smite_node_identities SET revoked_at = ? "
-                "WHERE node_id = ? AND revoked_at IS NULL",
-                (_now(now), node_id),
-            )
-            conn.commit()
-            return result.rowcount == 1
-        except Exception:
-            conn.rollback()
-            raise
+    path = Path(database_path)
+    if path.is_symlink() or not path.is_file():
+        raise PairingDenied("Existing Panel database required")
+    try:
+        with closing(sqlite3.connect(
+            path.absolute().as_uri() + "?mode=rw",
+            timeout=15, isolation_level=None, uri=True,
+        )) as conn:
+            conn.execute("PRAGMA busy_timeout=15000")
+            conn.execute("BEGIN IMMEDIATE")
+            try:
+                current = _now(now)
+                result = conn.execute(
+                    "UPDATE smite_node_identities SET revoked_at = ? "
+                    "WHERE node_id = ? AND revoked_at IS NULL",
+                    (current, node_id),
+                )
+                if result.rowcount != 1:
+                    conn.rollback()
+                    return False
+                # In the SAME transaction, consume even stale or replayed
+                # outstanding pairing codes for this irrevocably old Node.
+                conn.execute(
+                    "UPDATE smite_node_pairing_codes SET consumed_at = ? "
+                    "WHERE node_id = ? AND consumed_at IS NULL",
+                    (current, node_id),
+                )
+                conn.commit()
+                return True
+            except BaseException:
+                conn.rollback()
+                raise
+    except sqlite3.Error as exc:
+        raise PairingDenied("Cannot atomically revoke Node credential") from exc
+
+
+def main(argv: list[str] | None = None) -> int:
+    """Explicit offline one-way operator command; NEVER called from routes."""
+    parser = argparse.ArgumentParser(
+        description="Offline revoke old paired Node; NEVER a same-ID key rotation"
+    )
+    parser.add_argument("--database", type=Path, required=True)
+    parser.add_argument("--node-id", required=True)
+    parser.add_argument("--confirm-signed-panel-and-node-paused", action="store_true")
+    parser.add_argument("--confirm-reviewed-panel-db-backup", action="store_true")
+    parser.add_argument("--confirm-replacement-uses-new-node-id", action="store_true")
+    args = parser.parse_args(argv)
+    if not all((
+        args.confirm_signed_panel_and_node_paused,
+        args.confirm_reviewed_panel_db_backup,
+        args.confirm_replacement_uses_new_node_id,
+    )):
+        print("HOLD: Maintenance pause, reviewed backup and new UUID approval required",
+              file=sys.stderr)
+        return 2
+    path = args.database
+    try:
+        if not path.is_absolute() or ".." in path.parts:
+            raise PairingDenied("Absolute Panel DB path required")
+        meta = path.lstat()
+        parent = path.parent.lstat()
+        if (not stat.S_ISREG(meta.st_mode) or meta.st_uid != os.geteuid()
+                or meta.st_nlink != 1 or stat.S_IMODE(meta.st_mode) & 0o077
+                or not stat.S_ISDIR(parent.st_mode)
+                or parent.st_uid != os.geteuid()
+                or stat.S_IMODE(parent.st_mode) & 0o077):
+            raise PairingDenied("Panel DB and directory must be private and owned")
+        if not revoke_node(path, node_id=args.node_id):
+            raise PairingDenied("Old Node not active or already revoked")
+    except (PairingDenied, OSError) as exc:
+        print("HOLD: " + str(exc), file=sys.stderr)
+        return 2
+    print("OLD_PANEL_NODE_ID=REVOKED")
+    print("OUTSTANDING_PAIRING_CODES=INVALIDATED")
+    print("SAME_NODE_ID_REKEY=FORBIDDEN")
+    print("OLD_NODE_SIGNED_TRAFFIC_RESUMPTION=NO")
+    print("FRESH_NODE_UUID_AND_REPLAY_ENROLLMENT=SEPARATE_OPERATOR_APPROVAL")
+    print("RELEASE_OR_ACTIVATION_AUTHORIZED=NO")
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

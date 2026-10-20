@@ -73,3 +73,39 @@ migration step, after database backup. It is not run at import or startup.
 - Only after proof, enable fail-closed Node authentication (no legacy bypass).
 
 No server changes are made by this GitHub branch.
+
+## Safe recovery decision — 2026-10-20 (existing Draft #16)
+
+Use the **new Node ID** recovery model rather than attempting to swap
+HMAC secrets beneath an existing Node UUID. `node/app/agent_auth.py`
+already rejects an unexpected same-ID key change after enrollment.
+
+This existing pairing store now makes `revoke_node` atomically revoke the
+old encrypted credential **and consume all outstanding pairing codes**
+for that UUID in the same SQLite transaction; a missing database is not
+automatically created. The old UUID is permanently ineligible for new
+pairing through the current code. Once revoked, both Panel→Node signing
+and Node→Panel signature lookup fail closed for the old UUID.
+
+An **explicit offline-only operator command** is available through
+`python3 -m app.node_pairing_store` with three distinct flags confirming
+that both Panel and Node signers are paused, Panel database backup was
+reviewed, and the replacement gets a new Node ID. It also checks file
+ownership and private permissions. The flags are an *operator assertion*,
+not cryptographic proof of maintenance state; no automatic pause, unlock,
+replacement UUID allocation, Node enrolment or service restart occurs.
+No command is to be executed on current IR/KH without separate permission.
+
+Recovery must preserve the old revoked Panel row as an audit/tombstone,
+back up independent identity and replay volumes, reserve **a genuinely new
+UUID** through the existing admin workflow, provision one new per-Node
+secret via verified TLS and bootstrap a fresh replay store with its own
+key-binding marker. The operator must separately verify the Panel and Node
+match; do not reuse the old Node ID, replay DB, markers or secret.
+
+**No production recovery/re-key is approved yet.** A combined old-state
+snapshot rollback can resurrect a revoked key, and even this command
+cannot prevent rollback if the Panel DB and both Node volumes are restored
+together. A trustworthy independent rollback witness, real two-host
+acceptance and verified Panel Fernet master backup are still release gates.
+
