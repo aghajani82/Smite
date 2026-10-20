@@ -103,22 +103,13 @@ jobs:
           username: ${{ github.repository_owner }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Extract metadata for panel image
-        id: meta-panel
-        uses: docker/metadata-action@v5
-        with:
-          images: ${{ env.REGISTRY }}/${{ needs.prepare.outputs.image_prefix }}-panel
-          tags: |
-            type=raw,value=${{ needs.prepare.outputs.version }}
       - name: Build and push panel image
         id: pushed-panel
         uses: docker/build-push-action@v5
         with:
           context: .
           file: ./panel/Dockerfile
-          push: true
-          tags: ${{ steps.meta-panel.outputs.tags }}
-          labels: ${{ steps.meta-panel.outputs.labels }}
+          outputs: type=image,name=${{ env.REGISTRY }}/${{ needs.prepare.outputs.image_prefix }}-panel,push-by-digest=true,name-canonical=true,push=true
           build-args: |
             SMITE_VERSION=${{ needs.prepare.outputs.version }}
             SMITE_SOURCE_SHA=${{ github.sha }}
@@ -175,22 +166,13 @@ jobs:
           username: ${{ github.repository_owner }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Extract metadata for node image
-        id: meta-node
-        uses: docker/metadata-action@v5
-        with:
-          images: ${{ env.REGISTRY }}/${{ needs.prepare.outputs.image_prefix }}-node
-          tags: |
-            type=raw,value=${{ needs.prepare.outputs.version }}
       - name: Build and push node image
         id: pushed-node
         uses: docker/build-push-action@v5
         with:
           context: ./node
           file: ./node/Dockerfile
-          push: true
-          tags: ${{ steps.meta-node.outputs.tags }}
-          labels: ${{ steps.meta-node.outputs.labels }}
+          outputs: type=image,name=${{ env.REGISTRY }}/${{ needs.prepare.outputs.image_prefix }}-node,push-by-digest=true,name-canonical=true,push=true
           build-args: |
             SMITE_VERSION=${{ needs.prepare.outputs.version }}
             SMITE_SOURCE_SHA=${{ github.sha }}

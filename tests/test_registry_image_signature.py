@@ -154,6 +154,23 @@ class RegistryImageSignatureTest(unittest.TestCase):
                     self.assertNotEqual(denied.returncode, 0)
                     self.assertEqual(attempted_output, "")
 
+    def test_publisher_never_exports_mutable_image_tags_before_signature(self):
+        workflow = PUB.read_text()
+        for role in ("panel", "node"):
+            self.assertIn(
+                "outputs: type=image,name=${{ env.REGISTRY }}/"
+                "${{ needs.prepare.outputs.image_prefix }}-" + role +
+                ",push-by-digest=true,name-canonical=true,push=true",
+                workflow,
+            )
+        for forbidden in ("docker/metadata-action@", "tags: ${{ steps.meta-",
+                          "push: true", "type=raw,value=latest",
+                          "type=raw,value=${{ needs.prepare.outputs.version }}",
+                          "name-canonical=false", "push-by-digest=false"):
+            self.assertNotIn(forbidden, workflow)
+        self.assertIn("needs: [prepare, build-panel, build-node]", workflow)
+        self.assertEqual(workflow.count("Sign and independently verify"), 2)
+
     def test_publisher_refuses_automatic_push_or_mutable_aliases(self):
         workflow = PUB.read_text()
         self.assertIn("\n  workflow_dispatch:\n", workflow)
@@ -168,7 +185,7 @@ class RegistryImageSignatureTest(unittest.TestCase):
         self.assertIn('[[ "$GITHUB_SHA" == "$EXPECTED_SHA" ]] || hold', workflow)
         self.assertIn('[[ "$(git rev-parse HEAD)" == "$EXPECTED_SHA" ]] || hold', workflow)
         self.assertIn('[[ "$(git rev-parse "${GITHUB_REF}^{commit}")" == "$EXPECTED_SHA" ]] || hold', workflow)
-        self.assertEqual(workflow.count("type=raw,value=${{ needs.prepare.outputs.version }}"), 2)
+        self.assertEqual(workflow.count("push-by-digest=true,name-canonical=true,push=true"), 2)
         for forbidden in ("type=ref,event=branch", "type=ref,event=pr",
                           "type=semver", "type=sha", "type=raw,value=latest",
                           "type=raw,value=tst", "dorny/paths-filter@"):

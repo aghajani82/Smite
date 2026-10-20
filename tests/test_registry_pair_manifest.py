@@ -69,6 +69,7 @@ class RegistryPairManifestTest(unittest.TestCase):
         self.assertIn("needs.build-node.outputs.digest", section)
         self.assertIn("scripts/create-registry-pair.py", section)
         self.assertIn("actions/upload-artifact@v4", section)
+        self.assertEqual(workflow.count("push-by-digest=true,name-canonical=true,push=true"), 2)
         self.assertIn("retention-days: 7", section)
         self.assertIn("ref: ${{ github.sha }}", section)
         for role in ("panel", "node"):
