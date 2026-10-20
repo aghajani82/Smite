@@ -274,6 +274,59 @@ def get_active_secret(
             raise PairingDenied("Cannot decrypt Node credential") from exc
 
 
+
+def validate_restored_pairing_master(
+    database_path: str | Path, *, master_key: bytes | str,
+) -> int:
+    """Offline-only: authenticate every encrypted Node row without revealing keys.
+
+    The caller supplies an independently recovered master in memory. This
+    routine NEVER reads a master-key file, writes/repairs the database,
+    dumps credentials, rotates identities, or authorizes service restart.
+    A revoked identity is still encrypted and MUST validate too.
+    """
+    cipher = _fernet(master_key)
+    db = Path(database_path)
+    if db.is_symlink() or not db.is_file():
+        raise PairingDenied("Existing offline Panel database required")
+    for suffix in ("-wal", "-shm", "-journal"):
+        sidecar = Path(str(db) + suffix)
+        if sidecar.exists() or sidecar.is_symlink():
+            raise PairingDenied("Offline Panel database checkpoint required")
+    try:
+        with closing(sqlite3.connect(
+            db.absolute().as_uri() + "?mode=ro&immutable=1",
+            uri=True, timeout=5,
+        )) as conn:
+            conn.execute("PRAGMA query_only=ON")
+            if conn.execute("PRAGMA quick_check").fetchone() != ("ok",):
+                raise PairingDenied("Restored Panel database integrity failed")
+            count = 0
+            for node_id, node_role, encrypted in conn.execute(
+                "SELECT node_id,node_role,encrypted_secret "
+                "FROM smite_node_identities ORDER BY node_id"
+            ):
+                count += 1
+                if count > 10000:
+                    raise PairingDenied("Credential store requires manual review")
+                if (not isinstance(node_id, str) or not _ID.fullmatch(node_id)
+                        or node_role not in _ROLE or not isinstance(encrypted, str)
+                        or len(encrypted) > 8192):
+                    raise PairingDenied("Malformed restored Node credential")
+                try:
+                    decrypted = cipher.decrypt(encrypted.encode("ascii"))
+                except (InvalidToken, ValueError, UnicodeError) as exc:
+                    raise PairingDenied("Recovered master cannot decrypt all identities") from exc
+                if not re.fullmatch(rb"[a-f0-9]{64}", decrypted):
+                    raise PairingDenied("Malformed decrypted Node credential")
+            if count == 0:
+                raise PairingDenied("No encrypted credentials to verify")
+            return count
+    except sqlite3.Error as exc:
+        raise PairingDenied("Offline credential recovery unavailable") from exc
+
+
+
 def revoke_node(
     database_path: str | Path, *, node_id: str, now: int | None = None
 ) -> bool:
