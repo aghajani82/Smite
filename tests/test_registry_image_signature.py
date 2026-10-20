@@ -93,6 +93,62 @@ class RegistryImageSignatureTest(unittest.TestCase):
         self.assertNotEqual(bad_verify.returncode, 0)
         self.assertEqual(len(self.log.read_text().splitlines()), 2)
 
+    def test_manual_approval_gate_executes_against_real_disposable_git_tag(self):
+        # Exercise the workflow bash gate itself, not only static YAML words.
+        source = PUB.read_text()
+        block = source.split("      - name: Reject all unapproved or mismatched release candidates\n", 1)[1]
+        block = block.split("\n  build-panel:\n", 1)[0]
+        script = block.split("        run: |\n", 1)[1]
+        script = "\n".join(line[10:] for line in script.splitlines()
+                           if line.strip()) + "\n"
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)
+            subprocess.run(["git", "init", "-q", str(root)], check=True,
+                           capture_output=True, text=True, timeout=10)
+            commit = subprocess.run(
+                ["git", "-c", "user.name=review", "-c", "user.email=review@example.invalid",
+                 "commit", "--allow-empty", "-qm", "synthetic reviewed candidate"],
+                cwd=root, capture_output=True, text=True, timeout=10)
+            self.assertEqual(commit.returncode, 0, commit.stderr)
+            sha = subprocess.check_output(["git", "rev-parse", "HEAD"],
+                                          cwd=root, text=True).strip()
+            subprocess.run(["git", "tag", "v2.0.0-rc.0"], cwd=root, check=True,
+                           capture_output=True, text=True, timeout=10)
+            output = root / "approved-output.txt"
+            env = dict(os.environ,
+                       GITHUB_EVENT_NAME="workflow_dispatch",
+                       GITHUB_REPOSITORY="aghajani82/Smite",
+                       GITHUB_REF_TYPE="tag",
+                       GITHUB_REF="refs/tags/v2.0.0-rc.0",
+                       GITHUB_SHA=sha,
+                       EXPECTED_TAG="v2.0.0-rc.0",
+                       EXPECTED_SHA=sha,
+                       APPROVED="true",
+                       GITHUB_OUTPUT=str(output))
+            def invoke(**override):
+                if output.exists():
+                    output.unlink()
+                result = subprocess.run(["bash", "-c", script], cwd=root,
+                                        capture_output=True, text=True,
+                                        env=dict(env, **override), timeout=10)
+                return result, output.read_text() if output.exists() else ""
+            accepted, approved_output = invoke()
+            self.assertEqual(accepted.returncode, 0, accepted.stderr)
+            self.assertIn("result=true", approved_output)
+            self.assertIn("version=2.0.0-rc.0", approved_output)
+            self.assertIn("RELEASE_AND_DEPLOYMENT_APPROVED=NO", accepted.stdout)
+            for override in (
+                {"APPROVED": "false"}, {"EXPECTED_SHA": "0" * 40},
+                {"EXPECTED_TAG": "v2.0.1"}, {"GITHUB_REF_TYPE": "branch"},
+                {"GITHUB_REF": "refs/heads/main"},
+                {"GITHUB_EVENT_NAME": "push"},
+                {"GITHUB_REPOSITORY": "attacker/Smite"},
+            ):
+                with self.subTest(override=override):
+                    denied, attempted_output = invoke(**override)
+                    self.assertNotEqual(denied.returncode, 0)
+                    self.assertEqual(attempted_output, "")
+
     def test_publisher_refuses_automatic_push_or_mutable_aliases(self):
         workflow = PUB.read_text()
         self.assertIn("\n  workflow_dispatch:\n", workflow)
