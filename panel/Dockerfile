@@ -53,7 +53,9 @@ FROM base
 WORKDIR /app
 
 ARG SMITE_VERSION=latest
+ARG SMITE_SOURCE_SHA=unverified
 LABEL org.opencontainers.image.version="${SMITE_VERSION}"
+LABEL org.opencontainers.image.revision="${SMITE_SOURCE_SHA}"
 LABEL smite.version="${SMITE_VERSION}"
 ENV SMITE_VERSION="${SMITE_VERSION}"
 RUN echo "${SMITE_VERSION}" > /app/VERSION
