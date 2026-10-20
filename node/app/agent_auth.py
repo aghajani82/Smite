@@ -74,6 +74,49 @@ def read_identity(file: str | Path) -> tuple[str, bytes]:
 
 REPLAY_SCHEMA_VERSION = 1
 
+RESTORE_HOLD_NAME = "replay-restore-hold.json"
+
+
+def require_no_replay_restore_hold(identity_path: str | Path, node_id: str) -> None:
+    """A known stale restore stays quarantined even if SQLite looks valid.
+
+    The sentinel is on the independent *identity* volume, NOT in the replay
+    DB that might be rolled back. This is NOT rollback detection for an
+    operator who bypasses the offline restore procedure.
+    """
+    path = Path(identity_path).parent / RESTORE_HOLD_NAME
+    try:
+        fd = os.open(path, os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0))
+    except FileNotFoundError:
+        return
+    except OSError as exc:
+        raise AgentAuthUnavailable("Replay recovery quarantine unavailable") from exc
+    try:
+        with os.fdopen(fd, "rb") as stream:
+            info = os.fstat(stream.fileno())
+            if (not stat.S_ISREG(info.st_mode)
+                    or info.st_uid != os.geteuid()
+                    or stat.S_IMODE(info.st_mode) != 0o600
+                    or info.st_nlink != 1 or info.st_size > 4096):
+                raise AgentAuthUnavailable("Replay recovery quarantine unsafe")
+            try:
+                record = json.loads(stream.read(4097))
+            except (ValueError, UnicodeError, TypeError) as exc:
+                raise AgentAuthUnavailable("Replay recovery quarantine invalid") from exc
+            if (not isinstance(record, dict)
+                    or record.get("schema") != 1
+                    or record.get("node_id") != node_id
+                    or record.get("status") != "QUARANTINED"
+                    or set(record) != {"schema", "node_id", "status", "replay_database"}):
+                raise AgentAuthUnavailable("Replay recovery quarantine mismatch")
+    except OSError as exc:
+        raise AgentAuthUnavailable("Replay recovery quarantine unreadable") from exc
+    # No timer, no automatic removal, no legacy fallback. Only an independent
+    # reviewed offline key-rotation/recovery process can eventually lift HOLD.
+    raise AgentAuthUnavailable("Signed Agent quarantined after replay restore")
+
+
+
 
 class DurableNonceStore:
     """Persistent, pre-provisioned replay store; NEVER re-create at request time.
@@ -243,6 +286,7 @@ def verify_agent_envelope(
     target: str, body: bytes, headers: dict[str, str], now: int | None = None,
 ) -> bool:
     node_id, secret = read_identity(identity_path)
+    require_no_replay_restore_hold(identity_path, node_id)
     replay = DurableNonceStore(replay_path)
     return node_auth.verify_request(
         secret=secret, node_id=node_id, method=method, target=target,
