@@ -31,6 +31,9 @@ cosign sign --yes -a "smite_source_sha=${GITHUB_SHA}" -a "smite_role=${SMITE_IMA
 cosign verify \
   --certificate-identity="$identity" \
   --certificate-oidc-issuer="$issuer" \
+  --certificate-github-workflow-sha="$GITHUB_SHA" \
+  --certificate-github-workflow-repository="aghajani82/Smite" \
+  --certificate-github-workflow-trigger="workflow_dispatch" \
   -a "smite_source_sha=${GITHUB_SHA}" \
   -a "smite_role=${SMITE_IMAGE_ROLE}" \
   "$image" >/dev/null
