@@ -91,18 +91,45 @@ one-time denial, later DB-loss rejection, failure halfway through
 provisioning, unsafe permissions/symlinks and valid signed nonce replay
 persistence. This is supported by the existing strict Agent test workflow.
 
-## Recovery policy, **not** yet implemented
+## Restored-snapshot quarantine — fail-closed implemented; release still HOLD (2026-10-20)
+
+The reviewed Node HMAC validator accepts timestamps within
+`MAX_CLOCK_SKEW = 90` seconds of the receiver's clock. A stale
+same-identity SQLite snapshot can omit accepted nonces; matching
+`node_id` and schema alone **cannot detect that rollback**.
+
+In the existing Smite Draft #16, `node/app/replay_restore_hold.py`
+implements a deliberately **one-way offline quarantine** for
+*known/declared* restores. With explicit operator confirmation, on an
+**offline and stopped** Node/signing path it reads the original private
+identity and first-enrollment marker, checks their matching Node ID and
+database path, and durably writes private `0600`
+`replay-restore-hold.json` **beside the identity**, outside the Replay
+SQLite volume. No nonce or secret is logged. Signed Agent request
+verification checks this hold **before reading/registering nonces**:
+existing, malformed, mismatched or symlinked markers cause **503**,
+including across app/container restart. The command cannot clear the
+hold, initialize/restore SQLite, rotate keys, restart services, or
+auto-enable strict mode.
+
+This is **not automatic stale-snapshot detection**: a restore bypassing
+the operator quarantine (especially a restore of BOTH identity and
+replay volumes) is not proven safe. Nor does waiting `2 × 90` seconds
+automatically unlock the Node; clock trust, signer shutdown, review and
+an independently authorized recovery/paired key-rotation protocol are
+still necessary. **The quarantine marker intentionally has NO
+automatic release path.** The runtime may resume only after a separately
+designed, reviewed and tested authorization procedure.
+
+Verified in CI: old SQLite snapshot copied back for the SAME Node
+after a consumed nonce; a marked restore denies both old and fresh
+signed nonces; malformed markers also fail closed. The U-OPTI
+integration additionally checks HTTP 503 and refuses the signed
+Compose admission while quarantined.
 
 Never fix a missing/failed nonce database by silently creating a new
-blank one during authentication. A restart must retain the same pairing
-and persistent database, including all unexpired nonces. If missing:
-quarantine/deny strict traffic, inspect provenance and restore a trusted
-snapshot of the replay store plus the paired identity using a separate
-authorized recovery transaction. Because a snapshot may be stale, a
-future plan must either enforce a quiet period larger than the full
-signature acceptance window after restoring older replay state, or rotate
-the paired key before admitting traffic. The HTTP status remains 503
-until an independently approved recovery is finished.
+blank one. No production Snapshot restore/migration procedure is
+approved; do not run on current IR/KH.
 
 Do not provision this on current IR/KH nodes. The existing U-OPTI
 installer and container mounts do not yet integrate this **explicit**
