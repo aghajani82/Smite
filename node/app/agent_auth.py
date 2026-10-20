@@ -6,6 +6,8 @@ paired identity and a persistent anti-replay database. No silent fallback.
 from __future__ import annotations
 
 from contextlib import closing
+from hashlib import sha256
+import hmac
 import json
 import os
 from pathlib import Path
@@ -70,6 +72,49 @@ def read_identity(file: str | Path) -> tuple[str, bytes]:
     ):
         raise AgentAuthUnavailable("Node identity is invalid")
     return node_id, secret.encode("ascii")
+
+
+def enrollment_key_binding(node_id: str, secret: bytes) -> str:
+    """Non-secret key continuity commitment for the independent identity marker."""
+    return hmac.new(secret, b"smite-replay-key-binding-v1:" + node_id.encode("ascii"), sha256).hexdigest()
+
+
+def require_enrollment_key_continuity(*, identity_path: str | Path,
+                                      replay_path: str | Path,
+                                      node_id: str, secret: bytes) -> None:
+    """Fail closed on absent marker, moved replay store or silent key replacement.
+
+    This is not a defense against coordinated rollback of BOTH volumes.
+    Missing/legacy marker in strict RC needs operator-approved migration.
+    """
+    identity, replay = Path(identity_path), Path(replay_path)
+    if identity.parent == replay.parent:
+        raise AgentAuthUnavailable("Independent identity/replay directories required")
+    _private_parent(identity)
+    _private_parent(replay)
+    marker = identity.parent / "replay-enrollment.json"
+    try:
+        fd = os.open(marker, os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0))
+        with os.fdopen(fd, "rb") as stream:
+            info = os.fstat(stream.fileno())
+            if (not stat.S_ISREG(info.st_mode) or info.st_uid != os.geteuid()
+                    or stat.S_IMODE(info.st_mode) != 0o600
+                    or info.st_nlink != 1 or info.st_size > 4096):
+                raise AgentAuthUnavailable("Unsafe enrollment marker")
+            record = json.loads(stream.read(4097))
+    except (OSError, ValueError, TypeError, UnicodeError) as exc:
+        raise AgentAuthUnavailable("Missing or malformed enrollment marker") from exc
+    if (not isinstance(record, dict)
+            or set(record) != {"schema", "node_id", "replay_database", "status", "key_binding"}
+            or record.get("schema") != 1
+            or record.get("node_id") != node_id
+            or record.get("replay_database") != str(replay)
+            or record.get("status") != "ENROLLMENT_STARTED"
+            or not isinstance(record.get("key_binding"), str)
+            or len(record["key_binding"]) != 64
+            or not hmac.compare_digest(record["key_binding"],
+                                       enrollment_key_binding(node_id, secret))):
+        raise AgentAuthUnavailable("Replay enrollment identity/key mismatch")
 
 
 REPLAY_SCHEMA_VERSION = 1
@@ -287,6 +332,10 @@ def verify_agent_envelope(
 ) -> bool:
     node_id, secret = read_identity(identity_path)
     require_no_replay_restore_hold(identity_path, node_id)
+    require_enrollment_key_continuity(
+        identity_path=identity_path, replay_path=replay_path,
+        node_id=node_id, secret=secret,
+    )
     replay = DurableNonceStore(replay_path)
     return node_auth.verify_request(
         secret=secret, node_id=node_id, method=method, target=target,

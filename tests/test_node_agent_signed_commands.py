@@ -21,6 +21,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "node"))
 from app.config import settings
 from app.agent_auth import DurableNonceStore, AgentAuthUnavailable
+from app.replay_enrollment import provision_once
 from app.routers.agent import router
 
 spec = importlib.util.spec_from_file_location(
@@ -61,11 +62,11 @@ class AgentGuardTest(unittest.TestCase):
         self.replay = replay_dir / "replay.sqlite3"
         self.node_id = "bbbbbbbb-1111-2222-3333-444444444444"
         self.secret = "b" * 64
-        DurableNonceStore.initialize_new(self.replay, self.node_id)
         self.ident.write_text(json.dumps({
             "node_id": self.node_id, "node_secret": self.secret, "version": 1
         }))
         self.ident.chmod(0o600)
+        provision_once(identity_path=self.ident, replay_path=self.replay)
         self.prior = (
             settings.smite_agent_auth_mode,
             settings.smite_agent_identity_path,

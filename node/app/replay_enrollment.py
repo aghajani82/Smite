@@ -25,6 +25,7 @@ from app.agent_auth import (
     DurableNonceStore,
     _private_parent,
     read_identity,
+    enrollment_key_binding,
 )
 
 
@@ -45,12 +46,13 @@ def _exists(path: Path) -> bool:
     return path.is_symlink() or path.exists()
 
 
-def _create_marker(marker: Path, node_id: str, replay: Path) -> None:
+def _create_marker(marker: Path, node_id: str, replay: Path, secret: bytes) -> None:
     # A marker records no secret or previously used nonce. It lives alongside
     # the paired identity and must survive deletion of the replay DB mount.
     document = {
         "schema": 1, "node_id": node_id,
         "replay_database": str(replay), "status": "ENROLLMENT_STARTED",
+        "key_binding": enrollment_key_binding(node_id, secret),
     }
     content = (json.dumps(document, sort_keys=True, separators=(",", ":")) + "\n").encode()
     fd = None
@@ -104,7 +106,7 @@ def provision_once(*, identity_path: str | Path, replay_path: str | Path) -> Non
         raise ReplayEnrollmentHold("Valid, previously paired identity is required") from exc
     # Creating the durable independent marker FIRST means interrupted
     # initialization remains quarantined, rather than silently retried.
-    _create_marker(marker, node_id, replay)
+    _create_marker(marker, node_id, replay, first_secret)
     try:
         DurableNonceStore.initialize_new(replay, node_id)
         # Confirm no pairing identity replacement occurred while provisioning.

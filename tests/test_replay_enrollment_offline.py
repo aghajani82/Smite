@@ -20,7 +20,7 @@ from unittest.mock import patch
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "node"))
-from app.agent_auth import AgentAuthUnavailable, DurableNonceStore
+from app.agent_auth import AgentAuthUnavailable, DurableNonceStore, enrollment_key_binding
 from app.replay_enrollment import ReplayEnrollmentHold, provision_once
 
 
@@ -54,6 +54,8 @@ class OfflineFirstEnrollmentTest(unittest.TestCase):
         self.assertEqual(ledger["node_id"], self.node_id)
         self.assertEqual(ledger["replay_database"], str(self.db))
         self.assertEqual(ledger["status"], "ENROLLMENT_STARTED")
+        self.assertEqual(ledger["key_binding"],
+                         enrollment_key_binding(self.node_id, self.secret.encode("ascii")))
         self.assertNotIn(self.secret, self.marker.read_text())
         with closing(sqlite3.connect(f"file:{self.db}?mode=ro", uri=True)) as con:
             self.assertEqual(con.execute("PRAGMA user_version").fetchone(), (1,))

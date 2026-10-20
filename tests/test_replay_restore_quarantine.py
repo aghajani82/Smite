@@ -19,7 +19,8 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT/"node"))
 
 from app.agent_auth import (
-    AgentAuthUnavailable, RESTORE_HOLD_NAME, verify_agent_envelope
+    AgentAuthUnavailable, RESTORE_HOLD_NAME, verify_agent_envelope,
+    enrollment_key_binding
 )
 from app.node_auth import MAX_CLOCK_SKEW, sign_request
 from app.replay_enrollment import provision_once
@@ -96,6 +97,54 @@ class StaleSnapshotQuarantineTest(unittest.TestCase):
         self.hold.symlink_to(self.identity)
         with self.assertRaises(AgentAuthUnavailable):
             verify_agent_envelope(**self.envelope("f"*32))
+
+
+    def test_same_id_secret_change_stays_quarantined_without_db_writes(self):
+        signed = self.envelope("1" * 32)
+        self.assertTrue(verify_agent_envelope(**signed))
+        recorded = self.replay.read_bytes()
+        changed = "d" * 64
+        self.identity.write_text(json.dumps({
+            "version": 1, "node_id": self.node_id, "node_secret": changed
+        }))
+        self.identity.chmod(0o600)
+        forged_new_key = sign_request(
+            secret=changed, node_id=self.node_id, method="GET",
+            target="/api/agent/status", nonce="2" * 32,
+            body=b"", timestamp=int(time.time()),
+        )
+        with self.assertRaisesRegex(AgentAuthUnavailable, "identity/key mismatch"):
+            verify_agent_envelope(
+                identity_path=str(self.identity), replay_path=str(self.replay),
+                method="GET", target="/api/agent/status", body=b"",
+                headers=forged_new_key,
+            )
+        self.assertEqual(recorded, self.replay.read_bytes())
+
+    def test_missing_damaged_or_symlink_marker_fails_closed(self):
+        marker = self.identity_dir / "replay-enrollment.json"
+        request = self.envelope("3" * 32)
+        valid = marker.read_bytes()
+        marker.unlink()
+        with self.assertRaises(AgentAuthUnavailable):
+            verify_agent_envelope(**request)
+        marker.write_bytes(valid)
+        marker.chmod(0o600)
+        info = json.loads(valid)
+        self.assertEqual(info["key_binding"],
+                         enrollment_key_binding(self.node_id, self.secret.encode("ascii")))
+        info["key_binding"] = "f" * 64
+        marker.write_text(json.dumps(info))
+        with self.assertRaises(AgentAuthUnavailable):
+            verify_agent_envelope(**request)
+        marker.write_bytes(valid)
+        marker.chmod(0o644)
+        with self.assertRaises(AgentAuthUnavailable):
+            verify_agent_envelope(**request)
+        marker.unlink()
+        marker.symlink_to(self.identity)
+        with self.assertRaises(AgentAuthUnavailable):
+            verify_agent_envelope(**request)
 
     def test_bad_existing_enrollment_prevents_quarantine_setup(self):
         (self.identity_dir/"replay-enrollment.json").unlink()
