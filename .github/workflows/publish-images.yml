@@ -37,6 +37,8 @@ jobs:
         with:
           fetch-depth: 0
           fetch-tags: true
+          ref: ${{ github.sha }}
+          persist-credentials: false
 
       - name: Set lowercase image prefix
         id: image-prefix
@@ -120,6 +122,17 @@ jobs:
         with:
           fetch-depth: 0
           fetch-tags: true
+          ref: ${{ github.sha }}
+          persist-credentials: false
+
+      - name: Reject checkout drift before publishing
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "${{ github.sha }}" || {
+            echo "HOLD: checked-out source differs from requested commit" >&2
+            exit 1
+          }
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
@@ -147,6 +160,7 @@ jobs:
             type=raw,value=latest,enable=${{ needs.prepare.outputs.should_tag_latest == 'true' && github.ref != 'refs/heads/tst' }}
 
       - name: Build and push panel image
+        id: pushed-panel
         uses: docker/build-push-action@v5
         with:
           context: .
@@ -159,6 +173,18 @@ jobs:
             SMITE_SOURCE_SHA=${{ github.sha }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
+
+      - name: Install verified Cosign release
+        uses: sigstore/cosign-installer@v4.1.0
+        with:
+          cosign-release: 'v3.0.6'
+
+      - name: Sign and independently verify panel registry digest
+        shell: bash
+        env:
+          SMITE_IMAGE_ROLE: panel
+          SMITE_IMAGE_DIGEST: ${{ steps.pushed-panel.outputs.digest }}
+        run: bash scripts/sign-verified-image.sh
 
   build-node:
     needs: prepare
@@ -174,6 +200,17 @@ jobs:
         with:
           fetch-depth: 0
           fetch-tags: true
+          ref: ${{ github.sha }}
+          persist-credentials: false
+
+      - name: Reject checkout drift before publishing
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "${{ github.sha }}" || {
+            echo "HOLD: checked-out source differs from requested commit" >&2
+            exit 1
+          }
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
@@ -201,6 +238,7 @@ jobs:
             type=raw,value=latest,enable=${{ needs.prepare.outputs.should_tag_latest == 'true' && github.ref != 'refs/heads/tst' }}
 
       - name: Build and push node image
+        id: pushed-node
         uses: docker/build-push-action@v5
         with:
           context: ./node
@@ -213,3 +251,15 @@ jobs:
             SMITE_SOURCE_SHA=${{ github.sha }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
+
+      - name: Install verified Cosign release
+        uses: sigstore/cosign-installer@v4.1.0
+        with:
+          cosign-release: 'v3.0.6'
+
+      - name: Sign and independently verify node registry digest
+        shell: bash
+        env:
+          SMITE_IMAGE_ROLE: node
+          SMITE_IMAGE_DIGEST: ${{ steps.pushed-node.outputs.digest }}
+        run: bash scripts/sign-verified-image.sh

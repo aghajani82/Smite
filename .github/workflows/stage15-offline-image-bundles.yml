@@ -15,6 +15,9 @@ on:
       - 'tests/test_stage15_offline_bundle.py'
       - 'tests/stage15_image_revision_gate.py'
       - 'tests/test_stage15_image_revision_gate.py'
+      - 'tests/test_registry_image_signature.py'
+      - 'scripts/sign-verified-image.sh'
+      - '.github/workflows/publish-images.yml'
       - '.github/workflows/stage15-offline-image-bundles.yml'
   workflow_dispatch:
 
@@ -34,6 +37,7 @@ jobs:
           python -m py_compile tests/stage15_offline_bundle.py tests/test_stage15_offline_bundle.py tests/stage15_image_revision_gate.py tests/test_stage15_image_revision_gate.py
           python -B tests/test_stage15_offline_bundle.py -v
           python -B tests/test_stage15_image_revision_gate.py -v
+          python -B tests/test_registry_image_signature.py -v
 
   offline-pair-artifact:
     runs-on: ubuntu-latest
