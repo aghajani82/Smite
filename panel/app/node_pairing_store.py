@@ -287,8 +287,27 @@ def validate_restored_pairing_master(
     """
     cipher = _fernet(master_key)
     db = Path(database_path)
-    if db.is_symlink() or not db.is_file():
-        raise PairingDenied("Existing offline Panel database required")
+    try:
+        entry, parent = db.lstat(), db.parent.lstat()
+        if (not stat.S_ISREG(entry.st_mode)
+                or entry.st_uid != os.geteuid()
+                or stat.S_IMODE(entry.st_mode) != 0o600
+                or entry.st_nlink != 1
+                or not stat.S_ISDIR(parent.st_mode)
+                or parent.st_uid != os.geteuid()
+                or stat.S_IMODE(parent.st_mode) != 0o700):
+            raise PairingDenied("Private offline Panel database required")
+        fd = os.open(db, os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0))
+        with os.fdopen(fd, "rb") as stream:
+            info = os.fstat(stream.fileno())
+            if (info.st_dev, info.st_ino) != (entry.st_dev, entry.st_ino):
+                raise PairingDenied("Panel database changed during preflight")
+            header = stream.read(100)
+        if (len(header) != 100 or header[:16] != b"SQLite format 3\x00"
+                or header[18:20] != b"\x01\x01"):
+            raise PairingDenied("Panel database must be offline and checkpointed")
+    except OSError as exc:
+        raise PairingDenied("Existing offline Panel database required") from exc
     for suffix in ("-wal", "-shm", "-journal"):
         sidecar = Path(str(db) + suffix)
         if sidecar.exists() or sidecar.is_symlink():
