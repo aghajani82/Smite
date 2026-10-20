@@ -29,6 +29,22 @@ class PreviewBundleTest(unittest.TestCase):
         self.manifest.write_text(json.dumps(obj))
         return obj
 
+    def test_ci_builds_explicit_reviewed_pr_head_not_merge_commit(self):
+        workflow = (Path(__file__).resolve().parents[1] /
+                    ".github/workflows/stage15-offline-image-bundles.yml").read_text()
+        selected = "${{ github.event.pull_request.head.sha || github.sha }}"
+        self.assertIn("SMITE_BUILD_SOURCE_SHA: " + selected, workflow)
+        self.assertIn("ref: " + selected, workflow)
+        self.assertIn('actual="$(git rev-parse HEAD)"', workflow)
+        self.assertIn('test "$actual" = "$SMITE_BUILD_SOURCE_SHA"', workflow)
+        self.assertIn('--source-sha "$SMITE_BUILD_SOURCE_SHA"', workflow)
+        self.assertIn('--expected-commit "$SMITE_BUILD_SOURCE_SHA"', workflow)
+        self.assertIn("name: smite-stage15-offline-images-" + selected, workflow)
+        self.assertNotIn('--source-sha "$GITHUB_SHA"', workflow)
+        self.assertNotIn("name: smite-stage15-offline-images-${{ github.sha }}", workflow)
+        self.assertIn('echo "NO_GHCR_PUSH=YES"', workflow)
+        self.assertIn('echo "NO_IR_KH_INSTALL=YES"', workflow)
+
     def test_checksum_and_source_pin_but_no_authorization(self):
         doc = self.make()
         result = verify(self.manifest, expected_commit=COMMIT)
