@@ -117,3 +117,27 @@ cannot prevent rollback if the Panel DB and both Node volumes are restored
 together. A trustworthy independent rollback witness, real two-host
 acceptance and verified Panel Fernet master backup are still release gates.
 
+
+## Offline Fernet decryptability preflight — 2026-10-20 (existing Draft #16)
+
+`panel/app/node_pairing_store.py` now offers a **read-only Python
+function** `validate_restored_pairing_master(database_path, master_key=...)`
+for an operator-approved *offline* recovery harness. The caller must already
+hold the independently recovered master IN MEMORY and a privately owned,
+checkpointed Panel SQLite database. This function does not read or create
+master-key files, copy backup secrets, modify SQLite, rotate keys, start
+services or reveal decrypted Node tokens. All rows, **including revoked
+Node rows**, must decrypt and conform to the 64-hex HMAC secret contract;
+wrong keys, a single damaged ciphertext, missing/empty DB, unsafe
+permissions/symlink, hot WAL or uncheckpointed SQLite cause HOLD.
+
+The existing Node Pairing CI runs with **synthetic** Fernet masters and
+actual temporary SQLite and tests success, revoked-row continuity, wrong
+master, corruption, missing DB, symlink/0644 and hot database denial.
+This verifies compatibility of supplied key+DB, NOT the existence,
+off-server custody, backup freshness, geographic separation or
+recoverability of a real master. No actual production key has been
+accessed or verified. The Stage13 IR restore-witness admission in U-OPTI
+remains a SEPARATE check; neither preflight authorizes activation or
+is automatically invoked by a production installer.
+
