@@ -8,6 +8,8 @@ on:
     paths:
       - 'node/app/agent_auth.py'
       - 'node/app/replay_enrollment.py'
+      - 'node/app/replay_restore_hold.py'
+      - 'tests/test_replay_restore_quarantine.py'
       - 'tests/test_replay_enrollment_offline.py'
       - 'node/app/config.py'
       - 'node/app/engine_inventory.py'
@@ -40,11 +42,13 @@ jobs:
             node/app/agent_auth.py node/app/config.py node/app/engine_inventory.py \
             node/app/routers/agent.py panel/app/agent_request_signer.py \
             tests/test_node_agent_signed_commands.py \
-            node/app/replay_enrollment.py tests/test_replay_enrollment_offline.py
+            node/app/replay_enrollment.py tests/test_replay_enrollment_offline.py \
+            node/app/replay_restore_hold.py tests/test_replay_restore_quarantine.py
       - name: Agent runtime auth, replay persistence and cross-role signing tests
         run: |
           python -B tests/test_node_agent_signed_commands.py -v
           python -B tests/test_replay_enrollment_offline.py -v
+          python -B tests/test_replay_restore_quarantine.py -v
       - name: Legacy auth remains default
         run: |
           grep -Fq 'smite_agent_auth_mode: Literal["legacy", "strict"] = "legacy"' node/app/config.py
