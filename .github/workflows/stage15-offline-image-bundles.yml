@@ -16,6 +16,8 @@ on:
       - 'tests/stage15_image_revision_gate.py'
       - 'tests/test_stage15_image_revision_gate.py'
       - 'tests/test_registry_image_signature.py'
+      - 'tests/test_registry_pair_manifest.py'
+      - 'scripts/create-registry-pair.py'
       - 'scripts/sign-verified-image.sh'
       - '.github/workflows/publish-images.yml'
       - '.github/workflows/stage15-offline-image-bundles.yml'
@@ -38,6 +40,7 @@ jobs:
           python -B tests/test_stage15_offline_bundle.py -v
           python -B tests/test_stage15_image_revision_gate.py -v
           python -B tests/test_registry_image_signature.py -v
+          python -B tests/test_registry_pair_manifest.py -v
 
   offline-pair-artifact:
     runs-on: ubuntu-latest

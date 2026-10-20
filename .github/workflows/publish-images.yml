@@ -110,6 +110,8 @@ jobs:
 
   build-panel:
     needs: prepare
+    outputs:
+      digest: ${{ steps.pushed-panel.outputs.digest }}
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -188,6 +190,8 @@ jobs:
 
   build-node:
     needs: prepare
+    outputs:
+      digest: ${{ steps.pushed-node.outputs.digest }}
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -263,3 +267,44 @@ jobs:
           SMITE_IMAGE_ROLE: node
           SMITE_IMAGE_DIGEST: ${{ steps.pushed-node.outputs.digest }}
         run: bash scripts/sign-verified-image.sh
+
+  registry-pair-manifest:
+    needs: [prepare, build-panel, build-node]
+    if: github.ref_type == 'tag' && needs.prepare.outputs.should_publish == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout exact signed source
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - name: Emit NON-activating two-digest handoff
+        shell: bash
+        env:
+          SMITE_PANEL_DIGEST: ${{ needs.build-panel.outputs.digest }}
+          SMITE_NODE_DIGEST: ${{ needs.build-node.outputs.digest }}
+          SMITE_SOURCE_SHA: ${{ github.sha }}
+          SMITE_PUBLISH_REF: ${{ github.ref }}
+          SMITE_RELEASE_VERSION: ${{ needs.prepare.outputs.version }}
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$SMITE_SOURCE_SHA"
+          mkdir -p "$RUNNER_TEMP/smite-registry-pair"
+          python3 -B scripts/create-registry-pair.py \
+            --source-sha "$SMITE_SOURCE_SHA" \
+            --publish-ref "$SMITE_PUBLISH_REF" \
+            --version "$SMITE_RELEASE_VERSION" \
+            --panel-digest "$SMITE_PANEL_DIGEST" \
+            --node-digest "$SMITE_NODE_DIGEST" \
+            --output "$RUNNER_TEMP/smite-registry-pair/registry-pair.json"
+          sha256sum "$RUNNER_TEMP/smite-registry-pair/registry-pair.json"
+          echo "NO_AUTO_DEPLOY=YES"
+      - name: Keep non-activating candidate for independent operator review
+        uses: actions/upload-artifact@v4
+        with:
+          name: smite-registry-pair-${{ github.sha }}
+          path: ${{ runner.temp }}/smite-registry-pair/registry-pair.json
+          retention-days: 7
+          if-no-files-found: error
