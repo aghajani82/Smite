@@ -1,18 +1,21 @@
 name: Build and Publish Docker Images
 
 on:
-  push:
-    branches:
-      - main
-      - next
-      - beta
-      - tst
-    tags:
-      - 'v*'
-    paths-ignore:
-      - README.md
-      - docs/**
   workflow_dispatch:
+    inputs:
+      expected_release_tag:
+        description: 'Reviewed existing tag, e.g. v2.0.0-rc.0; select that tag in Run workflow'
+        required: true
+        type: string
+      expected_source_sha:
+        description: 'Exact reviewed 40-character Smite commit SHA'
+        required: true
+        type: string
+      confirm_candidate_publication:
+        description: 'I approve pushing and keylessly signing this candidate pair; NOT deployment'
+        required: true
+        type: boolean
+        default: false
 
 env:
   REGISTRY: ghcr.io
@@ -23,90 +26,43 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: read
-      packages: write
-      id-token: write
     outputs:
-      should_publish: ${{ steps.publish.outputs.result }}
-      version: ${{ steps.version.outputs.version }}
-      has_version: ${{ steps.has-version.outputs.has_version }}
-      should_tag_latest: ${{ steps.tag-latest.outputs.should_tag }}
-      image_prefix: ${{ steps.image-prefix.outputs.prefix }}
+      should_publish: ${{ steps.approved.outputs.result }}
+      version: ${{ steps.approved.outputs.version }}
+      image_prefix: ${{ steps.approved.outputs.prefix }}
     steps:
-      - name: Checkout repository
+      - name: Checkout reviewed source
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
           fetch-tags: true
           ref: ${{ github.sha }}
           persist-credentials: false
-
-      - name: Set lowercase image prefix
-        id: image-prefix
+      - name: Reject all unapproved or mismatched release candidates
+        id: approved
+        shell: bash
+        env:
+          EXPECTED_TAG: ${{ inputs.expected_release_tag }}
+          EXPECTED_SHA: ${{ inputs.expected_source_sha }}
+          APPROVED: ${{ inputs.confirm_candidate_publication }}
         run: |
-          echo "prefix=$(echo '${{ github.repository_owner }}' | tr '[:upper:]' '[:lower:]')/smite" >> $GITHUB_OUTPUT
-
-      - name: Detect relevant changes
-        id: changes
-        uses: dorny/paths-filter@v3
-        with:
-          filters: |
-            publish:
-              - '**'
-              - '!README.md'
-              - '!docs/**'
-
-      - name: Decide whether to publish
-        id: publish
-        run: |
-          if [ "${{ github.ref_type }}" = "tag" ]; then
-            echo "result=true" >> "$GITHUB_OUTPUT"
-          elif [ "${{ steps.changes.outputs.publish }}" = "true" ]; then
-            echo "result=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "result=false" >> "$GITHUB_OUTPUT"
-          fi
-
-      - name: Check if version tag exists
-        id: has-version
-        run: |
-          if [ "${{ github.ref_type }}" = "tag" ]; then
-            echo "has_version=true" >> "$GITHUB_OUTPUT"
-          else
-            LATEST_TAG=$(git describe --tags --abbrev=0 2>/dev/null || echo "")
-            if [ -n "$LATEST_TAG" ] && [[ "$LATEST_TAG" =~ ^v[0-9] ]]; then
-              echo "has_version=true" >> "$GITHUB_OUTPUT"
-            else
-              echo "has_version=false" >> "$GITHUB_OUTPUT"
-            fi
-          fi
-
-      - name: Extract version
-        id: version
-        run: |
-          if [ "${{ github.ref_type }}" = "tag" ]; then
-            VERSION="${{ github.ref_name }}"
-            VERSION="${VERSION#v}"
-            echo "version=$VERSION" >> "$GITHUB_OUTPUT"
-          else
-            LATEST_TAG=$(git describe --tags --abbrev=0 2>/dev/null || echo "")
-            if [ -n "$LATEST_TAG" ]; then
-              VERSION="${LATEST_TAG#v}"
-              echo "version=$VERSION" >> "$GITHUB_OUTPUT"
-            else
-              echo "version=latest" >> "$GITHUB_OUTPUT"
-            fi
-          fi
-
-      - name: Determine if should tag as latest
-        id: tag-latest
-        run: |
-          if [ "${{ github.ref_type }}" = "tag" ] && [[ "${{ github.ref_name }}" =~ ^v[0-9] ]]; then
-            echo "should_tag=true" >> "$GITHUB_OUTPUT"
-          elif [ "${{ github.ref }}" = "refs/heads/main" ] && [ "${{ steps.has-version.outputs.has_version }}" = "true" ]; then
-            echo "should_tag=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "should_tag=false" >> "$GITHUB_OUTPUT"
-          fi
+          set -euo pipefail
+          hold() { echo "HOLD: exact reviewed tag, commit and consent required" >&2; exit 2; }
+          [[ "$GITHUB_EVENT_NAME" == "workflow_dispatch" ]] || hold
+          [[ "$GITHUB_REPOSITORY" == "aghajani82/Smite" ]] || hold
+          [[ "$GITHUB_REF_TYPE" == "tag" ]] || hold
+          [[ "$EXPECTED_TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-[A-Za-z0-9][A-Za-z0-9.-]*)?$ ]] || hold
+          [[ "$EXPECTED_SHA" =~ ^[a-f0-9]{40}$ ]] || hold
+          [[ "$APPROVED" == "true" ]] || hold
+          [[ "$GITHUB_REF" == "refs/tags/$EXPECTED_TAG" ]] || hold
+          [[ "$GITHUB_SHA" == "$EXPECTED_SHA" ]] || hold
+          [[ "$(git rev-parse HEAD)" == "$EXPECTED_SHA" ]] || hold
+          [[ "$(git rev-parse "${GITHUB_REF}^{commit}")" == "$EXPECTED_SHA" ]] || hold
+          echo "result=true" >> "$GITHUB_OUTPUT"
+          echo "version=${EXPECTED_TAG#v}" >> "$GITHUB_OUTPUT"
+          echo "prefix=aghajani82/smite" >> "$GITHUB_OUTPUT"
+          echo "APPROVED_CANDIDATE_SOURCE_COMMIT=$EXPECTED_SHA"
+          echo "RELEASE_AND_DEPLOYMENT_APPROVED=NO"
 
   build-panel:
     needs: prepare
@@ -152,15 +108,7 @@ jobs:
         with:
           images: ${{ env.REGISTRY }}/${{ needs.prepare.outputs.image_prefix }}-panel
           tags: |
-            type=raw,value=tst,enable=${{ github.ref == 'refs/heads/tst' }}
-            type=ref,event=branch,enable=${{ github.ref != 'refs/heads/main' && github.ref != 'refs/heads/tst' }}
-            type=ref,event=pr
-            type=semver,pattern={{version}},enable=${{ github.ref_type == 'tag' && needs.prepare.outputs.has_version == 'true' }}
-            type=semver,pattern={{major}}.{{minor}},enable=${{ github.ref_type == 'tag' && needs.prepare.outputs.has_version == 'true' }}
-            type=raw,value=${{ needs.prepare.outputs.version }},enable=${{ needs.prepare.outputs.has_version == 'true' && needs.prepare.outputs.version != 'latest' && github.ref != 'refs/heads/tst' && (github.ref == 'refs/heads/main' || github.ref_type == 'tag') }}
-            type=sha,enable=${{ github.ref != 'refs/heads/main' && github.ref != 'refs/heads/tst' }}
-            type=raw,value=latest,enable=${{ needs.prepare.outputs.should_tag_latest == 'true' && github.ref != 'refs/heads/tst' }}
-
+            type=raw,value=${{ needs.prepare.outputs.version }}
       - name: Build and push panel image
         id: pushed-panel
         uses: docker/build-push-action@v5
@@ -232,15 +180,7 @@ jobs:
         with:
           images: ${{ env.REGISTRY }}/${{ needs.prepare.outputs.image_prefix }}-node
           tags: |
-            type=raw,value=tst,enable=${{ github.ref == 'refs/heads/tst' }}
-            type=ref,event=branch,enable=${{ github.ref != 'refs/heads/main' && github.ref != 'refs/heads/tst' }}
-            type=ref,event=pr
-            type=semver,pattern={{version}},enable=${{ github.ref_type == 'tag' && needs.prepare.outputs.has_version == 'true' }}
-            type=semver,pattern={{major}}.{{minor}},enable=${{ github.ref_type == 'tag' && needs.prepare.outputs.has_version == 'true' }}
-            type=raw,value=${{ needs.prepare.outputs.version }},enable=${{ needs.prepare.outputs.has_version == 'true' && needs.prepare.outputs.version != 'latest' && github.ref != 'refs/heads/tst' && (github.ref == 'refs/heads/main' || github.ref_type == 'tag') }}
-            type=sha,enable=${{ github.ref != 'refs/heads/main' && github.ref != 'refs/heads/tst' }}
-            type=raw,value=latest,enable=${{ needs.prepare.outputs.should_tag_latest == 'true' && github.ref != 'refs/heads/tst' }}
-
+            type=raw,value=${{ needs.prepare.outputs.version }}
       - name: Build and push node image
         id: pushed-node
         uses: docker/build-push-action@v5
