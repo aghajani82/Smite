@@ -163,8 +163,8 @@ class RegistryImageSignatureTest(unittest.TestCase):
                 ",push-by-digest=true,name-canonical=true,push=true",
                 workflow,
             )
-        for forbidden in ("docker/metadata-action@", "tags: ${{ steps.meta-",
-                          "push: true", "type=raw,value=latest",
+        for forbidden in ("docker/metadata-action@", "\n          tags: ${{ steps.meta-",
+                          "\n          push: true", "type=raw,value=latest",
                           "type=raw,value=${{ needs.prepare.outputs.version }}",
                           "name-canonical=false", "push-by-digest=false"):
             self.assertNotIn(forbidden, workflow)

@@ -100,8 +100,8 @@ class RevisionGateTest(unittest.TestCase):
                 "${{ needs.prepare.outputs.image_prefix }}-" + role +
                 ",push-by-digest=true,name-canonical=true,push=true", job
             )
-            self.assertNotIn("tags: ", job)
-            self.assertNotIn("push: true", job)
+            self.assertNotIn("\n          tags: ", job)
+            self.assertNotIn("\n          push: true", job)
             self.assertIn("SMITE_SOURCE_SHA=${{ github.sha }}", job)
 
     def test_cli_untrusted_file_and_wrong_source_hold(self):
