@@ -36,6 +36,7 @@ class RegistryImageSignatureTest(unittest.TestCase):
             GITHUB_REPOSITORY="aghajani82/Smite",
             GITHUB_REPOSITORY_OWNER="aghajani82",
             GITHUB_REF="refs/tags/v2.0.0-rc.0",
+            GITHUB_EVENT_NAME="workflow_dispatch",
             GITHUB_SHA=SHA,
             SMITE_IMAGE_ROLE="node",
             SMITE_IMAGE_DIGEST=DIGEST)
@@ -72,6 +73,10 @@ class RegistryImageSignatureTest(unittest.TestCase):
             {"GITHUB_REPOSITORY": "malicious/Smite"},
             {"GITHUB_REPOSITORY_OWNER": "other"},
             {"GITHUB_REF": "refs/heads/feature/malicious"},
+            {"GITHUB_REF": "refs/heads/main"},
+            {"GITHUB_REF": "refs/heads/next"},
+            {"GITHUB_REF": "refs/tags/v2.0.0-rc.0", "GITHUB_EVENT_NAME": "push"},
+            {"GITHUB_REF": "refs/tags/v2.0.0-rc.0", "GITHUB_EVENT_NAME": "workflow_dispatch-fake"},
             {"GITHUB_REF": "refs/tags/testing"},
         ]
         for change in invalid:
@@ -87,6 +92,26 @@ class RegistryImageSignatureTest(unittest.TestCase):
         bad_verify = self.check(SMITE_TEST_FAIL_VERIFY="1")
         self.assertNotEqual(bad_verify.returncode, 0)
         self.assertEqual(len(self.log.read_text().splitlines()), 2)
+
+    def test_publisher_refuses_automatic_push_or_mutable_aliases(self):
+        workflow = PUB.read_text()
+        self.assertIn("\n  workflow_dispatch:\n", workflow)
+        self.assertNotIn("\n  push:\n", workflow)
+        for field in ("expected_release_tag", "expected_source_sha",
+                      "confirm_candidate_publication"):
+            self.assertIn(field, workflow)
+        self.assertIn('[[ "$APPROVED" == "true" ]] || hold', workflow)
+        self.assertIn('[[ "$GITHUB_REF_TYPE" == "tag" ]] || hold', workflow)
+        self.assertIn('[[ "$GITHUB_REF" == "refs/tags/$EXPECTED_TAG" ]] || hold', workflow)
+        self.assertIn('[[ "$GITHUB_SHA" == "$EXPECTED_SHA" ]] || hold', workflow)
+        self.assertIn('[[ "$(git rev-parse HEAD)" == "$EXPECTED_SHA" ]] || hold', workflow)
+        self.assertIn('[[ "$(git rev-parse "${GITHUB_REF}^{commit}")" == "$EXPECTED_SHA" ]] || hold', workflow)
+        self.assertEqual(workflow.count("type=raw,value=${{ needs.prepare.outputs.version }}"), 2)
+        for forbidden in ("type=ref,event=branch", "type=ref,event=pr",
+                          "type=semver", "type=sha", "type=raw,value=latest",
+                          "type=raw,value=tst", "dorny/paths-filter@"):
+            self.assertNotIn(forbidden, workflow)
+        self.assertIn("RELEASE_AND_DEPLOYMENT_APPROVED=NO", workflow)
 
     def test_publisher_is_wired_but_not_executed_by_preview_ci(self):
         doc = PUB.read_text()
