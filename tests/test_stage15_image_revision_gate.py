@@ -85,6 +85,19 @@ class RevisionGateTest(unittest.TestCase):
         self.assertIn('--expected-commit "$SMITE_BUILD_SOURCE_SHA"', workflow)
         self.assertIn("NO_GHCR_PUSH=YES", workflow)
 
+    def test_published_images_never_inherit_unverified_source_revision(self):
+        # This is a static safety test; the publication workflow is NOT executed.
+        publication = (ROOT / ".github/workflows/publish-images.yml").read_text()
+        self.assertEqual(publication.count("SMITE_SOURCE_SHA=${{ github.sha }}"), 2)
+        for role in ("panel", "node"):
+            parts = publication.split(f"  build-{role}:\n", 1)
+            self.assertEqual(len(parts), 2, f"Missing publish job for {role}")
+            job = parts[1].split("\n  build-", 1)[0]
+            self.assertIn("docker/build-push-action@v5", job)
+            self.assertIn(f"file: ./{role}/Dockerfile", job)
+            self.assertIn("push: true", job)
+            self.assertIn("SMITE_SOURCE_SHA=${{ github.sha }}", job)
+
     def test_cli_untrusted_file_and_wrong_source_hold(self):
         with tempfile.TemporaryDirectory() as temp:
             folder = Path(temp)

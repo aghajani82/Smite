@@ -156,6 +156,7 @@ jobs:
           labels: ${{ steps.meta-panel.outputs.labels }}
           build-args: |
             SMITE_VERSION=${{ needs.prepare.outputs.version }}
+            SMITE_SOURCE_SHA=${{ github.sha }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
@@ -209,5 +210,6 @@ jobs:
           labels: ${{ steps.meta-node.outputs.labels }}
           build-args: |
             SMITE_VERSION=${{ needs.prepare.outputs.version }}
+            SMITE_SOURCE_SHA=${{ github.sha }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
