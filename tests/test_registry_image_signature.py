@@ -118,6 +118,7 @@ class RegistryImageSignatureTest(unittest.TestCase):
             env = dict(os.environ,
                        GITHUB_EVENT_NAME="workflow_dispatch",
                        GITHUB_REPOSITORY="aghajani82/Smite",
+                       GITHUB_ACTOR="aghajani82",
                        GITHUB_REF_TYPE="tag",
                        GITHUB_REF="refs/tags/v2.0.0-rc.0",
                        GITHUB_SHA=sha,
@@ -143,6 +144,7 @@ class RegistryImageSignatureTest(unittest.TestCase):
                 {"GITHUB_REF": "refs/heads/main"},
                 {"GITHUB_EVENT_NAME": "push"},
                 {"GITHUB_REPOSITORY": "attacker/Smite"},
+                {"GITHUB_ACTOR": "unauthorized-contributor"},
             ):
                 with self.subTest(override=override):
                     denied, attempted_output = invoke(**override)
@@ -158,6 +160,7 @@ class RegistryImageSignatureTest(unittest.TestCase):
             self.assertIn(field, workflow)
         self.assertIn('[[ "$APPROVED" == "true" ]] || hold', workflow)
         self.assertIn('[[ "$GITHUB_REF_TYPE" == "tag" ]] || hold', workflow)
+        self.assertIn('[[ "$GITHUB_ACTOR" == "aghajani82" ]] || hold', workflow)
         self.assertIn('[[ "$GITHUB_REF" == "refs/tags/$EXPECTED_TAG" ]] || hold', workflow)
         self.assertIn('[[ "$GITHUB_SHA" == "$EXPECTED_SHA" ]] || hold', workflow)
         self.assertIn('[[ "$(git rev-parse HEAD)" == "$EXPECTED_SHA" ]] || hold', workflow)
