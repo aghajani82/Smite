@@ -75,11 +75,21 @@ def _hash_code(code: str) -> str:
 
 
 def _open_database(database_path: str | Path) -> sqlite3.Connection:
-    connection = sqlite3.connect(str(database_path), timeout=15, isolation_level=None)
-    connection.row_factory = sqlite3.Row
-    connection.execute("PRAGMA foreign_keys=ON")
-    connection.execute("PRAGMA busy_timeout=15000")
-    return connection
+    """Never re-create an absent Panel DB during authentication or pairing."""
+    path = Path(database_path)
+    if path.is_symlink() or not path.is_file():
+        raise PairingDenied("Existing Panel database required")
+    try:
+        connection = sqlite3.connect(
+            path.absolute().as_uri() + "?mode=rw",
+            uri=True, timeout=15, isolation_level=None,
+        )
+        connection.row_factory = sqlite3.Row
+        connection.execute("PRAGMA foreign_keys=ON")
+        connection.execute("PRAGMA busy_timeout=15000")
+        return connection
+    except sqlite3.Error as exc:
+        raise PairingDenied("Panel database unavailable") from exc
 
 
 def _matching_registered_node(conn: sqlite3.Connection, node_id: str, role: str) -> bool:

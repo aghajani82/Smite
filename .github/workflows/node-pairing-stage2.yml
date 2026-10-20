@@ -5,6 +5,8 @@ on:
     paths:
       - 'panel/app/node_pairing_store.py'
       - 'tests/test_node_pairing_store.py'
+      - 'panel/app/recovery_snapshot_admission.py'
+      - 'tests/test_recovery_snapshot_admission.py'
       - 'docs/node-pairing-stage2.md'
       - '.github/workflows/node-pairing-stage2.yml'
   push:
@@ -25,6 +27,8 @@ jobs:
       - name: Install pinned crypto dependency
         run: python -m pip install 'cryptography==41.0.7'
       - name: Compile source and tests
-        run: python -m py_compile panel/app/node_pairing_store.py tests/test_node_pairing_store.py
+        run: python -m py_compile panel/app/node_pairing_store.py tests/test_node_pairing_store.py panel/app/recovery_snapshot_admission.py tests/test_recovery_snapshot_admission.py
       - name: Execute inert SQLite pairing and replay tests
-        run: python -B tests/test_node_pairing_store.py -v
+        run: |
+          python -B tests/test_node_pairing_store.py -v
+          python -B tests/test_recovery_snapshot_admission.py -v
