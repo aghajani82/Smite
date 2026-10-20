@@ -62,6 +62,9 @@ class RegistryImageSignatureTest(unittest.TestCase):
         self.assertTrue(calls[1].startswith("verify "))
         self.assertIn("--certificate-identity=https://github.com/aghajani82/Smite/.github/workflows/publish-images.yml@refs/tags/v2.0.0-rc.0", calls[1])
         self.assertIn("--certificate-oidc-issuer=https://token.actions.githubusercontent.com", calls[1])
+        self.assertIn("--certificate-github-workflow-sha=" + SHA, calls[1])
+        self.assertIn("--certificate-github-workflow-repository=aghajani82/Smite", calls[1])
+        self.assertIn("--certificate-github-workflow-trigger=workflow_dispatch", calls[1])
 
     def test_invalid_contexts_do_not_call_signer(self):
         invalid = [
