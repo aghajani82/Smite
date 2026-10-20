@@ -219,6 +219,7 @@ class PairingStoreTest(unittest.TestCase):
         )
         self.assertEqual(first.returncode, 0, first.stderr)
         self.assertIn("SAME_NODE_ID_REKEY=FORBIDDEN", first.stdout)
+        self.assertIn("NODE_AGENT_STILL_REQUIRES_OFFLINE_PAUSE_AND_KEY_RETIREMENT=YES", first.stdout)
         self.assertIn("RELEASE_OR_ACTIVATION_AUTHORIZED=NO", first.stdout)
         self.assertNotIn(old, first.stdout + first.stderr)
         with self.assertRaises(store.PairingDenied):

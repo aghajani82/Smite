@@ -87,6 +87,14 @@ automatically created. The old UUID is permanently ineligible for new
 pairing through the current code. Once revoked, both Panel→Node signing
 and Node→Panel signature lookup fail closed for the old UUID.
 
+**Important:** Panel revocation stops future official Panel signing and
+signed Node→Panel authentication, but it CANNOT remotely revoke the old
+HMAC key still present on an unpaused Node or stop existing FRP/Backhaul
+sessions. Previously obtained old-key signed Agent requests remain a risk
+until the Node is securely stopped, isolated and its old identity retired.
+Panel DB status/UI may remain stale until an independently reviewed
+lifecycle update. Never claim the revocation CLI itself disconnects the Node.
+
 An **explicit offline-only operator command** is available through
 `python3 -m app.node_pairing_store` with three distinct flags confirming
 that both Panel and Node signers are paused, Panel database backup was

@@ -118,6 +118,30 @@ class SignedInboundTest(unittest.TestCase):
         )
         return body, headers
 
+
+    def test_revoked_key_cannot_register_or_return_frp_even_if_signature_valid(self):
+        initialize_replay_schema(self.db_path)
+        # Previously signed Node remains capable of locally computing a valid
+        # HMAC; Panel must reject the revoked key before writing replay/nonces.
+        self.assertTrue(node_pairing_store.revoke_node(
+            self.db_path, node_id=self.node_id
+        ))
+        body, headers = self.request(nonce="9" * 32)
+        denied = self.client.post(
+            "/api/node-control/register", content=body, headers=headers
+        )
+        self.assertEqual(denied.status_code, 401, denied.text)
+        self.assertNotIn(self.token, denied.text)
+        with sqlite3.connect(self.db_path) as conn:
+            self.assertEqual(conn.execute(
+                "SELECT COUNT(*) FROM smite_node_inbound_nonces WHERE node_id=?",
+                (self.node_id,),
+            ).fetchone()[0], 0)
+        with self.assertRaises(node_pairing_store.PairingDenied):
+            node_pairing_store.get_active_secret(
+                self.db_path, master_key=self.master, node_id=self.node_id
+            )
+
     def test_requires_explicit_migration_and_mode(self):
         body, headers = self.request()
         self.assertEqual(self.client.post(
