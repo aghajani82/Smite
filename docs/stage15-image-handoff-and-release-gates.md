@@ -66,6 +66,37 @@ the bundle manifest.
 6. Full review/merge of stacked Smite/U-OPTI PRs is separate from
    production deployment, version tagging and installer update.
 
+## 2026-10-20 — exact Panel/Node OCI image source revision gate
+
+The *existing* unpublished `stage15-offline-image-bundles.yml`
+now builds both images from one exact reviewed PR source SHA using
+`--build-arg SMITE_SOURCE_SHA="$SMITE_BUILD_SOURCE_SHA"`. The final
+Panel and Node Dockerfiles embed the source in their
+`org.opencontainers.image.revision` label, plus an explicit
+`smite.role=panel|node` label. The same workflow reads **real**
+`docker image inspect` data before first-boot tests and **before**
+creating any `docker save` archives.
+
+`tests/stage15_image_revision_gate.py` rejects missing, incorrect or
+mismatched revision SHA, wrong/swapped role, wrong version, duplicate
+image IDs and malformed inspect metadata. The separate regression
+`tests/test_stage15_image_revision_gate.py` requires fail-closed
+behavior and checks the workflow actually passes the exact source SHA
+to **both** builds. Both Dockerfiles still default their revision
+build arg to `unverified` unless a reviewed pipeline explicitly sets
+it, preventing an implicit claim of provenance.
+
+This proves the **local image metadata matches the source reviewed
+by the CI checkout**. It does **not** prove an independently signed
+OCI registry digest, reproducible third-party base layers, or that
+someone cannot forge image labels on another build. The images
+remain **UNPUBLISHED/NOT PRODUCTION-ADMITTED**, with no GHCR push,
+Docker load on IR/KH, release tag or runtime activation.
+
+Test: [Stage15 CI run 39439403024](https://github.com/aghajani82/Smite/actions/runs/39439403024)
+(the full paired-image build may outlast the fast unit-tests; verify
+its final state before reporting all jobs PASS).
+
 ## Direct route to first use
 
 - **Gate A — Trusted test images:** publish immutable, reviewed paired
