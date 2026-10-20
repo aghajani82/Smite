@@ -33,9 +33,11 @@ def inspect_pair(*, images: object, source_sha: str) -> tuple[str, str]:
         if not isinstance(image, dict):
             raise ImageRevisionHold("Invalid image inspect record")
         image_id = image.get("Id")
-        labels = image.get("Config", {}).get("Labels")
+        config = image.get("Config")
+        labels = config.get("Labels") if isinstance(config, dict) else None
         if (not isinstance(image_id, str) or not IMAGE_ID.fullmatch(image_id)
                 or not isinstance(labels, dict)
+                or labels.get("smite.role") != role
                 or labels.get(REVISION_LABEL) != source_sha
                 or labels.get(VERSION_LABEL) != "2.0.0-rc.0"):
             raise ImageRevisionHold(f"{role} image revision/version/ID mismatch")
