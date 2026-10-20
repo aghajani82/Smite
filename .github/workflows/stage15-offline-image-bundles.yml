@@ -13,6 +13,8 @@ on:
       - 'tests/stage23_node_identity_rollback.sh'
       - 'tests/stage15_offline_bundle.py'
       - 'tests/test_stage15_offline_bundle.py'
+      - 'tests/stage15_image_revision_gate.py'
+      - 'tests/test_stage15_image_revision_gate.py'
       - '.github/workflows/stage15-offline-image-bundles.yml'
   workflow_dispatch:
 
@@ -29,8 +31,9 @@ jobs:
           python-version: '3.11'
       - name: Verify manifest tamper detection and no-deployment
         run: |
-          python -m py_compile tests/stage15_offline_bundle.py tests/test_stage15_offline_bundle.py
+          python -m py_compile tests/stage15_offline_bundle.py tests/test_stage15_offline_bundle.py tests/stage15_image_revision_gate.py tests/test_stage15_image_revision_gate.py
           python -B tests/test_stage15_offline_bundle.py -v
+          python -B tests/test_stage15_image_revision_gate.py -v
 
   offline-pair-artifact:
     runs-on: ubuntu-latest
@@ -60,8 +63,14 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          docker build -f panel/Dockerfile -t smite-panel:stage15-local --build-arg SMITE_VERSION=2.0.0-rc.0 .
-          docker build -f node/Dockerfile -t smite-node:stage15-local --build-arg SMITE_VERSION=2.0.0-rc.0 node
+          docker build -f panel/Dockerfile -t smite-panel:stage15-local --build-arg SMITE_VERSION=2.0.0-rc.0 --build-arg SMITE_SOURCE_SHA="$SMITE_BUILD_SOURCE_SHA" .
+          docker build -f node/Dockerfile -t smite-node:stage15-local --build-arg SMITE_VERSION=2.0.0-rc.0 --build-arg SMITE_SOURCE_SHA="$SMITE_BUILD_SOURCE_SHA" node
+      - name: Verify exact paired OCI revision labels before bundle or first boot
+        shell: bash
+        run: |
+          set -euo pipefail
+          docker image inspect smite-panel:stage15-local smite-node:stage15-local > "$RUNNER_TEMP/stage15-pair-inspect.json"
+          python3 -B tests/stage15_image_revision_gate.py --inspect-json "$RUNNER_TEMP/stage15-pair-inspect.json" --expected-commit "$SMITE_BUILD_SOURCE_SHA"
       - name: Smoke-check image filesystem without starting services
         shell: bash
         run: |
