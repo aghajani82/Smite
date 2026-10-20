@@ -93,7 +93,7 @@ class RegistryImageSignatureTest(unittest.TestCase):
         self.assertNotIn("\n  pull_request:", doc)
         self.assertEqual(doc.count("sigstore/cosign-installer@v4.1.0"), 2)
         self.assertEqual(doc.count("bash scripts/sign-verified-image.sh"), 2)
-        self.assertEqual(doc.count("ref: ${{ github.sha }}"), 3)
+        self.assertEqual(doc.count("ref: ${{ github.sha }}"), 4)  # prepare + two images + signed pair
         self.assertEqual(doc.count('test "$(git rev-parse HEAD)" = "${{ github.sha }}"'), 2)
         for role in ("panel", "node"):
             section = doc.split("  build-" + role + ":\n", 1)[1].split("\n  build-", 1)[0]
