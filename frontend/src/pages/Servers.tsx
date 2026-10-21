@@ -313,7 +313,7 @@ const AddServerModal = ({ onClose, onSuccess, securePreview }: AddServerModalPro
     e.preventDefault()
     try {
       if (securePreview) {
-        await api.post('/node-pairing/reserve', { name }, {
+        await api.post('/node-pairing/reserve', { name, role: 'foreign' }, {
           headers: { 'Cache-Control': 'no-store' },
         })
       } else {
