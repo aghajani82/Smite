@@ -1,0 +1,31 @@
+name: Stage14 Smite Unpublished Release Contract
+
+on:
+  push:
+    branches:
+      - feature/smite-stage14-release-candidate-review-20261018
+  pull_request:
+    paths:
+      - 'release/stage14-review-contract.json'
+      - 'tests/test_stage14_review_contract.py'
+      - 'panel/**'
+      - 'node/**'
+      - '.github/workflows/stage14-review-contract.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  offline-contract:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Validate syntax and manifest
+        run: |
+          python -m json.tool release/stage14-review-contract.json >/dev/null
+          python -m py_compile tests/test_stage14_review_contract.py
+      - name: Check HMAC compatibility and default-off release gate
+        run: python -B tests/test_stage14_review_contract.py -v

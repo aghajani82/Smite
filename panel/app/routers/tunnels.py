@@ -11,6 +11,8 @@ import time
 from app.database import get_db
 from app.models import Tunnel, Node
 from app.node_client import NodeClient
+from app.config import settings
+from app.engine_admission import engine_pair_readiness, require_engine_ready_pair, ENGINES
 
 
 router = APIRouter()
@@ -136,6 +138,33 @@ def parse_ports_from_spec(spec: dict) -> list:
     return ports if ports else []
 
 
+@router.get("/engines")
+async def engine_readiness(iran_node_id: str = "", foreign_node_id: str = ""):
+    """Read-only signed readiness; no installation or tunnel side effects."""
+    if settings.smite_engine_management_mode != "managed":
+        return {"mode": "legacy", "engines": {name: "unmanaged" for name in ENGINES}}
+    return {"mode": "managed", "engines": await engine_pair_readiness(
+        iran_node_id, foreign_node_id, NodeClient(),
+    )}
+
+
+async def require_managed_tunnel_pair(tunnel: Tunnel, client: NodeClient) -> None:
+    """Gate EVERY activation path, using the exact stored IR/KH pair.
+
+    Existing Stable tunnels retain their legacy lifecycle unchanged.
+    A managed tunnel with missing stored pairing cannot select an arbitrary
+    foreign Node or silently activate an unregistered engine.
+    """
+    if settings.smite_engine_management_mode != "managed":
+        return
+    await require_engine_ready_pair(
+        tunnel.core,
+        tunnel.iran_node_id or tunnel.node_id or "",
+        tunnel.foreign_node_id or "",
+        client,
+    )
+
+
 @router.post("", response_model=TunnelResponse)
 async def create_tunnel(tunnel: TunnelCreate, request: Request, db: AsyncSession = Depends(get_db)):
     """Create a new tunnel and auto-apply it"""
@@ -212,7 +241,33 @@ async def create_tunnel(tunnel: TunnelCreate, request: Request, db: AsyncSession
             node_id_to_check = tunnel.iran_node_id or tunnel.node_id
             result = await db.execute(select(Node).where(Node.id == node_id_to_check))
             node = result.scalar_one_or_none()
-    
+
+        if settings.smite_engine_management_mode == "managed" and tunnel.core == "gost":
+            # GOST is a forward, not a reverse engine. It still needs an
+            # explicit, persisted IR/KH pair for signed inventory admission.
+            if node is None or (node.node_metadata or {}).get("role") != "iran":
+                raise HTTPException(status_code=400, detail="Select a valid Iran Node for GOST")
+            foreign_node_id_val = tunnel.foreign_node_id or ""
+            result = await db.execute(
+                select(Node).where(Node.id == foreign_node_id_val)
+            )
+            foreign_node = result.scalar_one_or_none()
+            if (foreign_node is None
+                    or (foreign_node.node_metadata or {}).get("role") != "foreign"
+                    or foreign_node.id == node.id):
+                raise HTTPException(status_code=400, detail="Select a valid foreign Node for GOST")
+            iran_node = node
+
+    if settings.smite_engine_management_mode == "managed":
+        # Signed HTTPS/443 preflight BEFORE writing any Tunnel DB state.
+        # Bundled binaries are NOT individually installed engines.
+        await require_engine_ready_pair(
+            tunnel.core,
+            iran_node.id if iran_node else (node.id if node else ""),
+            foreign_node.id if foreign_node else "",
+            NodeClient(),
+        )
+
     tunnel_node_id = tunnel.iran_node_id or tunnel.node_id or ""
     
     foreign_node_id_to_store = foreign_node.id if foreign_node else None
@@ -1099,8 +1154,27 @@ async def update_tunnel(
     if not tunnel:
         raise HTTPException(status_code=404, detail="Tunnel not found")
     
+    # Stage12: reject an unsafe Standard Backhaul edit BEFORE committing.
+    from app.uopti_backhaul_lifecycle import review_backhaul_edit
+    from app.uopti_backhaul_standard import StandardBackhaulSpecError
+    try:
+        standard_backhaul = review_backhaul_edit(
+            core=tunnel.core, old_spec=tunnel.spec,
+            proposed_spec=tunnel_update.spec,
+        ) if tunnel_update.spec is not None else (
+            tunnel.core == "backhaul"
+            and (tunnel.spec or {}).get("uopti_standard_backhaul") is True
+        )
+    except StandardBackhaulSpecError as exc:
+        raise HTTPException(400, "Unsafe Standard Backhaul update") from exc
+
     spec_changed = tunnel_update.spec is not None and tunnel_update.spec != tunnel.spec
-    
+
+    # A spec edit automatically re-applies. Reject before ANY database write,
+    # local manager restart or remote command if either Node lacks this engine.
+    if spec_changed:
+        await require_managed_tunnel_pair(tunnel, NodeClient())
+
     if tunnel_update.name is not None:
         tunnel.name = tunnel_update.name
     if tunnel_update.spec is not None:
@@ -1123,7 +1197,8 @@ async def update_tunnel(
         try:
             needs_gost_forwarding = tunnel.type in ["tcp", "udp", "ws", "grpc", "tcpmux"] and tunnel.core == "gost"
             needs_rathole_server = tunnel.core == "rathole"
-            needs_backhaul_server = tunnel.core == "backhaul"
+            # Standard owns its server on the IR Node, not Panel.
+            needs_backhaul_server = tunnel.core == "backhaul" and not standard_backhaul
             needs_chisel_server = tunnel.core == "chisel"
             needs_frp_server = tunnel.core == "frp"
             needs_node_apply = tunnel.core in {"rathole", "backhaul", "chisel", "frp"}
@@ -1326,24 +1401,38 @@ async def apply_tunnel(tunnel_id: str, request: Request, db: AsyncSession = Depe
         raise HTTPException(status_code=404, detail="Tunnel not found")
     
     client = NodeClient()
-    
+    # Also covers single Apply and Reapply All; refuse before side effects.
+    await require_managed_tunnel_pair(tunnel, client)
+
     is_reverse_tunnel = tunnel.core in {"rathole", "backhaul", "chisel", "frp"}
     foreign_node = None
     iran_node = None
     
     if is_reverse_tunnel:
-        iran_node_id = tunnel.node_id
+        iran_node_id = (
+            (tunnel.iran_node_id or tunnel.node_id)
+            if settings.smite_engine_management_mode == "managed"
+            else tunnel.node_id
+        )
         result = await db.execute(select(Node).where(Node.id == iran_node_id))
         iran_node = result.scalar_one_or_none()
         if not iran_node:
             raise HTTPException(status_code=404, detail=f"Iran node {iran_node_id} not found")
         
-        result = await db.execute(select(Node))
-        all_nodes = result.scalars().all()
-        foreign_nodes = [n for n in all_nodes if n.node_metadata and n.node_metadata.get("role") == "foreign"]
-        if not foreign_nodes:
-            raise HTTPException(status_code=404, detail="No foreign node found. Please ensure at least one node has role='foreign' (set NODE_ROLE=foreign on the foreign node).")
-        foreign_node = foreign_nodes[0]
+        if settings.smite_engine_management_mode == "managed":
+            result = await db.execute(
+                select(Node).where(Node.id == tunnel.foreign_node_id)
+            )
+            foreign_node = result.scalar_one_or_none()
+            if foreign_node is None:
+                raise HTTPException(status_code=409, detail="Paired foreign Node unavailable")
+        else:
+            result = await db.execute(select(Node))
+            all_nodes = result.scalars().all()
+            foreign_nodes = [n for n in all_nodes if n.node_metadata and n.node_metadata.get("role") == "foreign"]
+            if not foreign_nodes:
+                raise HTTPException(status_code=404, detail="No foreign node found. Please ensure at least one node has role='foreign' (set NODE_ROLE=foreign on the foreign node).")
+            foreign_node = foreign_nodes[0]
         
         if iran_node.node_metadata.get("role") != "iran":
             raise HTTPException(status_code=400, detail=f"Node {iran_node.id} is not an iran node (role={iran_node.node_metadata.get('role')}). Set NODE_ROLE=iran on the Iran node.")

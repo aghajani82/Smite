@@ -1,10 +1,14 @@
 """Agent API endpoints"""
-from fastapi import APIRouter, Request, HTTPException
+from fastapi import APIRouter, Request, HTTPException, Depends
+from app.agent_auth import require_agent_auth
+from app.engine_inventory import engine_inventory, require_engine_ready, EngineInventoryUnavailable
 from pydantic import BaseModel
 from typing import Dict, Any
 import logging
 
-router = APIRouter()
+# Strict mode gates status AND Apply/Remove without route-level bypass.
+# Default legacy mode intentionally preserves current Node interoperability.
+router = APIRouter(dependencies=[Depends(require_agent_auth)])
 logger = logging.getLogger(__name__)
 
 
@@ -28,6 +32,12 @@ async def apply_tunnel(data: TunnelApply, request: Request):
     
     logger.info(f"Applying tunnel {data.tunnel_id}: core={data.core}, type={data.type}")
     try:
+        # In the new Core-only installation no tunnel engine is enrolled.
+        # Refuse Apply before touching config, Docker, binaries or adapters.
+        try:
+            require_engine_ready(data.core)
+        except EngineInventoryUnavailable:
+            raise HTTPException(409, detail="Selected tunnel engine is not ready")
         await adapter_manager.apply_tunnel(
             tunnel_id=data.tunnel_id,
             tunnel_core=data.core,
@@ -35,6 +45,8 @@ async def apply_tunnel(data: TunnelApply, request: Request):
         )
         logger.info(f"Tunnel {data.tunnel_id} applied successfully")
         return {"status": "success", "message": "Tunnel applied"}
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"Failed to apply tunnel {data.tunnel_id}: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
@@ -75,3 +87,11 @@ async def get_status(request: Request):
         "tunnels": list(adapter_manager.active_tunnels.keys())
     }
 
+
+@router.get("/engines")
+async def get_engines():
+    """Authenticated, read-only engine availability; never installs anything."""
+    try:
+        return engine_inventory()
+    except EngineInventoryUnavailable as exc:
+        raise HTTPException(503, detail="Engine inventory unavailable") from exc

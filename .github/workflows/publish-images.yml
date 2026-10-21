@@ -1,18 +1,21 @@
 name: Build and Publish Docker Images
 
 on:
-  push:
-    branches:
-      - main
-      - next
-      - beta
-      - tst
-    tags:
-      - 'v*'
-    paths-ignore:
-      - README.md
-      - docs/**
   workflow_dispatch:
+    inputs:
+      expected_release_tag:
+        description: 'Reviewed existing tag, e.g. v2.0.0-rc.0; select that tag in Run workflow'
+        required: true
+        type: string
+      expected_source_sha:
+        description: 'Exact reviewed 40-character Smite commit SHA'
+        required: true
+        type: string
+      confirm_candidate_publication:
+        description: 'I approve pushing and keylessly signing this candidate pair; NOT deployment'
+        required: true
+        type: boolean
+        default: false
 
 env:
   REGISTRY: ghcr.io
@@ -23,91 +26,49 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: read
-      packages: write
-      id-token: write
     outputs:
-      should_publish: ${{ steps.publish.outputs.result }}
-      version: ${{ steps.version.outputs.version }}
-      has_version: ${{ steps.has-version.outputs.has_version }}
-      should_tag_latest: ${{ steps.tag-latest.outputs.should_tag }}
-      image_prefix: ${{ steps.image-prefix.outputs.prefix }}
+      should_publish: ${{ steps.approved.outputs.result }}
+      version: ${{ steps.approved.outputs.version }}
+      image_prefix: ${{ steps.approved.outputs.prefix }}
     steps:
-      - name: Checkout repository
+      - name: Checkout reviewed source
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
           fetch-tags: true
-
-      - name: Set lowercase image prefix
-        id: image-prefix
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - name: Reject all unapproved or mismatched release candidates
+        id: approved
+        shell: bash
+        env:
+          EXPECTED_TAG: ${{ inputs.expected_release_tag }}
+          EXPECTED_SHA: ${{ inputs.expected_source_sha }}
+          APPROVED: ${{ inputs.confirm_candidate_publication }}
         run: |
-          echo "prefix=$(echo '${{ github.repository_owner }}' | tr '[:upper:]' '[:lower:]')/smite" >> $GITHUB_OUTPUT
-
-      - name: Detect relevant changes
-        id: changes
-        uses: dorny/paths-filter@v3
-        with:
-          filters: |
-            publish:
-              - '**'
-              - '!README.md'
-              - '!docs/**'
-
-      - name: Decide whether to publish
-        id: publish
-        run: |
-          if [ "${{ github.ref_type }}" = "tag" ]; then
-            echo "result=true" >> "$GITHUB_OUTPUT"
-          elif [ "${{ steps.changes.outputs.publish }}" = "true" ]; then
-            echo "result=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "result=false" >> "$GITHUB_OUTPUT"
-          fi
-
-      - name: Check if version tag exists
-        id: has-version
-        run: |
-          if [ "${{ github.ref_type }}" = "tag" ]; then
-            echo "has_version=true" >> "$GITHUB_OUTPUT"
-          else
-            LATEST_TAG=$(git describe --tags --abbrev=0 2>/dev/null || echo "")
-            if [ -n "$LATEST_TAG" ] && [[ "$LATEST_TAG" =~ ^v[0-9] ]]; then
-              echo "has_version=true" >> "$GITHUB_OUTPUT"
-            else
-              echo "has_version=false" >> "$GITHUB_OUTPUT"
-            fi
-          fi
-
-      - name: Extract version
-        id: version
-        run: |
-          if [ "${{ github.ref_type }}" = "tag" ]; then
-            VERSION="${{ github.ref_name }}"
-            VERSION="${VERSION#v}"
-            echo "version=$VERSION" >> "$GITHUB_OUTPUT"
-          else
-            LATEST_TAG=$(git describe --tags --abbrev=0 2>/dev/null || echo "")
-            if [ -n "$LATEST_TAG" ]; then
-              VERSION="${LATEST_TAG#v}"
-              echo "version=$VERSION" >> "$GITHUB_OUTPUT"
-            else
-              echo "version=latest" >> "$GITHUB_OUTPUT"
-            fi
-          fi
-
-      - name: Determine if should tag as latest
-        id: tag-latest
-        run: |
-          if [ "${{ github.ref_type }}" = "tag" ] && [[ "${{ github.ref_name }}" =~ ^v[0-9] ]]; then
-            echo "should_tag=true" >> "$GITHUB_OUTPUT"
-          elif [ "${{ github.ref }}" = "refs/heads/main" ] && [ "${{ steps.has-version.outputs.has_version }}" = "true" ]; then
-            echo "should_tag=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "should_tag=false" >> "$GITHUB_OUTPUT"
-          fi
+          set -euo pipefail
+          hold() { echo "HOLD: exact reviewed tag, commit and consent required" >&2; exit 2; }
+          [[ "$GITHUB_EVENT_NAME" == "workflow_dispatch" ]] || hold
+          [[ "$GITHUB_REPOSITORY" == "aghajani82/Smite" ]] || hold
+          [[ "$GITHUB_ACTOR" == "aghajani82" ]] || hold
+          [[ "$GITHUB_REF_TYPE" == "tag" ]] || hold
+          [[ "$EXPECTED_TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-[A-Za-z0-9][A-Za-z0-9.-]*)?$ ]] || hold
+          [[ "$EXPECTED_SHA" =~ ^[a-f0-9]{40}$ ]] || hold
+          [[ "$APPROVED" == "true" ]] || hold
+          [[ "$GITHUB_REF" == "refs/tags/$EXPECTED_TAG" ]] || hold
+          [[ "$GITHUB_SHA" == "$EXPECTED_SHA" ]] || hold
+          [[ "$(git rev-parse HEAD)" == "$EXPECTED_SHA" ]] || hold
+          [[ "$(git rev-parse "${GITHUB_REF}^{commit}")" == "$EXPECTED_SHA" ]] || hold
+          echo "result=true" >> "$GITHUB_OUTPUT"
+          echo "version=${EXPECTED_TAG#v}" >> "$GITHUB_OUTPUT"
+          echo "prefix=aghajani82/smite" >> "$GITHUB_OUTPUT"
+          echo "APPROVED_CANDIDATE_SOURCE_COMMIT=$EXPECTED_SHA"
+          echo "RELEASE_AND_DEPLOYMENT_APPROVED=NO"
 
   build-panel:
     needs: prepare
+    outputs:
+      digest: ${{ steps.pushed-panel.outputs.digest }}
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -120,6 +81,17 @@ jobs:
         with:
           fetch-depth: 0
           fetch-tags: true
+          ref: ${{ github.sha }}
+          persist-credentials: false
+
+      - name: Reject checkout drift before publishing
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "${{ github.sha }}" || {
+            echo "HOLD: checked-out source differs from requested commit" >&2
+            exit 1
+          }
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
@@ -131,36 +103,35 @@ jobs:
           username: ${{ github.repository_owner }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Extract metadata for panel image
-        id: meta-panel
-        uses: docker/metadata-action@v5
-        with:
-          images: ${{ env.REGISTRY }}/${{ needs.prepare.outputs.image_prefix }}-panel
-          tags: |
-            type=raw,value=tst,enable=${{ github.ref == 'refs/heads/tst' }}
-            type=ref,event=branch,enable=${{ github.ref != 'refs/heads/main' && github.ref != 'refs/heads/tst' }}
-            type=ref,event=pr
-            type=semver,pattern={{version}},enable=${{ github.ref_type == 'tag' && needs.prepare.outputs.has_version == 'true' }}
-            type=semver,pattern={{major}}.{{minor}},enable=${{ github.ref_type == 'tag' && needs.prepare.outputs.has_version == 'true' }}
-            type=raw,value=${{ needs.prepare.outputs.version }},enable=${{ needs.prepare.outputs.has_version == 'true' && needs.prepare.outputs.version != 'latest' && github.ref != 'refs/heads/tst' && (github.ref == 'refs/heads/main' || github.ref_type == 'tag') }}
-            type=sha,enable=${{ github.ref != 'refs/heads/main' && github.ref != 'refs/heads/tst' }}
-            type=raw,value=latest,enable=${{ needs.prepare.outputs.should_tag_latest == 'true' && github.ref != 'refs/heads/tst' }}
-
       - name: Build and push panel image
+        id: pushed-panel
         uses: docker/build-push-action@v5
         with:
           context: .
           file: ./panel/Dockerfile
-          push: true
-          tags: ${{ steps.meta-panel.outputs.tags }}
-          labels: ${{ steps.meta-panel.outputs.labels }}
+          outputs: type=image,name=${{ env.REGISTRY }}/${{ needs.prepare.outputs.image_prefix }}-panel,push-by-digest=true,name-canonical=true,push=true
           build-args: |
             SMITE_VERSION=${{ needs.prepare.outputs.version }}
+            SMITE_SOURCE_SHA=${{ github.sha }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
+      - name: Install verified Cosign release
+        uses: sigstore/cosign-installer@v4.1.0
+        with:
+          cosign-release: 'v3.0.6'
+
+      - name: Sign and independently verify panel registry digest
+        shell: bash
+        env:
+          SMITE_IMAGE_ROLE: panel
+          SMITE_IMAGE_DIGEST: ${{ steps.pushed-panel.outputs.digest }}
+        run: bash scripts/sign-verified-image.sh
+
   build-node:
     needs: prepare
+    outputs:
+      digest: ${{ steps.pushed-node.outputs.digest }}
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -173,6 +144,17 @@ jobs:
         with:
           fetch-depth: 0
           fetch-tags: true
+          ref: ${{ github.sha }}
+          persist-credentials: false
+
+      - name: Reject checkout drift before publishing
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "${{ github.sha }}" || {
+            echo "HOLD: checked-out source differs from requested commit" >&2
+            exit 1
+          }
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
@@ -184,30 +166,68 @@ jobs:
           username: ${{ github.repository_owner }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Extract metadata for node image
-        id: meta-node
-        uses: docker/metadata-action@v5
-        with:
-          images: ${{ env.REGISTRY }}/${{ needs.prepare.outputs.image_prefix }}-node
-          tags: |
-            type=raw,value=tst,enable=${{ github.ref == 'refs/heads/tst' }}
-            type=ref,event=branch,enable=${{ github.ref != 'refs/heads/main' && github.ref != 'refs/heads/tst' }}
-            type=ref,event=pr
-            type=semver,pattern={{version}},enable=${{ github.ref_type == 'tag' && needs.prepare.outputs.has_version == 'true' }}
-            type=semver,pattern={{major}}.{{minor}},enable=${{ github.ref_type == 'tag' && needs.prepare.outputs.has_version == 'true' }}
-            type=raw,value=${{ needs.prepare.outputs.version }},enable=${{ needs.prepare.outputs.has_version == 'true' && needs.prepare.outputs.version != 'latest' && github.ref != 'refs/heads/tst' && (github.ref == 'refs/heads/main' || github.ref_type == 'tag') }}
-            type=sha,enable=${{ github.ref != 'refs/heads/main' && github.ref != 'refs/heads/tst' }}
-            type=raw,value=latest,enable=${{ needs.prepare.outputs.should_tag_latest == 'true' && github.ref != 'refs/heads/tst' }}
-
       - name: Build and push node image
+        id: pushed-node
         uses: docker/build-push-action@v5
         with:
           context: ./node
           file: ./node/Dockerfile
-          push: true
-          tags: ${{ steps.meta-node.outputs.tags }}
-          labels: ${{ steps.meta-node.outputs.labels }}
+          outputs: type=image,name=${{ env.REGISTRY }}/${{ needs.prepare.outputs.image_prefix }}-node,push-by-digest=true,name-canonical=true,push=true
           build-args: |
             SMITE_VERSION=${{ needs.prepare.outputs.version }}
+            SMITE_SOURCE_SHA=${{ github.sha }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
+
+      - name: Install verified Cosign release
+        uses: sigstore/cosign-installer@v4.1.0
+        with:
+          cosign-release: 'v3.0.6'
+
+      - name: Sign and independently verify node registry digest
+        shell: bash
+        env:
+          SMITE_IMAGE_ROLE: node
+          SMITE_IMAGE_DIGEST: ${{ steps.pushed-node.outputs.digest }}
+        run: bash scripts/sign-verified-image.sh
+
+  registry-pair-manifest:
+    needs: [prepare, build-panel, build-node]
+    if: github.ref_type == 'tag' && needs.prepare.outputs.should_publish == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout exact signed source
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - name: Emit NON-activating two-digest handoff
+        shell: bash
+        env:
+          SMITE_PANEL_DIGEST: ${{ needs.build-panel.outputs.digest }}
+          SMITE_NODE_DIGEST: ${{ needs.build-node.outputs.digest }}
+          SMITE_SOURCE_SHA: ${{ github.sha }}
+          SMITE_PUBLISH_REF: ${{ github.ref }}
+          SMITE_RELEASE_VERSION: ${{ needs.prepare.outputs.version }}
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$SMITE_SOURCE_SHA"
+          mkdir -p "$RUNNER_TEMP/smite-registry-pair"
+          python3 -B scripts/create-registry-pair.py \
+            --source-sha "$SMITE_SOURCE_SHA" \
+            --publish-ref "$SMITE_PUBLISH_REF" \
+            --version "$SMITE_RELEASE_VERSION" \
+            --panel-digest "$SMITE_PANEL_DIGEST" \
+            --node-digest "$SMITE_NODE_DIGEST" \
+            --output "$RUNNER_TEMP/smite-registry-pair/registry-pair.json"
+          sha256sum "$RUNNER_TEMP/smite-registry-pair/registry-pair.json"
+          echo "NO_AUTO_DEPLOY=YES"
+      - name: Keep non-activating candidate for independent operator review
+        uses: actions/upload-artifact@v4
+        with:
+          name: smite-registry-pair-${{ github.sha }}
+          path: ${{ runner.temp }}/smite-registry-pair/registry-pair.json
+          retention-days: 7
+          if-no-files-found: error

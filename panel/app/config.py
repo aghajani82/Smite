@@ -27,6 +27,18 @@ class Settings(BaseSettings):
     node_server_key_path: str = "./certs/ca-server.key"
     
     secret_key: str = "changeme-secret-key-change-in-production"
+
+    # Default OFF. Requires separate encryption and trusted-proxy keys.
+    smite_node_pairing_preview_enabled: bool = False
+    smite_node_pairing_master_key: str = ""
+    smite_node_pairing_ingress_token: str = ""
+
+    # Signed Panel -> Node API calls remain OFF during the pairing migration.
+    smite_panel_agent_auth_mode: Literal["legacy", "signed"] = "legacy"
+    smite_node_registration_mode: Literal["legacy", "signed"] = "legacy"
+    smite_engine_management_mode: Literal["legacy", "managed"] = "legacy"
+    # Manually approved, read-only per-node destination pins (not metadata).
+    smite_signed_node_origins_path: str = "/etc/smite-panel/trusted-nodes/approved-origins.json"
     
     class Config:
         env_file = ".env"

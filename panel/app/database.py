@@ -48,6 +48,21 @@ async def migrate_db():
                 "ALTER TABLE tunnels ADD COLUMN iran_node_id VARCHAR"
             ))
 
+        admin_result = await conn.execute(text("PRAGMA table_info(admins)"))
+        admin_columns = {row[1] for row in admin_result.fetchall()}
+        for name, definition in (
+            ("totp_secret", "TEXT"),
+            ("totp_pending_secret", "TEXT"),
+            ("recovery_codes", "JSON"),
+            ("totp_last_counter", "INTEGER"),
+            ("auth_version", "INTEGER NOT NULL DEFAULT 0"),
+            ("mfa_failures", "INTEGER NOT NULL DEFAULT 0"),
+            ("mfa_locked_until", "DATETIME"),
+        ):
+            if name not in admin_columns:
+                logger.info("Adding admins.%s column", name)
+                await conn.execute(text(f"ALTER TABLE admins ADD COLUMN {name} {definition}"))
+
 
 async def init_db():
     """Initialize database tables"""

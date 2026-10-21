@@ -6,6 +6,7 @@ import psutil
 import time
 import logging
 from pathlib import Path
+from app.frp_gateway_config import frp_client_server_addr, frp_client_server_port, frp_standard_wss_host, frp_tls_transport_yaml
 import shutil
 
 logger = logging.getLogger(__name__)
@@ -314,6 +315,10 @@ class BackhaulAdapter:
 
     def apply(self, tunnel_id: str, spec: Dict[str, Any]):
         """Apply Backhaul tunnel - supports both server and client modes"""
+        # Validate before stopping a healthy tunnel or touching its config.
+        if spec.get("uopti_standard_backhaul") is True:
+            from app.uopti_backhaul_standard import normalize_node_spec
+            spec = normalize_node_spec(spec)
         if tunnel_id in self.processes:
             logger.info(f"Backhaul tunnel {tunnel_id} already exists, removing it first")
             self.remove(tunnel_id)
@@ -394,13 +399,22 @@ class BackhaulAdapter:
                     server_config[key] = value
             
             config_path = self.config_dir / f"{tunnel_id}.toml"
-            config_path.write_text(self._render_toml({"server": server_config}), encoding="utf-8")
+            if spec.get("uopti_standard_backhaul") is True:
+                # Private config contains the Backhaul token; avoid public logs.
+                flags = os.O_WRONLY | os.O_CREAT | os.O_TRUNC | getattr(os, "O_NOFOLLOW", 0)
+                fd = os.open(config_path, flags, 0o600)
+                with os.fdopen(fd, "w", encoding="utf-8") as cfg:
+                    os.fchmod(cfg.fileno(), 0o600)
+                    cfg.write(self._render_toml({"server": server_config}))
+            else:
+                config_path.write_text(self._render_toml({"server": server_config}), encoding="utf-8")
             
             binary_path = self._resolve_binary_path()
             log_path = self.config_dir / f"backhaul_{tunnel_id}.log"
             log_fh = log_path.open("w", buffering=1)
             log_fh.write(f"Starting Backhaul server for tunnel {tunnel_id}\n")
-            log_fh.write(self._render_toml({"server": server_config}))
+            if spec.get("uopti_standard_backhaul") is not True:
+                log_fh.write(self._render_toml({"server": server_config}))
             log_fh.flush()
             
             try:
@@ -457,14 +471,23 @@ class BackhaulAdapter:
                 config_dict["accept_udp"] = True
 
             config_path = self.config_dir / f"{tunnel_id}.toml"
-            config_path.write_text(self._render_toml({"client": config_dict}), encoding="utf-8")
+            if spec.get("uopti_standard_backhaul") is True:
+                # Private config contains the Backhaul token; avoid public logs.
+                flags = os.O_WRONLY | os.O_CREAT | os.O_TRUNC | getattr(os, "O_NOFOLLOW", 0)
+                fd = os.open(config_path, flags, 0o600)
+                with os.fdopen(fd, "w", encoding="utf-8") as cfg:
+                    os.fchmod(cfg.fileno(), 0o600)
+                    cfg.write(self._render_toml({"client": config_dict}))
+            else:
+                config_path.write_text(self._render_toml({"client": config_dict}), encoding="utf-8")
 
             binary_path = self._resolve_binary_path()
 
             log_path = self.config_dir / f"backhaul_{tunnel_id}.log"
             log_fh = log_path.open("w", buffering=1)
             log_fh.write(f"Starting Backhaul client for tunnel {tunnel_id}\n")
-            log_fh.write(self._render_toml({"client": config_dict}))
+            if spec.get("uopti_standard_backhaul") is not True:
+                log_fh.write(self._render_toml({"client": config_dict}))
             log_fh.flush()
 
             try:
@@ -831,6 +854,10 @@ class FrpAdapter:
             config_file = self.config_dir / f"frps_{tunnel_id}.yaml"
             config_content = f"""bindPort: {bind_port}
 """
+            if frp_standard_wss_host():
+                if int(bind_port) != 7000 or not token:
+                    raise ValueError("Standard FRP WSS requires bind port 7000 and a token")
+                config_content += 'bindAddr: "127.0.0.1"\nproxyBindAddr: "127.0.0.1"\n'
             if token:
                 config_content += f"""auth:
   method: token
@@ -889,7 +916,9 @@ class FrpAdapter:
             logger.info(f"FRP tunnel {tunnel_id} received spec: {spec}")
             
             server_addr = spec.get('server_addr', '').strip()
-            server_port = spec.get('server_port', 7000)
+            server_addr = frp_client_server_addr(server_addr)
+            server_port = frp_client_server_port(spec, spec.get('server_port', 7000))
+            tls_transport = frp_tls_transport_yaml(spec)
             token = spec.get('token')
             tunnel_type = spec.get('type', 'tcp').lower()
             local_ip = spec.get('local_ip', '127.0.0.1')
@@ -930,7 +959,13 @@ serverPort: {server_port}
   token: "{token}"
 """
             
+            if tls_transport:
+                config_content += tls_transport
             config_content += "\nproxies:\n"
+            if frp_standard_wss_host():
+                if not token:
+                    raise ValueError("Standard FRP WSS requires a token")
+                config_content = "loginFailExit: false\n" + config_content
             for i, port_config in enumerate(ports):
                 if isinstance(port_config, dict):
                     local_port = port_config.get('local')
@@ -1352,6 +1387,26 @@ class AdapterManager:
                     failed += 1
                     continue
                 
+                # Signed Apply is not the only activation path: persisted
+                # tunnels also restore on Node startup. In managed mode do
+                # not start any engine without a current, verified enrollment.
+                # Leave the saved specification intact for a future approved
+                # reapply after the engine is independently installed.
+                from app.config import settings
+                if settings.smite_engine_inventory_mode == "managed":
+                    from app.engine_inventory import (
+                        require_engine_ready, EngineInventoryUnavailable,
+                    )
+                    try:
+                        require_engine_ready(tunnel_core)
+                    except EngineInventoryUnavailable:
+                        logger.warning(
+                            "Skipping saved tunnel %s: managed engine %s not ready",
+                            tunnel_id, tunnel_core,
+                        )
+                        failed += 1
+                        continue
+
                 adapter = self.get_adapter(tunnel_core)
                 if not adapter:
                     logger.warning(f"Tunnel {tunnel_id}: Unknown core {tunnel_core}, skipping")
@@ -1384,7 +1439,14 @@ class AdapterManager:
         import logging
         logger = logging.getLogger(__name__)
         logger.info(f"Applying tunnel {tunnel_id}: core={tunnel_core}")
-        
+
+        # Defense in depth for future internal callers and restore paths:
+        # reject unavailable engines BEFORE removing a running tunnel.
+        from app.config import settings
+        if settings.smite_engine_inventory_mode == "managed":
+            from app.engine_inventory import require_engine_ready
+            require_engine_ready(tunnel_core)
+
         if tunnel_id in self.active_tunnels:
             logger.info(f"Tunnel {tunnel_id} already exists, removing it first")
             await self.remove_tunnel(tunnel_id)

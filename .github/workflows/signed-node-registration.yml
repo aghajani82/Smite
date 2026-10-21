@@ -1,0 +1,52 @@
+name: Signed Node Registration Stage Seven
+
+on:
+  push:
+    branches:
+      - feature/smite-signed-node-registration-stage7-20261018
+  pull_request:
+    paths:
+      - 'panel/app/signed_node_registration.py'
+      - 'panel/app/routers/signed_nodes.py'
+      - 'panel/app/routers/nodes.py'
+      - 'node/app/signed_panel_client.py'
+      - 'node/app/panel_client.py'
+      - 'node/main.py'
+      - 'tests/test_signed_node_inbound_panel.py'
+      - 'tests/test_signed_node_outbound_client.py'
+      - '.github/workflows/signed-node-registration.yml'
+permissions:
+  contents: read
+
+jobs:
+  signed-panel-inbound:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install Panel dependencies
+        run: |
+          python -m pip install 'fastapi==0.104.1' 'httpx==0.25.2' 'pydantic==2.5.0' 'pydantic-settings==2.1.0' 'cryptography==41.0.7' 'sqlalchemy==2.0.23' 'aiosqlite==0.19.0' 'python-jose[cryptography]==3.3.0' 'passlib[bcrypt]==1.7.4' 'bcrypt==4.0.1'
+      - name: Syntax-check Panel endpoints
+        run: |
+          python -m py_compile panel/app/signed_node_registration.py panel/app/routers/signed_nodes.py panel/app/routers/nodes.py tests/test_signed_node_inbound_panel.py
+      - name: Test signed Panel API and legacy endpoint closure
+        run: python -B tests/test_signed_node_inbound_panel.py -v
+
+  signed-node-outbound:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install Node dependencies
+        run: |
+          python -m pip install 'fastapi==0.104.1' 'httpx==0.25.2' 'pydantic==2.5.0' 'pydantic-settings==2.1.0'
+      - name: Syntax-check Node signed client
+        run: |
+          python -m py_compile node/app/signed_panel_client.py node/app/panel_client.py node/main.py tests/test_signed_node_outbound_client.py
+      - name: Test TLS-only signed Node runtime registration
+        run: python -B tests/test_signed_node_outbound_client.py -v

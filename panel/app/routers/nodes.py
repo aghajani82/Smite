@@ -1,5 +1,6 @@
 """Nodes API endpoints"""
 from fastapi import APIRouter, Depends, HTTPException
+from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 from typing import List
@@ -11,10 +12,34 @@ import logging
 from app.database import get_db
 from app.models import Node, Settings
 from app.node_client import NodeClient
+from app.config import settings
+from app.routers import auth
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter()
+optional_admin_bearer = HTTPBearer(auto_error=False)
+
+
+async def require_node_admin_read(
+    credentials: HTTPAuthorizationCredentials | None = Depends(optional_admin_bearer),
+    db: AsyncSession = Depends(get_db),
+) -> None:
+    """Close legacy read routes during signed rollout, not during legacy install.
+
+    Delegate credential validation to the existing admin JWT implementation.
+    Never use Node HMAC as a substitute for administrative list privileges.
+    """
+    if settings.smite_node_registration_mode != "signed":
+        return
+    if credentials is None:
+        raise HTTPException(
+            401, detail="Administrator authentication required",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+    await auth.get_current_user(credentials=credentials, db=db)
+
+
 
 
 class NodeCreate(BaseModel):
@@ -41,6 +66,8 @@ class NodeResponse(BaseModel):
 @router.post("", response_model=NodeResponse)
 async def create_node(node: NodeCreate, db: AsyncSession = Depends(get_db)):
     """Register a new node"""
+    if settings.smite_node_registration_mode == "signed":
+        raise HTTPException(status_code=403, detail="Legacy registration disabled")
     import hashlib
     
     fingerprint_data = f"{node.ip_address}:{node.api_port}".encode()
@@ -156,7 +183,7 @@ async def create_node(node: NodeCreate, db: AsyncSession = Depends(get_db)):
     )
 
 
-@router.get("", response_model=List[NodeResponse])
+@router.get("", response_model=List[NodeResponse], dependencies=[Depends(require_node_admin_read)])
 async def list_nodes(db: AsyncSession = Depends(get_db)):
     """List all nodes with connection state"""
     import asyncio
@@ -167,6 +194,30 @@ async def list_nodes(db: AsyncSession = Depends(get_db)):
     node_responses = []
     
     async def check_node_status(node):
+        # In signed registration mode, a legacy active flag or an early FRP
+        # heartbeat is NOT proof of enrolled HMAC identity. Keep such Nodes
+        # visibly pending and never call out to the remote destination.
+        metadata = node.node_metadata.copy() if node.node_metadata else {}
+        if settings.smite_node_registration_mode == "signed" and (
+            node.status != "active"
+            or metadata.get("provisioning") != "signed_checkin"
+        ):
+            metadata["connection_status"] = "waiting-for-pairing"
+            return NodeResponse(
+                id=node.id,
+                name=node.name,
+                fingerprint=node.fingerprint,
+                status=node.status,
+                registered_at=node.registered_at,
+                last_seen=node.last_seen,
+                metadata=metadata,
+            )
+        # FRP_connected is merely the LAST heartbeat. In signed mode it
+        # must never override failed authenticated Agent liveness and
+        # mislead the operator into thinking KH is reachable right now.
+        frp_hint = bool(metadata.get("frp_connected")) and (
+            settings.smite_node_registration_mode != "signed"
+        )
         connection_status = "failed"
         try:
             response = await client.get_tunnel_status(node.id, "")
@@ -175,24 +226,24 @@ async def list_nodes(db: AsyncSession = Depends(get_db)):
             else:
                 error_msg = response.get("message", "Node disconnected") if response else "Node not responding"
                 if "timeout" in error_msg.lower() or "connection" in error_msg.lower():
-                    if node.node_metadata and node.node_metadata.get("frp_connected"):
+                    if frp_hint:
                         connection_status = "connected"
                     else:
                         connection_status = "reconnecting"
                 else:
                     connection_status = "failed"
         except httpx.ConnectError:
-            if node.node_metadata and node.node_metadata.get("frp_connected"):
+            if frp_hint:
                 connection_status = "connected"
             else:
                 connection_status = "connecting"
         except httpx.TimeoutException:
-            if node.node_metadata and node.node_metadata.get("frp_connected"):
+            if frp_hint:
                 connection_status = "connected"
             else:
                 connection_status = "reconnecting"
         except Exception:
-            if node.node_metadata and node.node_metadata.get("frp_connected"):
+            if frp_hint:
                 connection_status = "connected"
             else:
                 connection_status = "failed"
@@ -234,7 +285,7 @@ async def list_nodes(db: AsyncSession = Depends(get_db)):
     return results
 
 
-@router.get("/{node_id}", response_model=NodeResponse)
+@router.get("/{node_id}", response_model=NodeResponse, dependencies=[Depends(require_node_admin_read)])
 async def get_node(node_id: str, db: AsyncSession = Depends(get_db)):
     """Get node by ID"""
     result = await db.execute(select(Node).where(Node.id == node_id))
@@ -255,6 +306,8 @@ async def get_node(node_id: str, db: AsyncSession = Depends(get_db)):
 @router.put("/{node_id}/frp-status")
 async def update_frp_status(node_id: str, frp_status: dict, db: AsyncSession = Depends(get_db)):
     """Update node FRP connection status"""
+    if settings.smite_node_registration_mode == "signed":
+        raise HTTPException(status_code=403, detail="Legacy FRP heartbeat disabled")
     from sqlalchemy.orm.attributes import flag_modified
     
     result = await db.execute(select(Node).where(Node.id == node_id))
@@ -282,7 +335,7 @@ async def update_frp_status(node_id: str, frp_status: dict, db: AsyncSession = D
     return {"status": "success"}
 
 
-@router.delete("/{node_id}")
+@router.delete("/{node_id}", dependencies=[Depends(auth.get_current_user)])
 async def delete_node(node_id: str, db: AsyncSession = Depends(get_db)):
     """Delete a node"""
     result = await db.execute(select(Node).where(Node.id == node_id))

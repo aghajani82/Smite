@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import Optional
 from app.config import settings
 from app.frp_comm_client import frp_comm_client
+from app.signed_panel_client import signed_register, signed_frp_status, SignedPanelUnavailable
 
 logger = logging.getLogger(__name__)
 
@@ -26,7 +27,18 @@ class PanelClient:
         self.frp_panel_url: Optional[str] = None
     
     async def start(self):
-        """Start client and connect to panel"""
+        """Start client and connect to panel, unless initial pairing is pending."""
+        if settings.smite_node_panel_auth_mode == "paused":
+            # Fresh KH install deliberately starts without credentials. Do not
+            # open a legacy verify=False client or contact public TCP/8000.
+            logger.info("Node pairing pending: outbound Panel registration is paused")
+            return
+        if settings.smite_node_panel_auth_mode == "signed":
+            # Do not instantiate the legacy verify=False client or require
+            # its custom CA when public CA / hostname verification is used.
+            await self._generate_fingerprint()
+            logger.info("Signed HTTPS/443 Panel registration client ready")
+            return
         if not self.ca_path.exists():
             raise FileNotFoundError(f"CA certificate not found at {self.ca_path}")
         
@@ -47,7 +59,11 @@ class PanelClient:
             self.client = None
     
     async def register_with_panel(self):
-        """Auto-register with panel"""
+        """Auto-register only after explicit signed pairing admission."""
+        if settings.smite_node_panel_auth_mode == "paused":
+            return False
+        if settings.smite_node_panel_auth_mode == "signed":
+            return await self._register_signed()
         if not self.client:
             await self.start()
         
@@ -147,6 +163,41 @@ class PanelClient:
             logger.error(f"Registration error: {str(e)}")
             return False
     
+    async def _register_signed(self) -> bool:
+        """Authenticate to Panel using the provisioned Node UUID and HMAC."""
+        try:
+            data = await signed_register()
+            node_id = data.get("id")
+            if not isinstance(node_id, str) or not node_id:
+                raise SignedPanelUnavailable("Signed registration identity mismatch")
+            self.node_id = node_id
+            was_registered = self.registered
+            self.registered = True
+            metadata = data.get("metadata") or {}
+            frp_config = metadata.get("frp_config")
+            if frp_config and frp_config.get("enabled"):
+                if frp_comm_client.is_running():
+                    active = frp_comm_client.get_config()
+                    if (
+                        active.get("server_addr") != frp_config.get("server_addr")
+                        or active.get("server_port") != frp_config.get("server_port")
+                        or active.get("token") != frp_config.get("token")
+                    ):
+                        frp_comm_client.stop()
+                        await self._setup_frp(frp_config)
+                else:
+                    await self._setup_frp(frp_config)
+            elif frp_comm_client.is_running():
+                frp_comm_client.stop()
+                self.using_frp = False
+            if not was_registered:
+                logger.info("Signed Panel registration successful")
+            return True
+        except Exception:
+            # No legacy fallback, no credential or HTTP response logged.
+            logger.warning("Signed Panel registration unavailable (no downgrade)")
+            return False
+
     async def _setup_frp(self, frp_config: dict):
         """Setup FRP client connection"""
         try:
@@ -182,6 +233,15 @@ class PanelClient:
     
     async def _report_frp_status(self, remote_port: int):
         """Report FRP connection status to panel"""
+        if settings.smite_node_panel_auth_mode == "paused":
+            return
+        if settings.smite_node_panel_auth_mode == "signed":
+            try:
+                await signed_frp_status(connected=True, remote_port=remote_port)
+                logger.info("Signed FRP heartbeat acknowledged by Panel")
+            except Exception:
+                logger.warning("Signed FRP heartbeat failed (no downgrade)")
+            return
         if not self.node_id:
             return
         

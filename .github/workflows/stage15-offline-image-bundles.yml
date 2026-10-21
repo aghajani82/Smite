@@ -1,0 +1,127 @@
+name: Stage15 Unpublished Offline Panel Node Images
+
+on:
+  push:
+    branches:
+      - feature/smite-stage15-offline-image-bundles-20261018
+  pull_request:
+    paths:
+      - 'panel/**'
+      - 'node/**'
+      - 'frontend/**'
+      - 'tests/stage16_isolated_firstboot.sh'
+      - 'tests/stage23_node_identity_rollback.sh'
+      - 'tests/stage15_offline_bundle.py'
+      - 'tests/test_stage15_offline_bundle.py'
+      - 'tests/stage15_image_revision_gate.py'
+      - 'tests/test_stage15_image_revision_gate.py'
+      - 'tests/test_registry_image_signature.py'
+      - 'tests/test_registry_pair_manifest.py'
+      - 'scripts/create-registry-pair.py'
+      - 'scripts/sign-verified-image.sh'
+      - '.github/workflows/publish-images.yml'
+      - '.github/workflows/stage15-offline-image-bundles.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  bundle-tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Verify manifest tamper detection and no-deployment
+        run: |
+          python -m py_compile tests/stage15_offline_bundle.py tests/test_stage15_offline_bundle.py tests/stage15_image_revision_gate.py tests/test_stage15_image_revision_gate.py
+          python -B tests/test_stage15_offline_bundle.py -v
+          python -B tests/test_stage15_image_revision_gate.py -v
+          python -B tests/test_registry_image_signature.py -v
+          python -B tests/test_registry_pair_manifest.py -v
+
+  offline-pair-artifact:
+    runs-on: ubuntu-latest
+    timeout-minutes: 65
+    needs: bundle-tests
+    # On pull_request, github.sha refers to a synthetic merge commit.
+    # Our reviewed paired source is the immutable PR branch HEAD instead.
+    env:
+      SMITE_BUILD_SOURCE_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
+      - name: Enforce exact immutable reviewed source checkout
+        shell: bash
+        run: |
+          set -euo pipefail
+          actual="$(git rev-parse HEAD)"
+          test "$actual" = "$SMITE_BUILD_SOURCE_SHA" || {
+            echo "HOLD: Wrong source SHA, cannot build paired images" >&2
+            exit 1
+          }
+          echo "SMITE_BUNDLE_SOURCE_COMMIT=$actual"
+          echo "BUNDLE_PR_MERGE_SHA_UNUSED=YES"
+      - name: Build both preview images from the same source commit
+        shell: bash
+        run: |
+          set -euo pipefail
+          docker build -f panel/Dockerfile -t smite-panel:stage15-local --build-arg SMITE_VERSION=2.0.0-rc.0 --build-arg SMITE_SOURCE_SHA="$SMITE_BUILD_SOURCE_SHA" .
+          docker build -f node/Dockerfile -t smite-node:stage15-local --build-arg SMITE_VERSION=2.0.0-rc.0 --build-arg SMITE_SOURCE_SHA="$SMITE_BUILD_SOURCE_SHA" node
+      - name: Verify exact paired OCI revision labels before bundle or first boot
+        shell: bash
+        run: |
+          set -euo pipefail
+          docker image inspect smite-panel:stage15-local smite-node:stage15-local > "$RUNNER_TEMP/stage15-pair-inspect.json"
+          python3 -B tests/stage15_image_revision_gate.py --inspect-json "$RUNNER_TEMP/stage15-pair-inspect.json" --expected-commit "$SMITE_BUILD_SOURCE_SHA"
+      - name: Smoke-check image filesystem without starting services
+        shell: bash
+        run: |
+          set -euo pipefail
+          for role in panel node; do
+            cid="$(docker create --entrypoint /bin/true "smite-$role:stage15-local")"
+            mkdir -p "$RUNNER_TEMP/image-$role"
+            docker cp "$cid:/app" "$RUNNER_TEMP/image-$role/app"
+            docker rm "$cid"
+            python3 -B tests/image_auth_smoke.py --role "$role" --root "$RUNNER_TEMP/image-$role/app"
+          done
+      - name: Gate archive creation on isolated Panel + Node first boot
+        shell: bash
+        run: bash tests/stage16_isolated_firstboot.sh
+      - name: Gate archives on immutable Node identity and signed/paused rollback
+        if: github.event_name == 'pull_request'
+        shell: bash
+        run: bash tests/stage23_node_identity_rollback.sh
+
+      - name: Save offline images with source and SHA256 manifest
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/stage15-bundle"
+          docker save smite-panel:stage15-local | gzip -1 > "$RUNNER_TEMP/stage15-bundle/smite-panel-stage15.docker.tar.gz"
+          docker save smite-node:stage15-local | gzip -1 > "$RUNNER_TEMP/stage15-bundle/smite-node-stage15.docker.tar.gz"
+          python3 -B tests/stage15_offline_bundle.py create \
+            --folder "$RUNNER_TEMP/stage15-bundle" \
+            --source-sha "$SMITE_BUILD_SOURCE_SHA" \
+            --panel-image-id "$(docker image inspect smite-panel:stage15-local --format '{{.Id}}')" \
+            --node-image-id "$(docker image inspect smite-node:stage15-local --format '{{.Id}}')"
+          python3 -B tests/stage15_offline_bundle.py verify \
+            --manifest "$RUNNER_TEMP/stage15-bundle/stage15-images.json" \
+            --expected-commit "$SMITE_BUILD_SOURCE_SHA"
+          sha256sum "$RUNNER_TEMP/stage15-bundle/stage15-images.json"
+          echo "NO_GHCR_PUSH=YES"
+          echo "NO_RELEASE_TAG=YES"
+          echo "ONLY_ISOLATED_CI_FIRSTBOOT=YES"
+          echo "NO_IR_KH_INSTALL=YES"
+      - name: Upload disposable untrusted test images (3-day retention)
+        uses: actions/upload-artifact@v4
+        with:
+          name: smite-stage15-offline-images-${{ github.event.pull_request.head.sha || github.sha }}
+          path: ${{ runner.temp }}/stage15-bundle/
+          retention-days: 3
+          if-no-files-found: error
+          compression-level: 0

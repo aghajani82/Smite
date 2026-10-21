@@ -1,0 +1,43 @@
+name: Node Pairing HTTP Preview
+
+on:
+  pull_request:
+    paths:
+      - 'panel/app/config.py'
+      - 'panel/app/routers/node_pairing.py'
+      - 'panel/main.py'
+      - 'node/app/pairing_client.py'
+      - 'tests/test_node_pairing_http.py'
+      - 'tests/test_node_pairing_reservation.py'
+      - '.github/workflows/node-pairing-http-preview.yml'
+  push:
+    branches:
+      - feature/node-pairing-https-api-20261018
+
+permissions:
+  contents: read
+
+jobs:
+  pairing-http-preview:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install minimal exact runtime dependencies
+        run: |
+          python -m pip install \
+            'fastapi==0.104.1' 'httpx==0.25.2' \
+            'pydantic==2.5.0' 'pydantic-settings==2.1.0' \
+            'cryptography==41.0.7' 'sqlalchemy==2.0.23' 'aiosqlite==0.19.0' \
+            'passlib[bcrypt]==1.7.4' 'bcrypt==4.0.1' \
+            'python-jose[cryptography]==3.3.0'
+      - name: Check Python syntax
+        run: |
+          python -m py_compile panel/app/config.py panel/app/routers/node_pairing.py \
+            node/app/pairing_client.py tests/test_node_pairing_http.py tests/test_node_pairing_reservation.py
+      - name: Exercise preview API and strict TLS Node client offline
+        run: |
+          python -B tests/test_node_pairing_http.py -v
+          python -B tests/test_node_pairing_reservation.py -v

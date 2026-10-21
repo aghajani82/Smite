@@ -1,0 +1,53 @@
+name: Smite Stage10 Unpublished Auth Image Compatibility
+
+on:
+  push:
+    branches:
+      - feature/smite-stage10-isolated-auth-images-20261018
+  pull_request:
+    paths:
+      - 'panel/**'
+      - 'node/**'
+      - 'frontend/**'
+      - 'tests/image_auth_smoke.py'
+      - '.github/workflows/stage10-isolated-auth-images.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  unpublished-smoke:
+    strategy:
+      fail-fast: false
+      matrix:
+        role: [panel, node]
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+      - name: Build isolated image without push or release tags
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ "${{ matrix.role }}" = panel ]; then
+            docker build -f panel/Dockerfile -t "smite-stage10-panel:ci" --build-arg SMITE_VERSION=stage10-preview .
+          else
+            docker build -f node/Dockerfile -t "smite-stage10-node:ci" --build-arg SMITE_VERSION=stage10-preview node
+          fi
+      - name: Extract inert image root and verify security source
+        shell: bash
+        run: |
+          set -euo pipefail
+          role="${{ matrix.role }}"
+          image="smite-stage10-$role:ci"
+          cid="$(docker create --entrypoint /bin/true "$image")"
+          trap 'docker rm -f "$cid" >/dev/null 2>&1 || true' EXIT
+          mkdir -p "$RUNNER_TEMP/smite-stage10"
+          docker cp "$cid:/app" "$RUNNER_TEMP/smite-stage10/app"
+          python3 -B tests/image_auth_smoke.py --role "$role" --root "$RUNNER_TEMP/smite-stage10/app"
+          docker image inspect "$image" --format 'LOCAL_IMAGE_ID={{.Id}}'
+          echo "NO_IMAGE_PUSH=YES"
+          echo "NO_CONTAINER_RUN=YES"
+          echo "NO_IR_KH_DEPLOYMENT=YES"

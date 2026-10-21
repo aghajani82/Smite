@@ -9,6 +9,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 from app.database import AsyncSessionLocal
 from app.models import Node, Settings
+from app.config import settings
+from app.signed_agent_transport import signed_agent_call, SignedAgentUnavailable
+from app.uopti_backhaul_dispatch import prepare_node_command
+from app.uopti_backhaul_standard import StandardBackhaulSpecError
+from app.signed_node_origins import approved_node, ApprovedOriginUnavailable
+
 
 logger = logging.getLogger(__name__)
 
@@ -60,10 +66,68 @@ class NodeClient:
         logger.info(f"[HTTP] Using direct HTTP to communicate with node {node.id} at {node_address}")
         return (node_address, False)
     
+    async def _signed_agent_request(
+        self, node_id: str, *, method: str, target: str,
+        payload: Optional[Dict[str, Any]] = None, timeout: float = 30.0,
+    ) -> Dict[str, Any]:
+        """Signed request with no legacy fallback and no automatic write retry."""
+        try:
+            async with AsyncSessionLocal() as session:
+                result = await session.execute(select(Node).where(Node.id == node_id))
+                node = result.scalar_one_or_none()
+                if node is None:
+                    return {"status": "error", "message": "Node not found"}
+                # Pairing-code redemption creates a key, NOT permission
+                # to send commands. Legacy active rows are also untrusted.
+                metadata = node.node_metadata or {}
+                if (node.status != "active"
+                        or metadata.get("provisioning") != "signed_checkin"):
+                    raise SignedAgentUnavailable("Signed Node not yet registered")
+                # Never route HMAC credentials to historical, anonymous
+                # Node.metadata.api_address / control_address / FRP ports.
+                # The signed endpoint must be approved out of band.
+                pin = approved_node(node_id)
+                if (pin["role"] != metadata.get("role")
+                        or pin["node_name"] != node.name
+                        or pin["node_name"] != metadata.get("node_name")):
+                    raise ApprovedOriginUnavailable(
+                        "Node role or name differs from approved identity"
+                    )
+                address, using_frp = pin["origin"], False
+
+            return await signed_agent_call(
+                node_id=node_id, address=address, using_frp=using_frp,
+                method=method, target=target, payload=payload, timeout=timeout,
+            )
+        except (SignedAgentUnavailable, ApprovedOriginUnavailable, ValueError):
+            # Never serialize tokens, raw authorization headers or TLS exceptions.
+            return {"status": "error", "message": "Signed Node control unavailable"}
+        except Exception:
+            logger.warning("Signed Node communication failed for node %s", node_id)
+            return {"status": "error", "message": "Signed Node control unavailable"}
+
     async def send_to_node(self, node_id: str, endpoint: str, data: Dict[str, Any]) -> Dict[str, Any]:
         """
         Send request to node via HTTPS or FRP
         """
+        # Normalize persisted opt-in Backhaul BEFORE the signed/legacy split.
+        # Never let the signed fast path skip the validated IR/KH spec.
+        try:
+            data = await prepare_node_command(node_id, endpoint, data)
+        except StandardBackhaulSpecError:
+            return {"status": "error", "message": "Standard Backhaul spec rejected"}
+        except Exception:
+            logger.warning("Backhaul dispatch precheck failed for node %s", node_id)
+            return {"status": "error", "message": "Backhaul preparation unavailable"}
+        if settings.smite_panel_agent_auth_mode == "signed":
+            # No downgrade to legacy even if the Node rejects the signature.
+            if endpoint not in (
+                "/api/agent/tunnels/apply", "/api/agent/tunnels/remove"
+            ):
+                return {"status": "error", "message": "Unsigned command prohibited"}
+            return await self._signed_agent_request(
+                node_id, method="POST", target=endpoint, payload=data,
+            )
         async with AsyncSessionLocal() as session:
             result = await session.execute(select(Node).where(Node.id == node_id))
             node = result.scalar_one_or_none()
@@ -121,8 +185,28 @@ class NodeClient:
             except Exception as e:
                 return {"status": "error", "message": f"Error: {str(e)}"}
     
+    async def get_engine_inventory(self, node_id: str) -> Dict[str, Any]:
+        """Explicit signed read-only inventory, with NO legacy fallback.
+
+        The core-only install starts with no enrolled engines. Never infer
+        readiness from the Node image containing bundled binaries.
+        """
+        if settings.smite_panel_agent_auth_mode != "signed":
+            return {"status": "unavailable", "message": "Managed inventory requires signed Node control"}
+        return await self._signed_agent_request(
+            node_id, method="GET", target="/api/agent/engines", timeout=3.0,
+        )
+
     async def get_tunnel_status(self, node_id: str, tunnel_id: str = "") -> Dict[str, Any]:
         """Get tunnel status from node"""
+        if settings.smite_panel_agent_auth_mode == "signed":
+            target = "/api/agent/status"
+            # Existing status caller intentionally uses aggregate status.
+            # Do not change the response contract or assume tunnel-specific
+            # format until all status polling consumers are migrated.
+            return await self._signed_agent_request(
+                node_id, method="GET", target=target, timeout=3.0,
+            )
         async with AsyncSessionLocal() as session:
             result = await session.execute(select(Node).where(Node.id == node_id))
             node = result.scalar_one_or_none()
