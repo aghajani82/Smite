@@ -95,7 +95,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          verifier_sha="378cf7ab746587798a62956c91b5ac590ed4b47e"
+          verifier_sha="298d197382376e00f008dba161b2e95ebfa8d340"
           git init -q u-opti
           git -C u-opti remote add origin https://github.com/aghajani82/u-opti.git
           git -C u-opti fetch -q --depth=1 origin "$verifier_sha"
