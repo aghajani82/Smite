@@ -1,0 +1,134 @@
+name: Independently Verify Published Candidate Images
+
+on:
+  workflow_dispatch:
+    inputs:
+      publisher_run_id:
+        description: 'Exact successful Smite publisher workflow run ID'
+        required: true
+        type: string
+      artifact_name:
+        description: 'Exact registry-pair artifact name from the publisher run'
+        required: true
+        type: string
+      manifest_sha256:
+        description: 'Independent SHA256 of extracted registry-pair.json'
+        required: true
+        type: string
+      source_sha:
+        description: 'Exact reviewed 40-character Smite source SHA'
+        required: true
+        type: string
+      publish_ref:
+        description: 'Exact reviewed tag ref, e.g. refs/tags/v2.0.0-rc.0'
+        required: true
+        type: string
+      confirm_read_only_verification:
+        description: 'Run only read-only independent GHCR/Cosign verification'
+        required: true
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+  actions: read
+  packages: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Validate explicit candidate inputs
+        shell: bash
+        env:
+          RUN_ID: ${{ inputs.publisher_run_id }}
+          ARTIFACT_NAME: ${{ inputs.artifact_name }}
+          MANIFEST_SHA256: ${{ inputs.manifest_sha256 }}
+          SOURCE_SHA: ${{ inputs.source_sha }}
+          PUBLISH_REF: ${{ inputs.publish_ref }}
+          CONFIRM: ${{ inputs.confirm_read_only_verification }}
+        run: |
+          set -euo pipefail
+          hold() { echo "HOLD: $1" >&2; exit 2; }
+          [[ "$GITHUB_REPOSITORY" == "aghajani82/Smite" ]] || hold "wrong repository"
+          [[ "$GITHUB_ACTOR" == "aghajani82" ]] || hold "owner dispatch required"
+          [[ "$CONFIRM" == "true" ]] || hold "explicit read-only verification confirmation required"
+          [[ "$RUN_ID" =~ ^[0-9]+$ ]] || hold "invalid publisher run id"
+          [[ "$SOURCE_SHA" =~ ^[a-f0-9]{40}$ ]] || hold "invalid source sha"
+          [[ "$MANIFEST_SHA256" =~ ^[a-f0-9]{64}$ ]] || hold "invalid manifest sha256"
+          [[ "$PUBLISH_REF" =~ ^refs/tags/v[0-9]+\.[0-9]+\.[0-9]+(-[A-Za-z0-9][A-Za-z0-9.-]*)?$ ]] || hold "invalid publish ref"
+          [[ "$ARTIFACT_NAME" == "smite-registry-pair-$SOURCE_SHA" ]] || hold "artifact/source mismatch"
+          echo "READ_ONLY_INDEPENDENT_VERIFICATION=REQUESTED"
+
+      - name: Download exact successful publisher artifact and verify independent hash
+        id: pair
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RUN_ID: ${{ inputs.publisher_run_id }}
+          ARTIFACT_NAME: ${{ inputs.artifact_name }}
+          MANIFEST_SHA256: ${{ inputs.manifest_sha256 }}
+          SOURCE_SHA: ${{ inputs.source_sha }}
+          PUBLISH_REF: ${{ inputs.publish_ref }}
+        run: |
+          set -euo pipefail
+          hold() { echo "HOLD: $1" >&2; exit 2; }
+          meta="$(gh api "repos/aghajani82/Smite/actions/runs/$RUN_ID")"
+          [[ "$(jq -r '.status' <<<"$meta")" == "completed" ]] || hold "publisher run incomplete"
+          [[ "$(jq -r '.conclusion' <<<"$meta")" == "success" ]] || hold "publisher run not successful"
+          [[ "$(jq -r '.event' <<<"$meta")" == "workflow_dispatch" ]] || hold "publisher was not manual"
+          [[ "$(jq -r '.name' <<<"$meta")" == "Build and Publish Docker Images" ]] || hold "wrong publisher workflow"
+          [[ "$(jq -r '.head_sha' <<<"$meta")" == "$SOURCE_SHA" ]] || hold "publisher source mismatch"
+          [[ "refs/tags/$(jq -r '.head_branch' <<<"$meta")" == "$PUBLISH_REF" ]] || hold "publisher tag mismatch"
+
+          dir="$RUNNER_TEMP/smite-registry-pair"
+          mkdir -p "$dir"
+          gh run download "$RUN_ID" -R aghajani82/Smite -n "$ARTIFACT_NAME" -D "$dir"
+          manifest="$dir/registry-pair.json"
+          [[ -f "$manifest" && ! -L "$manifest" ]] || hold "registry-pair.json missing or unsafe"
+          actual="$(sha256sum "$manifest" | awk '{print $1}')"
+          [[ "$actual" == "$MANIFEST_SHA256" ]] || hold "independent manifest SHA256 mismatch"
+          echo "manifest=$manifest" >> "$GITHUB_OUTPUT"
+          echo "PUBLISHER_RUN_AND_MANIFEST_HASH=VERIFIED"
+
+      - name: Fetch exact frozen U-OPTI verifier source
+        shell: bash
+        run: |
+          set -euo pipefail
+          verifier_sha="378cf7ab746587798a62956c91b5ac590ed4b47e"
+          git init -q u-opti
+          git -C u-opti remote add origin https://github.com/aghajani82/u-opti.git
+          git -C u-opti fetch -q --depth=1 origin "$verifier_sha"
+          git -C u-opti checkout -q --detach FETCH_HEAD
+          test "$(git -C u-opti rev-parse HEAD)" = "$verifier_sha"
+          test -f u-opti/modules/smite-registry-pair-admission.py
+          echo "U_OPTI_VERIFIER_SOURCE=$verifier_sha"
+
+      - name: Authenticate read-only to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.repository_owner }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Install verified Cosign release
+        uses: sigstore/cosign-installer@v4.1.0
+        with:
+          cosign-release: 'v3.0.6'
+
+      - name: Independently verify both immutable signed GHCR digests
+        shell: bash
+        env:
+          MANIFEST: ${{ steps.pair.outputs.manifest }}
+          MANIFEST_SHA256: ${{ inputs.manifest_sha256 }}
+          SOURCE_SHA: ${{ inputs.source_sha }}
+          PUBLISH_REF: ${{ inputs.publish_ref }}
+        run: |
+          set -euo pipefail
+          python3 -B u-opti/modules/smite-registry-pair-admission.py \
+            --manifest "$MANIFEST" \
+            --manifest-sha256 "$MANIFEST_SHA256" \
+            --source-sha "$SOURCE_SHA" \
+            --publish-ref "$PUBLISH_REF"
+          echo "INDEPENDENT_REAL_COSIGN_GATE=PASS"
+          echo "DEPLOYMENT_AUTHORIZED=NO"
