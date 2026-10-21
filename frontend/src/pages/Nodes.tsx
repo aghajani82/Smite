@@ -271,6 +271,7 @@ const Nodes = () => {
       {showAddModal && (
         <AddNodeModal
           onClose={() => setShowAddModal(false)}
+          securePreview={pairingPreviewEnabled}
           onSuccess={() => {
             setShowAddModal(false)
             fetchNodes()
@@ -292,11 +293,12 @@ const Nodes = () => {
 }
 
 interface AddNodeModalProps {
+  securePreview: boolean
   onClose: () => void
   onSuccess: () => void
 }
 
-const AddNodeModal = ({ onClose, onSuccess }: AddNodeModalProps) => {
+const AddNodeModal = ({ onClose, onSuccess, securePreview }: AddNodeModalProps) => {
   const { t } = useLanguage()
   const [name, setName] = useState('')
   const [ipAddress, setIpAddress] = useState('')
@@ -305,23 +307,30 @@ const AddNodeModal = ({ onClose, onSuccess }: AddNodeModalProps) => {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     try {
-      await api.post('/nodes', { 
-        name, 
-        ip_address: ipAddress, 
-        api_port: parseInt(apiPort) || 8888,
-        metadata: {} 
-      })
+      if (securePreview) {
+        await api.post('/node-pairing/reserve', { name, role: 'iran' }, {
+          headers: { 'Cache-Control': 'no-store' },
+        })
+      } else {
+        await api.post('/nodes', { 
+          name, 
+          ip_address: ipAddress, 
+          api_port: parseInt(apiPort) || 8888,
+          metadata: { role: 'iran' } 
+        })
+      }
       onSuccess()
     } catch (error) {
       console.error('Failed to add node:', error)
-      alert('Failed to add node')
+      alert(securePreview ? 'Unable to reserve Iran Node. Check secure pairing readiness.' : 'Failed to add node')
     }
   }
 
   return (
     <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
       <div className="bg-white dark:bg-gray-800 rounded-lg p-6 w-full max-w-md">
-        <h2 className="text-xl font-bold text-gray-900 dark:text-white mb-4">{t.nodes.addNode}</h2>
+        <h2 className="text-xl font-bold text-gray-900 dark:text-white mb-4">{securePreview ? 'Prepare secure Iran Node' : t.nodes.addNode}</h2>
+        {securePreview && <p className="text-sm text-gray-600 dark:text-gray-300 mb-4">Reserve the Iran Node with just a name. Pair it securely over HTTPS/443; no public IP or API port is stored.</p>}
         <form onSubmit={handleSubmit} className="space-y-4">
           <div>
             <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
@@ -335,6 +344,7 @@ const AddNodeModal = ({ onClose, onSuccess }: AddNodeModalProps) => {
               required
             />
           </div>
+          {!securePreview && <>
           <div>
             <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
               IP Address
@@ -363,6 +373,7 @@ const AddNodeModal = ({ onClose, onSuccess }: AddNodeModalProps) => {
               required
             />
           </div>
+          </>}
           <div className="flex gap-3 justify-end">
             <button
               type="button"

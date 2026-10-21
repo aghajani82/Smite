@@ -43,12 +43,16 @@ class PreviewUIStaticTest(unittest.TestCase):
         self.assertIn("Pair (preview)", source)
         self.assertIn("does not secure the existing", source)
 
-    def test_both_role_pages_share_same_modal_without_altering_registration(self):
+    def test_both_role_pages_use_secure_reservation_when_preview_is_ready(self):
         for path, role in ((NODES, "iran"), (SERVERS, "foreign")):
-            with self.subTest(path=path):
+            with self.subTest(path=path, role=role):
                 source = path.read_text()
                 self.assertIn('NodePairingAction', source)
                 self.assertIn('role="' + role + '" enabled={pairingPreviewEnabled}', source)
+                self.assertIn("securePreview={pairingPreviewEnabled}", source)
+                self.assertIn("api.post('/node-pairing/reserve'", source)
+                self.assertIn("role: '" + role + "'", source)
+                # Legacy UI stays available only when signed preview is unavailable.
                 self.assertIn("api.post('/nodes'", source)
 
     def test_backend_capability_is_authenticated_and_never_discloses_keys(self):
