@@ -45,8 +45,11 @@ def _http_error(status_code: int, detail: str) -> HTTPException:
 
 
 class PairingReserveRequest(BaseModel):
-    # Only a name is supplied by admin; never self-asserted IPs or credentials.
+    # Only a name + explicit role are supplied by admin; never self-asserted
+    # IPs, ports or credentials. The role is frozen into the reservation and
+    # must match the one-time pairing approval + signed Node check-in.
     name: str = Field(min_length=2, max_length=64, pattern=r"^[A-Za-z0-9][A-Za-z0-9_.-]*$")
+    role: str = Field(pattern=r"^(iran|foreign)$")
 
 
 class PairingReserveResponse(BaseModel):
@@ -146,13 +149,13 @@ async def pairing_capabilities(
 
 
 @router.post("/reserve", response_model=PairingReserveResponse, status_code=201)
-async def reserve_foreign_node(
+async def reserve_node(
     request: PairingReserveRequest,
     response: Response,
     admin: Admin = Depends(auth.get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    """Admin-only empty Foreign slot; no Node calls or legacy registration."""
+    """Admin-only empty Node slot; no Node calls or legacy registration."""
     _no_store(response)
     _require_preview()
     if not await run_in_threadpool(_schema_ready):
@@ -166,7 +169,7 @@ async def reserve_foreign_node(
             fingerprint="reserved-" + secrets.token_hex(16),
             status="pending",
             node_metadata={
-                "role": "foreign",
+                "role": request.role,
                 "node_name": request.name,
                 "provisioning": "reserved_for_pairing",
             },
