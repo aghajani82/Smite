@@ -95,7 +95,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          verifier_sha="298d197382376e00f008dba161b2e95ebfa8d340"
+          verifier_sha="8353684675b3cf6740dd3c8f50f60caa15de6e27"
           git init -q u-opti
           git -C u-opti remote add origin https://github.com/aghajani82/u-opti.git
           git -C u-opti fetch -q --depth=1 origin "$verifier_sha"
@@ -115,43 +115,6 @@ jobs:
         uses: sigstore/cosign-installer@v4.1.0
         with:
           cosign-release: 'v3.0.6'
-
-      - name: Diagnostic - show verified Panel Simple-Signing payload shape
-        shell: bash
-        env:
-          MANIFEST: ${{ steps.pair.outputs.manifest }}
-          SOURCE_SHA: ${{ inputs.source_sha }}
-          PUBLISH_REF: ${{ inputs.publish_ref }}
-        run: |
-          set -euo pipefail
-          panel="$(jq -r '.images.panel' "$MANIFEST")"
-          identity="https://github.com/aghajani82/Smite/.github/workflows/publish-images.yml@$PUBLISH_REF"
-          out="$RUNNER_TEMP/panel-cosign-verify.json"
-          cosign verify \
-            --certificate-identity="$identity" \
-            --certificate-oidc-issuer="https://token.actions.githubusercontent.com" \
-            --certificate-github-workflow-sha="$SOURCE_SHA" \
-            --certificate-github-workflow-repository="aghajani82/Smite" \
-            --certificate-github-workflow-trigger="workflow_dispatch" \
-            -a "smite_source_sha=$SOURCE_SHA" \
-            -a "smite_role=panel" \
-            "$panel" > "$out"
-          python3 - "$out" <<'PY'
-          import json, sys
-          value = json.load(open(sys.argv[1]))
-          records = value if isinstance(value, list) else [value]
-          print("COSIGN_JSON_TOP_TYPE=" + type(value).__name__)
-          print("COSIGN_JSON_RECORD_COUNT=" + str(len(records)))
-          for i, rec in enumerate(records[:3]):
-              if not isinstance(rec, dict):
-                  print(f"RECORD_{i}_TYPE={type(rec).__name__}")
-                  continue
-              print(f"RECORD_{i}_KEYS={sorted(rec)}")
-              crit = rec.get("critical", rec.get("Critical"))
-              opt = rec.get("optional", rec.get("Optional"))
-              print("CRITICAL=" + json.dumps(crit, sort_keys=True, separators=(",", ":")))
-              print("OPTIONAL=" + json.dumps(opt, sort_keys=True, separators=(",", ":")))
-          PY
 
       - name: Independently verify both immutable signed GHCR digests
         shell: bash
