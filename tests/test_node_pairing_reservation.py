@@ -1,4 +1,4 @@
-"""Offline Stage18 admin-only Foreign Node reservation tests.
+"""Offline Stage18 admin-only secure Node reservation tests.
 
 No production lifespan, sockets, live nodes, Docker, Nginx or VPS.
 """
@@ -68,8 +68,8 @@ class ReservationTest(unittest.TestCase):
     def admin(self):
         self.app.dependency_overrides[auth.get_current_user] = lambda: SimpleNamespace(id="admin-test")
 
-    def reserve(self, name="node-kh-01"):
-        return self.client.post("/api/node-pairing/reserve", json={"name": name})
+    def reserve(self, name="node-kh-01", role="foreign"):
+        return self.client.post("/api/node-pairing/reserve", json={"name": name, "role": role})
 
     def test_anonymous_denied_and_disabled_preview_stays_inert(self):
         self.assertIn(self.reserve().status_code, (401, 403))
@@ -106,6 +106,29 @@ class ReservationTest(unittest.TestCase):
         self.assertNotIn("node_secret", issued.text)
         with sqlite3.connect(self.path) as db:
             self.assertEqual(db.execute("SELECT count(*) FROM nodes").fetchone()[0], 1)
+
+    def test_iran_and_foreign_roles_are_frozen_into_secure_reservation(self):
+        self.admin()
+        settings.smite_node_pairing_preview_enabled = True
+        for role, name in (("iran", "node-ir-01"), ("foreign", "node-kh-02")):
+            with self.subTest(role=role):
+                resp = self.reserve(name=name, role=role)
+                self.assertEqual(resp.status_code, 201, resp.text)
+                node_id = resp.json()["node_id"]
+                with sqlite3.connect(self.path) as db:
+                    row = db.execute("SELECT status, metadata FROM nodes WHERE id=?", (node_id,)).fetchone()
+                self.assertEqual(row[0], "pending")
+                self.assertEqual(json.loads(row[1]), {
+                    "role": role, "node_name": name, "provisioning": "reserved_for_pairing"
+                })
+                issued = self.client.post("/api/node-pairing/issue", json={
+                    "node_id": node_id, "role": role, "ttl_seconds": 600
+                })
+                self.assertEqual(issued.status_code, 200, issued.text)
+
+        for bad_role in ("", "IR", "foreign-admin", "client"):
+            with self.subTest(bad_role=bad_role):
+                self.assertEqual(self.reserve(name="node-role-test", role=bad_role).status_code, 422)
 
     def test_invalid_names_and_missing_schema_fail_closed(self):
         self.admin()
