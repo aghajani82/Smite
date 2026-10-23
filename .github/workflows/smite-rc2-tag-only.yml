@@ -1,0 +1,85 @@
+name: Smite RC2 Tag Only (Owner-Approved)
+
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/smite-rc2-tag-only.yml'
+      - 'tests/test_smite_rc2_tag_only.py'
+  workflow_dispatch:
+    inputs:
+      expected_source_sha:
+        description: 'Exact reviewed Smite merge SHA, never branch SHA'
+        type: string
+        required: true
+      confirm_tag_only:
+        description: 'Create tag only: no images, no GitHub Release, no deployment'
+        type: boolean
+        default: false
+        required: true
+
+permissions:
+  contents: read
+
+jobs:
+  offline-gate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Review one-purpose fail-closed RC2 tag contract
+        run: python3 -B tests/test_smite_rc2_tag_only.py -v
+
+  tag-only:
+    if: github.event_name == 'workflow_dispatch'
+    needs: offline-gate
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: main
+          persist-credentials: true
+      - name: Create ONLY reviewed immutable candidate tag
+        shell: bash
+        env:
+          EXPECTED_SOURCE_SHA: ${{ inputs.expected_source_sha }}
+          CONFIRM_TAG_ONLY: ${{ inputs.confirm_tag_only }}
+        run: |
+          set -euo pipefail
+          tag="v2.0.0-rc.2"
+          reviewed="e6c3ecce81010130ae28e7d1e37ea99b31d70c28"
+          pr_head="31543e2e81ea635b4eaab87f606125b4e4dd22e1"
+          hold() { echo "HOLD: RC2 exact reviewed owner-only tag requirements unmet" >&2; exit 2; }
+
+          [[ "$GITHUB_EVENT_NAME" == "workflow_dispatch" ]] || hold
+          [[ "$GITHUB_REPOSITORY" == "aghajani82/Smite" ]] || hold
+          [[ "$GITHUB_ACTOR" == "aghajani82" ]] || hold
+          [[ "$GITHUB_REF" == "refs/heads/main" ]] || hold
+          [[ "$CONFIRM_TAG_ONLY" == "true" ]] || hold
+          [[ "$EXPECTED_SOURCE_SHA" == "$reviewed" ]] || hold
+          [[ "$(git rev-parse HEAD)" == "$GITHUB_SHA" ]] || hold
+          [[ "$(git rev-parse "$reviewed^{commit}")" == "$reviewed" ]] || hold
+          git merge-base --is-ancestor "$reviewed" HEAD || hold
+          git diff --quiet "$pr_head^{tree}" "$reviewed^{tree}" || hold
+
+          # Remote lookup must SUCCEED. Network/API failure cannot be
+          # mistaken for an absent tag. No force and no mutable retagging.
+          git ls-remote --tags origin > "$RUNNER_TEMP/smite-remote-tags" || hold
+          if grep -Fq "refs/tags/$tag" "$RUNNER_TEMP/smite-remote-tags"; then
+            hold
+          fi
+          [[ -z "$(git tag --list "$tag")" ]] || hold
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git tag -a "$tag" "$reviewed" -m "Smite $tag signed-image trial candidate, PR #18 merge $reviewed; no deployment"
+          git push origin "refs/tags/$tag:refs/tags/$tag" || hold
+          git ls-remote --tags origin > "$RUNNER_TEMP/smite-remote-tags-after" || hold
+          grep -Fq "refs/tags/$tag" "$RUNNER_TEMP/smite-remote-tags-after" || hold
+          echo "TAG_ONLY_CREATED=$tag"
+          echo "REVIEWED_SOURCE_COMMIT=$reviewed"
+          echo "GHCR_IMAGES_PUBLISHED=NO"
+          echo "GITHUB_RELEASE_CREATED=NO"
+          echo "IR_KH_DEPLOYMENT=NO"
