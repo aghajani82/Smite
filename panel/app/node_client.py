@@ -94,10 +94,16 @@ class NodeClient:
                         "Node role or name differs from approved identity"
                     )
                 address, using_frp = pin["origin"], False
+                # Only the root-owned, approved Foreign gateway path is
+                # permitted; a Node's self-reported API URL is never trusted.
+                gateway_control_url = (
+                    pin["control_url"] if pin["role"] == "foreign" else None
+                )
 
             return await signed_agent_call(
                 node_id=node_id, address=address, using_frp=using_frp,
                 method=method, target=target, payload=payload, timeout=timeout,
+                gateway_control_url=gateway_control_url,
             )
         except (SignedAgentUnavailable, ApprovedOriginUnavailable, ValueError):
             # Never serialize tokens, raw authorization headers or TLS exceptions.

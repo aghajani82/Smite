@@ -136,6 +136,8 @@ class ApprovedNodeOriginsTest(unittest.TestCase):
         )[0]
         self.assertIn("pin = approved_node(node_id)", signed_section)
         self.assertIn('address, using_frp = pin["origin"], False', signed_section)
+        self.assertIn('pin["control_url"] if pin["role"] == "foreign"', signed_section)
+        self.assertIn('gateway_control_url=gateway_control_url', signed_section)
         self.assertNotIn("await self._get_node_address(node)", signed_section)
 
         tunnel_source = (ROOT / "panel/app/routers/tunnels.py").read_text()
