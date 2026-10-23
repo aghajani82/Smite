@@ -205,6 +205,59 @@ class SignedTransportTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(result["status"], "ok")
         self.assertEqual(len(seen), 1)
 
+    async def test_foreign_gateway_signed_post_keeps_exact_body_and_node_target(self):
+        """The public prefix is not part of the body or Node's HMAC target."""
+        sent = []
+        self_test = self
+
+        class Response:
+            is_redirect = False
+            def raise_for_status(self): pass
+            def json(self): return {"status": "success"}
+
+        class FakeHttpx:
+            def __init__(self, **kwargs):
+                self_test.assertIs(kwargs["verify"], True)
+                self_test.assertIs(kwargs["trust_env"], False)
+                self_test.assertIs(kwargs["follow_redirects"], False)
+            async def __aenter__(self): return self
+            async def __aexit__(self, *_): return None
+            async def request(self, method, url, *, content, headers):
+                self_test.assertEqual(method, "POST")
+                self_test.assertEqual(
+                    url,
+                    "https://kh.example.net:443/smite-node/322983983580c8eb"
+                    "/api/agent/tunnels/apply",
+                )
+                self_test.assertEqual(json.loads(content)["tunnel_id"], "demo")
+                self_test.assertTrue(node_auth.verify_request(
+                    secret=self_test.secret, node_id=self_test.node_id,
+                    method=method, target="/api/agent/tunnels/apply",
+                    body=content, headers=headers,
+                    replay=node_auth.NonceWindow(),
+                ))
+                sent.append((url, bytes(content)))
+                return Response()
+
+        payload = {
+            "tunnel_id": "demo",
+            "core": "frp",
+            "type": "tcp",
+            "spec": {"local": 8081},
+        }
+        with patch("app.signed_agent_transport.httpx.AsyncClient", FakeHttpx):
+            result = await signed_agent_call(
+                node_id=self.node_id,
+                address="https://kh.example.net",
+                gateway_control_url="https://kh.example.net/smite-node/322983983580c8eb",
+                using_frp=False,
+                method="POST",
+                target="/api/agent/tunnels/apply",
+                payload=payload,
+            )
+        self.assertEqual(result["status"], "success")
+        self.assertEqual(len(sent), 1)
+
     async def test_foreign_gateway_refuses_untrusted_prefix_before_network(self):
         untrusted = [
             "https://other.example.net/smite-node/322983983580c8eb",
