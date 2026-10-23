@@ -163,6 +163,70 @@ class SignedTransportTest(unittest.IsolatedAsyncioTestCase):
         self.assertFalse(seen[0][1]["follow_redirects"])
         self.assertEqual(len([x for x in seen if x[0] == "request"]), 1)
 
+    async def test_foreign_gateway_prefix_keeps_node_hmac_target(self):
+        """Proxy strips only the trusted prefix; HMAC signs /api/agent/status."""
+        seen = []
+        self_test = self
+
+        class Response:
+            is_redirect = False
+            def raise_for_status(self): pass
+            def json(self): return {"status": "ok"}
+
+        class FakeHttpx:
+            def __init__(self, **kwargs):
+                self_test.assertIs(kwargs["verify"], True)
+                self_test.assertIs(kwargs["trust_env"], False)
+                self_test.assertIs(kwargs["follow_redirects"], False)
+            async def __aenter__(self): return self
+            async def __aexit__(self, *_): return None
+            async def request(self, method, url, *, content, headers):
+                self_test.assertEqual(
+                    url,
+                    "https://kh.example.net:443/smite-node/322983983580c8eb/api/agent/status",
+                )
+                self_test.assertEqual(method, "GET")
+                self_test.assertTrue(node_auth.verify_request(
+                    secret=self_test.secret, node_id=self_test.node_id,
+                    method=method, target="/api/agent/status",
+                    body=content, headers=headers,
+                    replay=node_auth.NonceWindow(),
+                ))
+                seen.append(url)
+                return Response()
+
+        with patch("app.signed_agent_transport.httpx.AsyncClient", FakeHttpx):
+            result = await signed_agent_call(
+                node_id=self.node_id,
+                address="https://kh.example.net",
+                gateway_control_url="https://kh.example.net/smite-node/322983983580c8eb",
+                using_frp=False, method="GET", target="/api/agent/status",
+            )
+        self.assertEqual(result["status"], "ok")
+        self.assertEqual(len(seen), 1)
+
+    async def test_foreign_gateway_refuses_untrusted_prefix_before_network(self):
+        untrusted = [
+            "https://other.example.net/smite-node/322983983580c8eb",
+            "http://kh.example.net/smite-node/322983983580c8eb",
+            "https://kh.example.net:8443/smite-node/322983983580c8eb",
+            "https://kh.example.net/api/agent",
+            "https://kh.example.net/smite-node/322983983580c8eb/../bad",
+            "https://kh.example.net/smite-node/%33" + "22983983580c8eb",
+            "https://kh.example.net/smite-node/322983983580c8eb?redirect=1",
+            "https://user:secret@kh.example.net/smite-node/322983983580c8eb",
+        ]
+        for control_url in untrusted:
+            with self.subTest(control_url=control_url):
+                with patch("app.signed_agent_transport.httpx.AsyncClient") as network:
+                    with self.assertRaises(SignedAgentUnavailable):
+                        await signed_agent_call(
+                            node_id=self.node_id, address="https://kh.example.net",
+                            gateway_control_url=control_url, using_frp=False,
+                            method="GET", target="/api/agent/status",
+                        )
+                    network.assert_not_called()
+
     async def test_signed_get_status_via_loopback_frp(self):
         recorded = []
         class Response:
