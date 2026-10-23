@@ -215,6 +215,7 @@ class SignedTransportTest(unittest.IsolatedAsyncioTestCase):
             "https://kh.example.net/smite-node/%33" + "22983983580c8eb",
             "https://kh.example.net/smite-node/322983983580c8eb?redirect=1",
             "https://user:secret@kh.example.net/smite-node/322983983580c8eb",
+            "https://@kh.example.net/smite-node/322983983580c8eb",
         ]
         for control_url in untrusted:
             with self.subTest(control_url=control_url):
