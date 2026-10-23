@@ -4,6 +4,7 @@ on:
   push:
     branches:
       - feature/smite-panel-nodeclient-hmac-stage6-20261018
+      - feature/smite-foreign-signed-gateway-prefix-20261023
   pull_request:
     paths:
       - 'panel/app/signed_agent_transport.py'
