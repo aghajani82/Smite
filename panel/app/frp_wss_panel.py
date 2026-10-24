@@ -8,6 +8,7 @@ unchanged and must still have the Iran Node's registered IP.
 from __future__ import annotations
 
 import re
+import ipaddress
 
 _LABEL = re.compile(r"^[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?$")
 
@@ -36,6 +37,16 @@ def resolve_frp_target(
     if tunnel_type != "tcp":
         raise FrpWssTargetError("FRP WSS/443 trial supports TCP only")
     if not isinstance(panel_domain, str) or len(panel_domain) > 253:
+        raise FrpWssTargetError("FRP WSS requires trusted PANEL_DOMAIN")
+    # A public DNS name is required for SNI/WSS. IPv4-shaped literals
+    # (including loopback) must not be accepted as PANEL_DOMAIN.
+    try:
+        ipaddress.ip_address(panel_domain)
+    except ValueError:
+        pass
+    else:
+        raise FrpWssTargetError("FRP WSS requires trusted PANEL_DOMAIN")
+    if all(label.isdecimal() for label in panel_domain.split(".")):
         raise FrpWssTargetError("FRP WSS requires trusted PANEL_DOMAIN")
     if (
         not panel_domain
