@@ -1,0 +1,18 @@
+# syntax=docker/dockerfile:1
+# RC2 trial: bounded overlay on the ACTUAL running immutable Panel image.
+# No rebuild of Node/FRP/frontend/dependencies, no GHCR publication.
+# Supply an operator-verified ghcr.io/.../smite-panel@sha256:<64hex> in
+# --build-arg PANEL_BASE_IMAGE; NEVER use latest/tag or a guessed digest.
+ARG PANEL_BASE_IMAGE
+FROM ${PANEL_BASE_IMAGE}
+
+USER root
+WORKDIR /app
+COPY --chown=0:0 panel/app/frp_wss_panel.py /app/app/frp_wss_panel.py
+COPY --chown=0:0 panel/app/config.py /app/app/config.py
+COPY --chown=0:0 panel/app/routers/tunnels.py /app/app/routers/tunnels.py
+RUN python3 -B -c 'import ast, pathlib; [ast.parse(pathlib.Path(p).read_text()) for p in ("/app/app/frp_wss_panel.py", "/app/app/config.py", "/app/app/routers/tunnels.py")]; print("RC2_WSS_PANEL_SOURCE_SYNTAX=PASS")'
+
+# Deliberately retain the immutable base image's command/entrypoint/ports.
+# Operator must separately pin resulting build image ID and activate
+# SMITE_FRP_STANDARD_WSS=1 ONLY on the Smite Panel, not the Node.
