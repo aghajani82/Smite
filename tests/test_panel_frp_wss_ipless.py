@@ -119,6 +119,25 @@ class FrpPanelTrustedAddressTest(unittest.TestCase):
         self.assertIn("raise HTTPException", ast.unparse(decision))
         self.assertEqual(decision.body[0].exc.func.id, "HTTPException")
 
+    def test_overlay_image_only_changes_reviewed_panel_sources(self):
+        dockerfile = (ROOT / "panel/Dockerfile.rc2-wss-overlay").read_text(
+            encoding="utf-8")
+        self.assertIn("FROM ${PANEL_BASE_IMAGE}", dockerfile)
+        source_copies = [
+            line for line in dockerfile.splitlines()
+            if line.startswith("COPY ")
+        ]
+        self.assertEqual(len(source_copies), 3)
+        for expected in (
+            "panel/app/frp_wss_panel.py /app/app/frp_wss_panel.py",
+            "panel/app/config.py /app/app/config.py",
+            "panel/app/routers/tunnels.py /app/app/routers/tunnels.py",
+        ):
+            self.assertTrue(any(expected in line for line in source_copies))
+        self.assertNotIn("ghcr.io/zzedix", dockerfile)
+        self.assertNotIn("pip install", dockerfile)
+        self.assertNotIn("npm install", dockerfile)
+
     def test_flag_default_off_and_only_router_uses_explicit_setting(self):
         self.assertIn('smite_frp_standard_wss: bool = False',
                       CONFIG.read_text(encoding="utf-8"))
