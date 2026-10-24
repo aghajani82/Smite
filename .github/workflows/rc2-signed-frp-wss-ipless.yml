@@ -1,0 +1,29 @@
+name: RC2 Signed FRP WSS IP-less Panel Guard
+
+on:
+  push:
+    branches:
+      - fix/rc2-frp-wss-panel-missing-node-ip-20261024
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  ipless-frp-wss-guard:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout reviewed Smite branch
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Syntax-check bounded Panel fix
+        run: |
+          python3 -m py_compile \
+            panel/app/frp_wss_panel.py \
+            panel/app/config.py \
+            panel/app/routers/tunnels.py \
+            tests/test_panel_frp_wss_ipless.py
+      - name: Test signed WSS and legacy-IP separation
+        run: python3 -B tests/test_panel_frp_wss_ipless.py -v
