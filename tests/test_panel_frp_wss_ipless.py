@@ -107,6 +107,18 @@ class FrpPanelTrustedAddressTest(unittest.TestCase):
         self.assertIn('panel_domain=settings.panel_domain', source)
         self.assertEqual(source.count('error_message = "Iran node has no IP address"'), 8)
 
+    def test_legacy_spec_edit_path_cannot_start_panel_frp_when_wss_active(self):
+        source = ROUTER.read_text(encoding="utf-8")
+        tree = ast.parse(source)
+        update = next(n for n in ast.walk(tree) if isinstance(n, ast.AsyncFunctionDef)
+                      and n.name == "update_tunnel")
+        decision = next(n for n in ast.walk(update)
+                        if isinstance(n, ast.If) and "settings.smite_frp_standard_wss"
+                        in ast.unparse(n.test)
+                        and "spec_changed" in ast.unparse(n.test))
+        self.assertIn("raise HTTPException", ast.unparse(decision))
+        self.assertEqual(decision.body[0].value.func.id, "HTTPException")
+
     def test_flag_default_off_and_only_router_uses_explicit_setting(self):
         self.assertIn('smite_frp_standard_wss: bool = False',
                       CONFIG.read_text(encoding="utf-8"))
