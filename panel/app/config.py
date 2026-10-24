@@ -37,6 +37,8 @@ class Settings(BaseSettings):
     smite_panel_agent_auth_mode: Literal["legacy", "signed"] = "legacy"
     smite_node_registration_mode: Literal["legacy", "signed"] = "legacy"
     smite_engine_management_mode: Literal["legacy", "managed"] = "legacy"
+    # Explicit signed/managed FRP-only 443 opt-in; never inferred from IP gaps.
+    smite_frp_standard_wss: bool = False
     # Manually approved, read-only per-node destination pins (not metadata).
     smite_signed_node_origins_path: str = "/etc/smite-panel/trusted-nodes/approved-origins.json"
     
