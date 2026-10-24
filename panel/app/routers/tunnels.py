@@ -13,10 +13,25 @@ from app.models import Tunnel, Node
 from app.node_client import NodeClient
 from app.config import settings
 from app.engine_admission import engine_pair_readiness, require_engine_ready_pair, ENGINES
+from app.frp_wss_panel import resolve_frp_target, FrpWssTargetError
 
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
+
+
+def _trusted_frp_control_target(iran_node_ip: str | None, bind_port: object, tunnel_type: str) -> str | None:
+    """No missing-IP bypass unless the signed managed WSS trial was opted in."""
+    return resolve_frp_target(
+        iran_node_ip,
+        wss_enabled=settings.smite_frp_standard_wss,
+        signed_panel=settings.smite_panel_agent_auth_mode == "signed",
+        managed_engines=settings.smite_engine_management_mode == "managed",
+        panel_domain=settings.panel_domain,
+        bind_port=bind_port,
+        tunnel_type=tunnel_type,
+    )
+
 
 
 def prepare_frp_spec_for_node(spec: dict, node: Node, request: Request) -> dict:
@@ -441,7 +456,23 @@ async def create_tunnel(tunnel: TunnelCreate, request: Request, db: AsyncSession
                 server_spec["bind_port"] = bind_port
                 server_spec["token"] = token
                 
-                iran_node_ip = iran_node.node_metadata.get("ip_address")
+                tunnel_type = db_tunnel.type.lower() if db_tunnel.type else "tcp"
+                if tunnel_type not in ["tcp", "udp"]:
+                    tunnel_type = "tcp"  # Preserve legacy normalization
+                try:
+                    iran_node_ip = _trusted_frp_control_target(
+                        iran_node.node_metadata.get("ip_address"), bind_port, tunnel_type
+                    )
+                    if settings.smite_frp_standard_wss and (
+                        client_spec.get("local_ip", "127.0.0.1") != "127.0.0.1"
+                    ):
+                        raise FrpWssTargetError("FRP WSS requires KH local IP 127.0.0.1")
+                except FrpWssTargetError as exc:
+                    db_tunnel.status = "error"
+                    db_tunnel.error_message = str(exc)
+                    await db.commit()
+                    await db.refresh(db_tunnel)
+                    return db_tunnel
                 if not iran_node_ip:
                     db_tunnel.status = "error"
                     db_tunnel.error_message = "Iran node has no IP address"
@@ -451,11 +482,12 @@ async def create_tunnel(tunnel: TunnelCreate, request: Request, db: AsyncSession
                 client_spec["server_addr"] = iran_node_ip
                 client_spec["server_port"] = bind_port
                 client_spec["token"] = token
-                tunnel_type = db_tunnel.type.lower() if db_tunnel.type else "tcp"
-                if tunnel_type not in ["tcp", "udp"]:
-                    tunnel_type = "tcp"  # Default to tcp if invalid
                 client_spec["type"] = tunnel_type
-                local_ip = client_spec.get("local_ip") or iran_node_ip
+                local_ip = client_spec.get("local_ip") or (
+                    "127.0.0.1" if settings.smite_frp_standard_wss else iran_node_ip
+                )
+                if settings.smite_frp_standard_wss:
+                    client_spec["local_ip"] = "127.0.0.1"
                 
                 ports = parse_ports_from_spec(db_tunnel.spec)
                 if ports:
@@ -1551,27 +1583,41 @@ async def apply_tunnel(tunnel_id: str, request: Request, db: AsyncSession = Depe
                         await db.commit()
                         await db.refresh(tunnel)
                     
-                    iran_node_ip = iran_node.node_metadata.get("ip_address")
+                    tunnel_type = tunnel.type.lower() if tunnel.type else "tcp"
+                    if tunnel_type not in ["tcp", "udp"]:
+                        tunnel_type = "tcp"
+                    try:
+                        iran_node_ip = _trusted_frp_control_target(
+                            iran_node.node_metadata.get("ip_address"), bind_port, tunnel_type
+                        )
+                        if settings.smite_frp_standard_wss and (
+                            spec.get("local_ip", "127.0.0.1") != "127.0.0.1"
+                        ):
+                            raise FrpWssTargetError("FRP WSS requires KH local IP 127.0.0.1")
+                    except FrpWssTargetError as exc:
+                        tunnel.status = "error"
+                        tunnel.error_message = str(exc)
+                        await db.commit()
+                        raise HTTPException(status_code=400, detail=str(exc))
                     if not iran_node_ip:
                         tunnel.status = "error"
                         tunnel.error_message = "Iran node has no IP address"
                         await db.commit()
                         raise HTTPException(status_code=400, detail="Iran node has no IP address")
-                    
+
                     server_spec = spec.copy()
                     server_spec["mode"] = "server"
                     server_spec["bind_port"] = bind_port
                     server_spec["token"] = token
-                    
+
                     client_spec = spec.copy()
                     client_spec["mode"] = "client"
                     client_spec["server_addr"] = iran_node_ip
                     client_spec["server_port"] = bind_port
                     client_spec["token"] = token
-                    tunnel_type = tunnel.type.lower() if tunnel.type else "tcp"
-                    if tunnel_type not in ["tcp", "udp"]:
-                        tunnel_type = "tcp"
                     client_spec["type"] = tunnel_type
+                    if settings.smite_frp_standard_wss:
+                        client_spec["local_ip"] = "127.0.0.1"
                     
                     ports = spec.get("ports", [])
                     if not ports:
