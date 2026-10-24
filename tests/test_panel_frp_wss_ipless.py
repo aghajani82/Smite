@@ -89,15 +89,15 @@ class FrpPanelTrustedAddressTest(unittest.TestCase):
         tree = ast.parse(source)
         create = next(n for n in ast.walk(tree) if isinstance(n, ast.AsyncFunctionDef)
                       and n.name == "create_tunnel")
-        update = next(n for n in ast.walk(tree) if isinstance(n, ast.AsyncFunctionDef)
-                      and n.name == "update_tunnel")
+        reapply = next(n for n in ast.walk(tree) if isinstance(n, ast.AsyncFunctionDef)
+                       and n.name == "apply_tunnel")
         calls = lambda fn: sum(
             isinstance(n, ast.Call) and isinstance(n.func, ast.Name)
             and n.func.id == "_trusted_frp_control_target"
             for n in ast.walk(fn)
         )
         self.assertEqual(calls(create), 1)
-        self.assertEqual(calls(update), 1)
+        self.assertEqual(calls(reapply), 1)
         self.assertEqual(source.count("FRP WSS requires KH local IP 127.0.0.1"), 2)
         self.assertIn('server_spec["bind_port"] = bind_port', source)
         self.assertIn('client_spec["server_port"] = bind_port', source)
@@ -105,7 +105,7 @@ class FrpPanelTrustedAddressTest(unittest.TestCase):
         self.assertIn('managed_engines=settings.smite_engine_management_mode == "managed"', source)
         self.assertIn('signed_panel=settings.smite_panel_agent_auth_mode == "signed"', source)
         self.assertIn('panel_domain=settings.panel_domain', source)
-        self.assertEqual(source.count('error_message = "Iran node has no IP address"'), 4)
+        self.assertEqual(source.count('error_message = "Iran node has no IP address"'), 8)
 
     def test_flag_default_off_and_only_router_uses_explicit_setting(self):
         self.assertIn('smite_frp_standard_wss: bool = False',
