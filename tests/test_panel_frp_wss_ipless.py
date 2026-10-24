@@ -117,7 +117,7 @@ class FrpPanelTrustedAddressTest(unittest.TestCase):
                         in ast.unparse(n.test)
                         and "spec_changed" in ast.unparse(n.test))
         self.assertIn("raise HTTPException", ast.unparse(decision))
-        self.assertEqual(decision.body[0].value.func.id, "HTTPException")
+        self.assertEqual(decision.body[0].exc.func.id, "HTTPException")
 
     def test_flag_default_off_and_only_router_uses_explicit_setting(self):
         self.assertIn('smite_frp_standard_wss: bool = False',
