@@ -1202,6 +1202,15 @@ async def update_tunnel(
 
     spec_changed = tunnel_update.spec is not None and tunnel_update.spec != tunnel.spec
 
+    # The legacy PUT spec-edit path starts FRP on the Panel itself. WSS/443
+    # uses a signed Node-owned FRPS instead, so reject that old lifecycle
+    # rather than opening a second control server or dropping Signed mode.
+    if settings.smite_frp_standard_wss and tunnel.core == "frp" and spec_changed:
+        raise HTTPException(
+            status_code=409,
+            detail="Signed FRP WSS spec editing requires a reviewed Node-owned lifecycle",
+        )
+
     # A spec edit automatically re-applies. Reject before ANY database write,
     # local manager restart or remote command if either Node lacks this engine.
     if spec_changed:
