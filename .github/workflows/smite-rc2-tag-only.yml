@@ -98,13 +98,13 @@ jobs:
         with:
           fetch-depth: 0
           fetch-tags: true
-          ref: \${{ github.sha }}
+          ref: ${{ github.sha }}
           persist-credentials: true
       - name: Tag exact trusted RC2 source without merging or publishing
         shell: bash
         env:
-          EXPECTED_SOURCE_SHA: \${{ inputs.expected_source_sha }}
-          CONFIRM_TAG_ONLY: \${{ inputs.confirm_tag_only }}
+          EXPECTED_SOURCE_SHA: ${{ inputs.expected_source_sha }}
+          CONFIRM_TAG_ONLY: ${{ inputs.confirm_tag_only }}
         run: |
           set -euo pipefail
           reviewed="ac67625c0fde00392a9142801b55ee61f296c86c"
