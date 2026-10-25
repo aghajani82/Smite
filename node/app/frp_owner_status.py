@@ -46,7 +46,22 @@ def active_signed_frps_owners(
             proc = getattr(adapter, "processes", {}).get(tunnel_id)
             if not proc or proc.poll() is not None or proc.pid not in live_pids:
                 continue
-            owners.append({"tunnel_id": tunnel_id, "control_port": 7000})
+            proxy_ports = sorted({
+                getattr(getattr(conn, "laddr", None), "port", None)
+                for conn in conns
+                if (
+                    getattr(conn, "status", None) == psutil.CONN_LISTEN
+                    and getattr(conn, "pid", None) == proc.pid
+                    and getattr(getattr(conn, "laddr", None), "ip", None) == "127.0.0.1"
+                    and isinstance(getattr(getattr(conn, "laddr", None), "port", None), int)
+                    and getattr(conn.laddr, "port") != 7000
+                )
+            })
+            owners.append({
+                "tunnel_id": tunnel_id,
+                "control_port": 7000,
+                "proxy_ports": proxy_ports,
+            })
         # More than one owner of the same listener is an invalid runtime,
         # never declare an ambiguous singleton valid.
         return owners if len(owners) == 1 else []
