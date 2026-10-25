@@ -88,6 +88,18 @@ async def get_status(request: Request):
     }
 
 
+@router.get("/frp/owners")
+async def signed_frps_owners(request: Request):
+    """Read-only, auth-required proof of the ONE local FRPS owner."""
+    from app.config import settings
+    from app.frp_owner_status import active_signed_frps_owners
+    if settings.smite_agent_auth_mode != "strict":
+        # Not a legacy HMAC or anonymous discovery API.
+        raise HTTPException(409, detail="Signed FRPS owner evidence unavailable")
+    owners = active_signed_frps_owners(request.app.state.adapter_manager)
+    return {"status": "success", "owners": owners}
+
+
 @router.get("/engines")
 async def get_engines():
     """Authenticated, read-only engine availability; never installs anything."""
