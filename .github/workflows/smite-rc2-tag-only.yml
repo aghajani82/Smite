@@ -84,7 +84,7 @@ jobs:
           echo "GITHUB_RELEASE_CREATED=NO"
           echo "IR_KH_DEPLOYMENT=NO"
 
-  # Owner-triggered non-main lab tag path. Never calls GHCR or deploys.
+  # Owner-triggered immutable RC4 fix candidate; never publishes or deploys.
   lab-tag-only:
     if: >-
       github.event_name == 'workflow_dispatch' &&
@@ -100,41 +100,51 @@ jobs:
           fetch-tags: true
           ref: ${{ github.sha }}
           persist-credentials: true
-      - name: Tag exact trusted RC2 source without merging or publishing
+      - name: Create owner-approved RC4 immutable lab-only tag
         shell: bash
         env:
           EXPECTED_SOURCE_SHA: ${{ inputs.expected_source_sha }}
           CONFIRM_TAG_ONLY: ${{ inputs.confirm_tag_only }}
         run: |
           set -euo pipefail
-          reviewed="ac67625c0fde00392a9142801b55ee61f296c86c"
-          tag="v2.0.0-rc.3"
+          tag="v2.0.0-rc.4"
+          original_rc3="ac67625c0fde00392a9142801b55ee61f296c86c"
+          required_fix="8de0466e8463139fac2cd14748cd4a854b859393"
+          reviewed_merge="4cbcdedd3c505ec342a9eba3a46a4f2ae08bef91"
           required_branch="refs/heads/feature/smite-rc2-frp-singleton-multiport-20261025"
-          hold() { echo "HOLD: lab tag exact owner/source/consent gate failed" >&2; exit 2; }
+          hold() { echo "HOLD: RC4 exact actor/ref/source/consent gate failed" >&2; exit 2; }
+
           [[ "$GITHUB_EVENT_NAME" == "workflow_dispatch" ]] || hold
           [[ "$GITHUB_REPOSITORY" == "aghajani82/Smite" ]] || hold
           [[ "$GITHUB_ACTOR" == "aghajani82" ]] || hold
           [[ "$GITHUB_REF" == "$required_branch" ]] || hold
           [[ "$CONFIRM_TAG_ONLY" == "true" ]] || hold
-          [[ "$EXPECTED_SOURCE_SHA" == "$reviewed" ]] || hold
-          [[ "$(git rev-parse HEAD)" == "$GITHUB_SHA" ]] || hold
-          [[ "$(git rev-parse "$reviewed^{commit}")" == "$reviewed" ]] || hold
-          git merge-base --is-ancestor "$reviewed" HEAD || hold
+          [[ "$EXPECTED_SOURCE_SHA" =~ ^[a-f0-9]{40}$ ]] || hold
+          [[ "$EXPECTED_SOURCE_SHA" == "$GITHUB_SHA" ]] || hold
+          [[ "$(git rev-parse HEAD)" == "$EXPECTED_SOURCE_SHA" ]] || hold
+          git merge-base --is-ancestor "$original_rc3" HEAD || hold
+          git merge-base --is-ancestor "$required_fix" HEAD || hold
+          git merge-base --is-ancestor "$reviewed_merge" HEAD || hold
 
-          git ls-remote --tags origin > "$RUNNER_TEMP/lab-tags-before" || hold
-          if grep -Fq "refs/tags/$tag" "$RUNNER_TEMP/lab-tags-before"; then
+          # Owner-reviewed branch tip must be current at tagging time.
+          git ls-remote --heads origin > "$RUNNER_TEMP/rc4-remote-heads" || hold
+          grep -Fxq "$EXPECTED_SOURCE_SHA\$(printf '\t')$required_branch" "$RUNNER_TEMP/rc4-remote-heads" || hold
+
+          # Tag lookup failures are HOLD, not permission to overwrite.
+          git ls-remote --tags origin > "$RUNNER_TEMP/rc4-remote-tags" || hold
+          if grep -Fq "refs/tags/$tag" "$RUNNER_TEMP/rc4-remote-tags"; then
             hold
           fi
           [[ -z "$(git tag --list "$tag")" ]] || hold
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git tag -a "$tag" "$reviewed" \
-            -m "Smite signed RC2 trial candidate $tag at reviewed source $reviewed; no merge or deployment"
+          git tag -a "$tag" "$EXPECTED_SOURCE_SHA" \
+            -m "Smite $tag Node graceful shutdown persistence fix; tag only"
           git push origin "refs/tags/$tag:refs/tags/$tag" || hold
-          git ls-remote --tags origin > "$RUNNER_TEMP/lab-tags-after" || hold
-          grep -Fq "refs/tags/$tag" "$RUNNER_TEMP/lab-tags-after" || hold
+          git ls-remote --tags origin > "$RUNNER_TEMP/rc4-remote-tags-after" || hold
+          grep -Fq "refs/tags/$tag" "$RUNNER_TEMP/rc4-remote-tags-after" || hold
           echo "LAB_CANDIDATE_TAG_CREATED=$tag"
-          echo "REVIEWED_SOURCE_COMMIT=$reviewed"
+          echo "REVIEWED_SOURCE_COMMIT=$EXPECTED_SOURCE_SHA"
           echo "MAIN_MERGE=NO"
           echo "GHCR_PUSH=NO"
           echo "DEPLOYMENT=NO"
