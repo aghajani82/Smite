@@ -179,6 +179,25 @@ jobs:
             ${{ runner.temp }}/rc2-preview-provenance/stage15-images.json
             ${{ runner.temp }}/rc2-preview-provenance/smite-panel-stage15.docker.tar.gz
             ${{ runner.temp }}/rc2-preview-provenance/smite-node-stage15.docker.tar.gz
+      - name: Verify all three signed subjects against the exact GitHub workflow
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          folder="$RUNNER_TEMP/rc2-preview-provenance"
+          signer="aghajani82/Smite/.github/workflows/stage15-offline-image-bundles.yml"
+          for name in stage15-images.json smite-panel-stage15.docker.tar.gz smite-node-stage15.docker.tar.gz; do
+            result="$RUNNER_TEMP/verified-$(basename "$name").json"
+            gh attestation verify "$folder/$name" \
+              --repo aghajani82/Smite \
+              --signer-workflow "$signer" \
+              --format json > "$result"
+            jq -e 'type == "array" and length > 0' "$result" >/dev/null
+            echo "PREVIEW_SUBJECT_PROVENANCE_VERIFIED=$name"
+          done
+          echo 'GITHUB_CRYPTOGRAPHIC_PREVIEW_VERIFICATION=PASS'
+          echo 'LAB_DEPLOYMENT_AUTHORIZED=NO'
       - name: Declare narrow provenance outcome without authorizing rollout
         shell: bash
         run: |
