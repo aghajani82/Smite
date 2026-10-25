@@ -1855,7 +1855,13 @@ async def reapply_all_tunnels(request: Request, db: AsyncSession = Depends(get_d
     """Reapply all tunnels"""
     result = await db.execute(select(Tunnel))
     tunnels = result.scalars().all()
-    
+
+    if (settings.smite_engine_management_mode == "managed"
+            and any(t.core == "frp" and is_shared_child(t.spec) for t in tunnels)):
+        # Multi-proxy shared FRPS owners must not be restarted or have
+        # their token rotated by a global legacy Reapply All operation.
+        raise HTTPException(409, "Reapply All disabled while shared FRPS children exist; verify or reapply one child")
+
     if not tunnels:
         return {"status": "success", "message": "No tunnels to reapply", "applied": 0, "failed": 0}
     
