@@ -31,6 +31,8 @@ jobs:
         run: python3 -B tests/test_smite_rc2_tag_only.py -v
       - name: Verify owner-only RC4 tag gate before mutation
         run: python3 -B tests/test_smite_rc4_lab_tag_only.py -v
+      - name: Verify exact owner-only RC5 tag gate before mutation
+        run: python3 -B tests/test_smite_rc5_lab_tag_only.py -v
 
   tag-only:
     if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main'
@@ -147,6 +149,68 @@ jobs:
           grep -Fq "refs/tags/$tag" "$RUNNER_TEMP/rc4-remote-tags-after" || hold
           echo "LAB_CANDIDATE_TAG_CREATED=$tag"
           echo "REVIEWED_SOURCE_COMMIT=$EXPECTED_SOURCE_SHA"
+          echo "MAIN_MERGE=NO"
+          echo "GHCR_PUSH=NO"
+          echo "DEPLOYMENT=NO"
+
+  # Owner-triggered immutable RC5 candidate tag; no publishing or deployment.
+  rc5-tag-only:
+    if: >-
+      github.event_name == 'workflow_dispatch' &&
+      github.ref == 'refs/heads/feature/smite-rc5-release-gate'
+    needs: offline-gate
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          fetch-tags: true
+          ref: ${{ github.sha }}
+          persist-credentials: true
+      - name: Create owner-approved RC5 immutable lab-only tag
+        shell: bash
+        env:
+          EXPECTED_SOURCE_SHA: ${{ inputs.expected_source_sha }}
+          CONFIRM_TAG_ONLY: ${{ inputs.confirm_tag_only }}
+        run: |
+          set -euo pipefail
+          tag="v2.0.0-rc.5"
+          reviewed_source="be00b20d64051f5bbd5597701ebdbe60b33b481c"
+          required_branch="refs/heads/feature/smite-rc5-release-gate"
+          hold() { echo "HOLD: RC5 exact actor/ref/source/consent gate failed" >&2; exit 2; }
+
+          [[ "$GITHUB_EVENT_NAME" == "workflow_dispatch" ]] || hold
+          [[ "$GITHUB_REPOSITORY" == "aghajani82/Smite" ]] || hold
+          [[ "$GITHUB_ACTOR" == "aghajani82" ]] || hold
+          [[ "$GITHUB_REF" == "$required_branch" ]] || hold
+          [[ "$CONFIRM_TAG_ONLY" == "true" ]] || hold
+          [[ "$EXPECTED_SOURCE_SHA" == "$reviewed_source" ]] || hold
+          [[ "$EXPECTED_SOURCE_SHA" =~ ^[a-f0-9]{40}$ ]] || hold
+          [[ "$(git rev-parse HEAD)" == "$GITHUB_SHA" ]] || hold
+          [[ "$(git rev-parse "$reviewed_source^{commit}")" == "$reviewed_source" ]] || hold
+          git merge-base --is-ancestor "$reviewed_source" HEAD || hold
+
+          # The release gate branch must still point to this reviewed workflow commit.
+          git ls-remote --heads origin > "$RUNNER_TEMP/rc5-remote-heads" || hold
+          grep -Fxq "$(printf '%s\t%s' "$GITHUB_SHA" "refs/heads/feature/smite-rc5-release-gate")" "$RUNNER_TEMP/rc5-remote-heads" || hold
+
+          # Failed lookups and existing refs both stop the run. Never force or retag.
+          git ls-remote --tags origin > "$RUNNER_TEMP/rc5-remote-tags" || hold
+          if grep -Fq "refs/tags/$tag" "$RUNNER_TEMP/rc5-remote-tags"; then
+            hold
+          fi
+          [[ -z "$(git tag --list "$tag")" ]] || hold
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git tag -a "$tag" "$reviewed_source" -m "Smite $tag signed-image trial candidate at reviewed source $reviewed_source; tag only"
+          git push origin "refs/tags/$tag:refs/tags/$tag" || hold
+          git ls-remote --tags origin "refs/tags/$tag" "refs/tags/$tag^{}" > "$RUNNER_TEMP/rc5-remote-tags-after" || hold
+          grep -Fq "refs/tags/$tag^{}" "$RUNNER_TEMP/rc5-remote-tags-after" || hold
+          [[ "$(awk -v ref="refs/tags/$tag^{}" '$2 == ref {print $1}' "$RUNNER_TEMP/rc5-remote-tags-after")" == "$reviewed_source" ]] || hold
+          echo "LAB_CANDIDATE_TAG_CREATED=$tag"
+          echo "REVIEWED_SOURCE_COMMIT=$reviewed_source"
           echo "MAIN_MERGE=NO"
           echo "GHCR_PUSH=NO"
           echo "DEPLOYMENT=NO"
