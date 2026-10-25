@@ -46,6 +46,7 @@ class SharedFrpsPlanningTests(unittest.TestCase):
         self.assertEqual(plan.remote_port, 49328)
         self.assertEqual(plan.server_control_port, 7000)
         self.assertEqual(plan.client_spec["mode"], "client")
+        self.assertEqual(plan.client_spec["shared_frps_owner"], OWNER)
         self.assertEqual(plan.client_spec["local_ip"], "127.0.0.1")
         self.assertEqual(plan.client_spec["token"], SECRET)
         self.assertEqual(plan.client_spec["ports"], [{"local": 49328, "remote": 49328}])
