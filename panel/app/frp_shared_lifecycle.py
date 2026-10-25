@@ -185,10 +185,15 @@ async def remove_shared_child(*, db, client, tunnel):
     """Delete only after a confirmed signed KH remove; IR owner untouched."""
     if not is_shared_child(tunnel.spec) or not tunnel.foreign_node_id:
         raise HTTPException(409, "Shared FRPS child pair invalid")
+    if (settings.smite_engine_management_mode != "managed"
+            or settings.smite_panel_agent_auth_mode != "signed"):
+        raise HTTPException(409, "Shared proxy cleanup requires signed managed control")
     lease = (await db.execute(select(FrpProxyLease).where(
         FrpProxyLease.tunnel_id == tunnel.id
     ))).scalar_one_or_none()
-    if lease is None or lease.foreign_node_id != tunnel.foreign_node_id:
+    if (lease is None or lease.foreign_node_id != tunnel.foreign_node_id
+            or lease.owner_tunnel_id != tunnel.spec.get("shared_frps_owner")
+            or lease.iran_node_id != (tunnel.iran_node_id or tunnel.node_id)):
         # Never send a destructive command if the lease cannot be verified.
         raise HTTPException(409, "Shared FRP lease missing or mismatched")
     response = await client.send_to_node(
