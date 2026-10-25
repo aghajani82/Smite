@@ -19,6 +19,7 @@ ALLOWED_AGENT_TARGETS = frozenset((
     "/api/agent/tunnels/remove",
     "/api/agent/status",
     "/api/agent/engines",
+    "/api/agent/frp/owners",
     "/api/agent/tunnels/status",
 ))
 
@@ -56,7 +57,7 @@ def prepare_agent_request(
             "/api/agent/tunnels/apply", "/api/agent/tunnels/remove"
         ))
         or (method == "GET" and (
-            target in ("/api/agent/status", "/api/agent/engines")
+            target in ("/api/agent/status", "/api/agent/engines", "/api/agent/frp/owners")
             or target.startswith("/api/agent/tunnels/status?tunnel_id=")
         ))
     )
