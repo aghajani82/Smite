@@ -332,5 +332,47 @@ class AgentGuardTest(unittest.TestCase):
             self.signed("GET", "/api/agent/status", payload={})
 
 
+    def test_frps_owner_proof_requires_exact_signed_get_no_query_and_replay(self):
+        """Regression: Panel signs the live owner proof without broadening HMAC targets."""
+        from unittest.mock import patch
+        target = "/api/agent/frp/owners"
+        self.assertEqual(self.client.get(target).status_code, 401)
+
+        body, headers = self.signed("GET", target, nonce="9" * 32)
+        self.assertEqual(body, b"")
+        evidence = [{"tunnel_id": "owner-frps-45121",
+                     "control_port": 7000, "proxy_ports": [45121]}]
+        with patch("app.frp_owner_status.active_signed_frps_owners",
+                   return_value=evidence) as owner_probe:
+            response = self.client.get(target, headers=headers)
+        self.assertEqual(response.status_code, 200, response.text)
+        self.assertEqual(response.json(), {"status": "success", "owners": evidence})
+        owner_probe.assert_called_once_with(self.adapters)
+
+        # The Node still enforces nonce replay and target-bound signatures.
+        self.assertEqual(self.client.get(target, headers=headers).status_code, 401)
+        self.assertEqual(
+            self.client.get("/api/agent/status", headers=headers).status_code, 401
+        )
+
+        # No arbitrary query, path variant, method or payload is permitted.
+        for bad in (
+            "/api/agent/frp/owners?x=1",
+            "/api/agent/frp/owners/",
+            "/api/agent/frp/owners#fragment",
+            "https://node.example/api/agent/frp/owners",
+            "/api/agent/frp/owners/../owners",
+        ):
+            with self.subTest(target=bad), self.assertRaises(
+                panel_signer.AgentRequestPreparationError
+            ):
+                self.signed("GET", bad)
+        with self.assertRaises(panel_signer.AgentRequestPreparationError):
+            self.signed("POST", target, payload={})
+        with self.assertRaises(panel_signer.AgentRequestPreparationError):
+            self.signed("GET", target, payload={})
+
+
+
 if __name__ == "__main__":
     unittest.main()
