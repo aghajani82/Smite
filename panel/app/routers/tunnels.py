@@ -686,7 +686,7 @@ async def create_tunnel(tunnel: TunnelCreate, request: Request, db: AsyncSession
             
             if remote_addr and token and proxy_port and hasattr(request.app.state, 'rathole_server_manager'):
                 try:
-                    logger.info(f"Starting Rathole server for tunnel {db_tunnel.id}: remote_addr={remote_addr}, token={token}, proxy_port={proxy_port}, use_ipv6={use_ipv6}")
+                    logger.info("Starting Rathole server for tunnel %s, proxy_port=%s, token=%s", db_tunnel.id, proxy_port, "set" if token else "none")
                     request.app.state.rathole_server_manager.start_server(
                         tunnel_id=db_tunnel.id,
                         remote_addr=remote_addr,
@@ -905,7 +905,7 @@ async def create_tunnel(tunnel: TunnelCreate, request: Request, db: AsyncSession
                     await db.refresh(db_tunnel)
                     return db_tunnel
             
-            logger.info(f"Applying tunnel {db_tunnel.id} to node {node.id}, spec keys: {list(spec_for_node.keys())}, server_addr: {spec_for_node.get('server_addr', 'NOT SET')}, full spec: {spec_for_node}")
+            logger.info("Applying tunnel %s to node %s, core=%s (spec contents redacted)", db_tunnel.id, node.id, db_tunnel.core)
             response = await client.send_to_node(
                 node_id=node.id,
                 endpoint="/api/agent/tunnels/apply",
@@ -1775,7 +1775,7 @@ async def apply_tunnel(tunnel_id: str, request: Request, db: AsyncSession = Depe
             await db.commit()
         
         spec_for_node = tunnel.spec.copy() if tunnel.spec else {}
-        logger.info(f"Reapplying tunnel {tunnel.id} (core={tunnel.core}, type={tunnel.type}): original spec={spec_for_node}")
+        logger.info("Reapplying tunnel %s (core=%s, type=%s; spec contents redacted)", tunnel.id, tunnel.core, tunnel.type)
         
         if tunnel.core == "gost":
             spec_for_node["type"] = tunnel.type
@@ -1783,13 +1783,13 @@ async def apply_tunnel(tunnel_id: str, request: Request, db: AsyncSession = Depe
         if tunnel.core == "frp":
             try:
                 spec_for_node = prepare_frp_spec_for_node(spec_for_node, node, request)
-                logger.info(f"FRP spec prepared for tunnel {tunnel.id}: server_addr={spec_for_node.get('server_addr')}, server_port={spec_for_node.get('server_port')}, full spec={spec_for_node}")
+                logger.info("FRP spec prepared for tunnel %s (contents redacted)", tunnel.id)
             except Exception as e:
                 error_msg = f"Failed to prepare FRP spec: {str(e)}"
                 logger.error(f"Tunnel {tunnel.id}: {error_msg}", exc_info=True)
                 raise HTTPException(status_code=500, detail=error_msg)
         
-        logger.info(f"Sending tunnel {tunnel.id} to node {node.id}: spec={spec_for_node}")
+        logger.info("Sending tunnel %s to node %s, core=%s (spec contents redacted)", tunnel.id, node.id, tunnel.core)
         response = await client.send_to_node(
             node_id=node.id,
             endpoint="/api/agent/tunnels/apply",
