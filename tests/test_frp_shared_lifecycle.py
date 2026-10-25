@@ -18,6 +18,7 @@ from app.database import Base
 from app.models import Tunnel, Node, FrpProxyLease
 from app.frp_shared_lifecycle import (
     create_shared_child, reapply_shared_child, remove_shared_child,
+    verify_shared_child_listener,
 )
 from app.config import settings
 
@@ -27,15 +28,16 @@ KH_ID="node-kh-test"
 SECRET="TEST-ONLY-FRP-NOT-LIVE"
 
 class FakeClient:
-    def __init__(self, *, owner=True, apply_success=True):
+    def __init__(self, *, owner=True, apply_success=True, listener_ready=True):
         self.calls=[]
         self.owner=owner
         self.apply_success=apply_success
+        self.listener_ready=listener_ready
         self.applied=False
     async def get_verified_frps_owners(self, node_id):
         self.calls.append(("GET_OWNER",node_id))
         return {"status":"success","owners":[
-            {"tunnel_id":OWNER_ID,"control_port":7000,"proxy_ports":[45121,49328] if self.applied else [45121]}
+            {"tunnel_id":OWNER_ID,"control_port":7000,"proxy_ports":[45121,49328] if (self.applied and self.listener_ready) else [45121]}
         ] if self.owner else []}
     async def send_to_node(self,node_id,endpoint,data):
         self.calls.append(("SIGNED",node_id,endpoint,data))
@@ -136,6 +138,21 @@ class SharedFrpsChildLifecycle(unittest.IsolatedAsyncioTestCase):
             self.assertIsNone((await db.execute(select(FrpProxyLease))).scalar_one_or_none())
             self.assertIsNotNone(await db.get(Tunnel,OWNER_ID))
         self.assertEqual([x[1:3] for x in client.calls if x[0]=="SIGNED"],[(KH_ID,"/api/agent/tunnels/remove")])
+
+    async def test_pending_until_signed_ir_listener_then_verify_without_post(self):
+        client=FakeClient(listener_ready=False)
+        async with self.sessions() as db:
+            t=await create_shared_child(db=db,client=client,requested=self.new_request(),iran_node=self.ir,foreign_node=self.kh)
+            self.assertEqual(t.status,"pending")
+            client.calls.clear()
+            report=await verify_shared_child_listener(db=db,client=client,tunnel=t)
+            self.assertEqual(report["status"],"pending")
+            self.assertFalse(any(x[0]=="SIGNED" for x in client.calls))
+            client.listener_ready=True
+            report=await verify_shared_child_listener(db=db,client=client,tunnel=t)
+            self.assertEqual(report["status"],"active")
+            self.assertEqual(t.status,"active")
+            self.assertFalse(any(x[0]=="SIGNED" for x in client.calls))
 
     async def test_failed_remove_keeps_child_lease_and_owner(self):
         client=FakeClient()
