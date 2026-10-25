@@ -1,5 +1,5 @@
 """Database models"""
-from sqlalchemy import Column, String, Integer, DateTime, Float, JSON, Boolean, Text
+from sqlalchemy import Column, String, Integer, DateTime, Float, JSON, Boolean, Text, UniqueConstraint
 from sqlalchemy.dialects.sqlite import DATETIME as SQLiteDATETIME
 from datetime import datetime
 from app.database import Base
@@ -92,3 +92,22 @@ class Settings(Base):
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
+
+
+class FrpProxyLease(Base):
+    """Persistent, unique IR Node+port allocation for a shared FRPS child.
+
+    Only client proxies have leases. The pre-existing FRPS owner is verified
+    from the signed Node and its established Tunnel DB row. A failed Apply
+    retains its lease until an explicitly successful signed KH cleanup.
+    """
+    __tablename__ = "frp_proxy_leases"
+    __table_args__ = (
+        UniqueConstraint("iran_node_id", "remote_port", name="uq_frp_ir_remote_port"),
+    )
+    tunnel_id = Column(String, primary_key=True)
+    iran_node_id = Column(String, nullable=False)
+    foreign_node_id = Column(String, nullable=False)
+    owner_tunnel_id = Column(String, nullable=False)
+    remote_port = Column(Integer, nullable=False)
+    created_at = Column(DateTime, default=datetime.utcnow)
