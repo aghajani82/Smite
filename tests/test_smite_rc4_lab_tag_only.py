@@ -21,6 +21,7 @@ class LabRc4TagOnlyTest(unittest.TestCase):
         content = WORKFLOW.read_text(encoding="utf-8")
         self.assertEqual(content.count("  lab-tag-only:\n"), 1)
         self.workflow, self.lab = content.split("  lab-tag-only:\n", 1)
+        self.lab = self.lab.split("  # Owner-triggered immutable RC5 candidate tag", 1)[0]
         self.assertEqual(self.lab.count("        run: |\n"), 1)
         self.script = textwrap.dedent(self.lab.split("        run: |\n", 1)[1])
 
