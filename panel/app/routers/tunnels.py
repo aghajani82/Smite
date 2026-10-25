@@ -14,7 +14,7 @@ from app.node_client import NodeClient
 from app.config import settings
 from app.engine_admission import engine_pair_readiness, require_engine_ready_pair, ENGINES
 from app.frp_server_admission import require_exclusive_frps_server_admission, FrpsServerAdmissionDenied
-from app.frp_shared_lifecycle import is_shared_child, create_shared_child, reapply_shared_child, remove_shared_child
+from app.frp_shared_lifecycle import is_shared_child, create_shared_child, reapply_shared_child, remove_shared_child, verify_shared_child_listener
 
 
 router = APIRouter()
@@ -1436,6 +1436,18 @@ async def update_tunnel(
             await db.refresh(tunnel)
     
     return tunnel
+
+
+@router.post("/{tunnel_id}/verify-proxy")
+async def verify_frp_proxy(tunnel_id: str, db: AsyncSession = Depends(get_db)):
+    """Reconcile a shared child using signed GET only; never touch FRPS."""
+    result = await db.execute(select(Tunnel).where(Tunnel.id == tunnel_id))
+    tunnel = result.scalar_one_or_none()
+    if tunnel is None:
+        raise HTTPException(404, "Tunnel not found")
+    return await verify_shared_child_listener(
+        db=db, client=NodeClient(), tunnel=tunnel,
+    )
 
 
 @router.post("/{tunnel_id}/apply")
