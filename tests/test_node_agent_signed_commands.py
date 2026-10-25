@@ -335,6 +335,7 @@ class AgentGuardTest(unittest.TestCase):
     def test_frps_owner_proof_requires_exact_signed_get_no_query_and_replay(self):
         """Regression: Panel signs the live owner proof without broadening HMAC targets."""
         from unittest.mock import patch
+        import app.frp_owner_status  # Load Node submodule for mock resolution.
         target = "/api/agent/frp/owners"
         self.assertEqual(self.client.get(target).status_code, 401)
 
