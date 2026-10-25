@@ -185,18 +185,18 @@ async def remove_shared_child(*, db, client, tunnel):
     """Delete only after a confirmed signed KH remove; IR owner untouched."""
     if not is_shared_child(tunnel.spec) or not tunnel.foreign_node_id:
         raise HTTPException(409, "Shared FRPS child pair invalid")
+    lease = (await db.execute(select(FrpProxyLease).where(
+        FrpProxyLease.tunnel_id == tunnel.id
+    ))).scalar_one_or_none()
+    if lease is None or lease.foreign_node_id != tunnel.foreign_node_id:
+        # Never send a destructive command if the lease cannot be verified.
+        raise HTTPException(409, "Shared FRP lease missing or mismatched")
     response = await client.send_to_node(
         tunnel.foreign_node_id, "/api/agent/tunnels/remove",
         {"tunnel_id": tunnel.id},
     )
     if not isinstance(response, dict) or response.get("status") != "success":
         raise HTTPException(409, "Shared FRP child cleanup unconfirmed")
-    lease = (await db.execute(select(FrpProxyLease).where(
-        FrpProxyLease.tunnel_id == tunnel.id
-    ))).scalar_one_or_none()
-    if lease is None:
-        # Never drop a row with unknown allocation state.
-        raise HTTPException(409, "Shared FRP lease missing")
     await db.delete(lease)
     await db.delete(tunnel)
     await db.commit()
