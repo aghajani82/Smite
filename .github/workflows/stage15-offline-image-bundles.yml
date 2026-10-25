@@ -125,3 +125,67 @@ jobs:
           retention-days: 3
           if-no-files-found: error
           compression-level: 0
+
+  # Provenance is not activation approval. Only the owner-controlled RC2
+  # pull-request head is eligible for this short-lived signed PREVIEW.
+  attest-lab-preview-provenance:
+    needs: offline-pair-artifact
+    if: >-
+      github.event_name == 'pull_request' &&
+      github.repository == 'aghajani82/Smite' &&
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      github.event.pull_request.head.ref == 'feature/smite-rc2-frp-singleton-multiport-20261025' &&
+      github.event.pull_request.user.login == 'aghajani82'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+      id-token: write
+      attestations: write
+      artifact-metadata: write
+    steps:
+      - name: Checkout immutable reviewed RC2 source
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          persist-credentials: false
+      - name: Download exact same-run non-deployable preview pair
+        uses: actions/download-artifact@v4
+        with:
+          name: smite-stage15-offline-images-${{ github.event.pull_request.head.sha }}
+          path: ${{ runner.temp }}/rc2-preview-provenance
+      - name: Revalidate source and non-deployable archive manifest
+        shell: bash
+        env:
+          EXPECTED_SOURCE: ${{ github.event.pull_request.head.sha }}
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$EXPECTED_SOURCE"
+          folder="$RUNNER_TEMP/rc2-preview-provenance"
+          test "$(find "$folder" -maxdepth 1 -type f | wc -l)" -eq 3
+          test -f "$folder/stage15-images.json"
+          test -f "$folder/smite-panel-stage15.docker.tar.gz"
+          test -f "$folder/smite-node-stage15.docker.tar.gz"
+          python3 -B tests/stage15_offline_bundle.py verify \
+            --manifest "$folder/stage15-images.json" \
+            --expected-commit "$EXPECTED_SOURCE"
+          echo 'PREVIEW_ACTIVATION_ALLOWED=NO'
+          echo 'REVIEWED_SOURCE_AND_ARCHIVE_SHA=VERIFIED'
+      - name: Sign SLSA preview provenance for manifest and both archives
+        id: preview-attestation
+        uses: actions/attest@v4
+        with:
+          subject-path: |
+            ${{ runner.temp }}/rc2-preview-provenance/stage15-images.json
+            ${{ runner.temp }}/rc2-preview-provenance/smite-panel-stage15.docker.tar.gz
+            ${{ runner.temp }}/rc2-preview-provenance/smite-node-stage15.docker.tar.gz
+      - name: Declare narrow provenance outcome without authorizing rollout
+        shell: bash
+        run: |
+          echo 'GITHUB_OIDC_PREVIEW_PROVENANCE=CREATED'
+          echo 'ATTESTATION_ONLY_SIGNED_PREVIEW_FILES=YES'
+          echo 'SIGNED_GHCR_DIGEST=NO'
+          echo 'RUNTIME_SECURITY_REVIEW=REQUIRED'
+          echo 'LAB_RELEASE_AUTHORIZATION=NO'
+          echo 'IR_KH_DEPLOYMENT=BLOCKED'
+          echo 'MAIN_MERGE=NOT_PERFORMED'
