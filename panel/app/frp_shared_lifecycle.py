@@ -225,3 +225,34 @@ async def remove_shared_child(*, db, client, tunnel):
     await db.delete(tunnel)
     await db.commit()
     return {"status": "deleted"}
+
+
+async def verify_shared_child_listener(*, db, client, tunnel):
+    """Read-only signed IR check, then local DB status reconciliation only."""
+    if not is_shared_child(tunnel.spec) or tunnel.core != "frp":
+        raise HTTPException(409, "Not a shared FRPS child")
+    if (settings.smite_engine_management_mode != "managed"
+            or settings.smite_panel_agent_auth_mode != "signed"):
+        raise HTTPException(409, "Signed managed verification required")
+    lease = (await db.execute(select(FrpProxyLease).where(
+        FrpProxyLease.tunnel_id == tunnel.id
+    ))).scalar_one_or_none()
+    if lease is None or lease.iran_node_id != (tunnel.iran_node_id or tunnel.node_id):
+        raise HTTPException(409, "Shared proxy lease untrusted")
+    proof = await client.get_verified_frps_owners(lease.iran_node_id)
+    owners = proof.get("owners") if isinstance(proof, dict) and proof.get("status") == "success" else None
+    matched = (
+        isinstance(owners, list) and len(owners) == 1
+        and isinstance(owners[0], dict)
+        and owners[0].get("tunnel_id") == lease.owner_tunnel_id
+        and owners[0].get("control_port") == 7000
+    )
+    ports = owners[0].get("proxy_ports") if matched else None
+    verified = isinstance(ports, list) and lease.remote_port in ports
+    if verified:
+        tunnel.status = "active"
+        tunnel.error_message = None
+        await db.commit()
+        await db.refresh(tunnel)
+    return {"status": "active" if verified else "pending",
+            "message": "Verified IR FRPS listener" if verified else "IR FRPS proxy listener not yet verified"}
