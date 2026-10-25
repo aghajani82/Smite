@@ -203,6 +203,19 @@ class NodeClient:
             node_id, method="GET", target="/api/agent/engines", timeout=3.0,
         )
 
+    async def get_verified_frps_owners(self, node_id: str) -> Dict[str, Any]:
+        """Authenticated read-only evidence of the existing FRPS daemon.
+
+        Strict Signed control only; no legacy fallback, no signed POST and
+        no candidate token or other secret is exposed in the response.
+        """
+        if settings.smite_panel_agent_auth_mode != "signed":
+            return {"status": "error", "message": "Signed FRPS owner evidence unavailable"}
+        return await self._signed_agent_request(
+            node_id, method="GET", target="/api/agent/frp/owners",
+            timeout=3.0,
+        )
+
     async def get_tunnel_status(self, node_id: str, tunnel_id: str = "") -> Dict[str, Any]:
         """Get tunnel status from node"""
         if settings.smite_panel_agent_auth_mode == "signed":
