@@ -29,7 +29,7 @@ def manager(pid=120, mode="server", alive=True):
 class FrpsOwnerStatusTests(unittest.TestCase):
     def test_pid_plus_loopback_port_proves_owner_not_db_flag(self):
         records=mod.active_signed_frps_owners(manager(),listeners=[conn(120)])
-        self.assertEqual(records,[{"tunnel_id":"owner-tunnel","control_port":7000}])
+        self.assertEqual(records,[{"tunnel_id":"owner-tunnel","control_port":7000,"proxy_ports":[]}])
         self.assertNotIn("DO_NOT_LEAK",repr(records))
 
     def test_wrong_pid_ip_port_not_owner(self):
