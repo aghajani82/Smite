@@ -13,6 +13,7 @@ from app.models import Tunnel, Node
 from app.node_client import NodeClient
 from app.config import settings
 from app.engine_admission import engine_pair_readiness, require_engine_ready_pair, ENGINES
+from app.frp_server_admission import require_exclusive_frps_server_admission, FrpsServerAdmissionDenied
 
 
 router = APIRouter()
@@ -165,6 +166,26 @@ async def require_managed_tunnel_pair(tunnel: Tunnel, client: NodeClient) -> Non
     )
 
 
+async def require_managed_frps_slot(db: AsyncSession, *, iran_node_id: str, spec: dict, current_tunnel_id: str | None = None) -> None:
+    """Refuse a second FRPS owner before DB changes or any signed Apply.
+
+    This is only a protective admission gate; shared proxy children are NOT
+    enabled until their separate signed lifecycle passes review.
+    """
+    if settings.smite_engine_management_mode != "managed":
+        return
+    result = await db.execute(select(Tunnel).where(Tunnel.core == "frp"))
+    try:
+        require_exclusive_frps_server_admission(
+            candidate_spec=spec,
+            owner_node_id=iran_node_id,
+            existing_tunnels=result.scalars().all(),
+            current_tunnel_id=current_tunnel_id,
+        )
+    except FrpsServerAdmissionDenied as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+
 @router.post("", response_model=TunnelResponse)
 async def create_tunnel(tunnel: TunnelCreate, request: Request, db: AsyncSession = Depends(get_db)):
     """Create a new tunnel and auto-apply it"""
@@ -266,6 +287,11 @@ async def create_tunnel(tunnel: TunnelCreate, request: Request, db: AsyncSession
             iran_node.id if iran_node else (node.id if node else ""),
             foreign_node.id if foreign_node else "",
             NodeClient(),
+        )
+
+    if tunnel.core == "frp":
+        await require_managed_frps_slot(
+            db, iran_node_id=iran_node.id if iran_node else "", spec=tunnel.spec,
         )
 
     tunnel_node_id = tunnel.iran_node_id or tunnel.node_id or ""
@@ -1174,6 +1200,11 @@ async def update_tunnel(
     # local manager restart or remote command if either Node lacks this engine.
     if spec_changed:
         await require_managed_tunnel_pair(tunnel, NodeClient())
+        if tunnel.core == "frp":
+            await require_managed_frps_slot(
+                db, iran_node_id=tunnel.iran_node_id or tunnel.node_id or "",
+                spec=tunnel_update.spec, current_tunnel_id=tunnel.id,
+            )
 
     if tunnel_update.name is not None:
         tunnel.name = tunnel_update.name
@@ -1403,6 +1434,11 @@ async def apply_tunnel(tunnel_id: str, request: Request, db: AsyncSession = Depe
     client = NodeClient()
     # Also covers single Apply and Reapply All; refuse before side effects.
     await require_managed_tunnel_pair(tunnel, client)
+    if tunnel.core == "frp":
+        await require_managed_frps_slot(
+            db, iran_node_id=tunnel.iran_node_id or tunnel.node_id or "",
+            spec=tunnel.spec, current_tunnel_id=tunnel.id,
+        )
 
     is_reverse_tunnel = tunnel.core in {"rathole", "backhaul", "chisel", "frp"}
     foreign_node = None
@@ -1838,6 +1874,12 @@ async def delete_tunnel(tunnel_id: str, request: Request, db: AsyncSession = Dep
     if not tunnel:
         raise HTTPException(status_code=404, detail="Tunnel not found")
     
+    if settings.smite_engine_management_mode == "managed" and tunnel.core == "frp":
+        result = await db.execute(select(Tunnel).where(Tunnel.core == "frp"))
+        if any((child.spec or {}).get("shared_frps_owner") == tunnel.id
+               for child in result.scalars().all() if child.id != tunnel.id):
+            raise HTTPException(409, "FRPS owner has dependent proxy tunnels")
+
     needs_gost_forwarding = tunnel.type in ["tcp", "udp", "ws", "grpc"] and tunnel.core == "gost"
     needs_rathole_server = tunnel.core == "rathole"
     needs_backhaul_server = tunnel.core == "backhaul"
