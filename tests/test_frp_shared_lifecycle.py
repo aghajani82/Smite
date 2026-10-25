@@ -18,7 +18,7 @@ from app.database import Base
 from app.models import Tunnel, Node, FrpProxyLease
 from app.frp_shared_lifecycle import (
     create_shared_child, reapply_shared_child, remove_shared_child,
-    verify_shared_child_listener,
+    verify_shared_child_listener, require_no_shared_frps_owner_dependents,
 )
 from app.config import settings
 
@@ -207,6 +207,50 @@ class SharedFrpsChildLifecycle(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(getattr(cm.exception,"status_code",None),409)
             self.assertIsNotNone((await db.execute(select(FrpProxyLease))).scalar_one_or_none())
             self.assertIsNotNone(await db.get(Tunnel,t.id))
+
+    async def test_orphan_lease_prevents_owner_removal_after_child_row_loss(self):
+        # Simulates inconsistent recovery state: child JSON row missing, but
+        # durable lease still reserves 49328. Owner must not be removed.
+        async with self.sessions() as db:
+            db.add(FrpProxyLease(
+                tunnel_id="orphan-shared-child", iran_node_id=IR_ID,
+                foreign_node_id=KH_ID, owner_tunnel_id=OWNER_ID,
+                remote_port=49328))
+            await db.commit()
+            with self.assertRaises(Exception) as cm:
+                await require_no_shared_frps_owner_dependents(
+                    db=db, owner_tunnel_id=OWNER_ID)
+            self.assertEqual(getattr(cm.exception,"status_code",None),409)
+            self.assertIsNotNone(await db.get(Tunnel,OWNER_ID))
+
+    async def test_child_marker_prevents_owner_removal_without_lease(self):
+        # Historical migrated child may be present even if the lease table
+        # has not been populated. Do not permit owner deletion then.
+        async with self.sessions() as db:
+            child=Tunnel(
+                id="legacy-shared-child", name="legacy-shared-child",
+                core="frp", type="tcp", node_id=IR_ID,
+                iran_node_id=IR_ID, foreign_node_id=KH_ID,
+                spec={"shared_frps_owner":OWNER_ID,"ports":[49328]},
+                status="error")
+            db.add(child)
+            await db.commit()
+            with self.assertRaises(Exception) as cm:
+                await require_no_shared_frps_owner_dependents(
+                    db=db, owner_tunnel_id=OWNER_ID)
+            self.assertEqual(getattr(cm.exception,"status_code",None),409)
+            self.assertIsNotNone(await db.get(Tunnel,OWNER_ID))
+
+    async def test_lease_free_owner_is_not_falsely_blocked(self):
+        async with self.sessions() as db:
+            await require_no_shared_frps_owner_dependents(
+                db=db, owner_tunnel_id=OWNER_ID)
+
+    def test_router_owner_and_global_reapply_gates_use_durable_leases(self):
+        source=(ROOT/"panel/app/routers/tunnels.py").read_text()
+        self.assertGreaterEqual(
+            source.count("require_no_shared_frps_owner_dependents("),2)
+        self.assertIn("select(FrpProxyLease.tunnel_id)",source)
 
     async def test_legacy_auth_cannot_authorize_shared_child(self):
         client=FakeClient()
