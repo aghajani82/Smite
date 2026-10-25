@@ -31,15 +31,18 @@ class FakeClient:
         self.calls=[]
         self.owner=owner
         self.apply_success=apply_success
+        self.applied=False
     async def get_verified_frps_owners(self, node_id):
         self.calls.append(("GET_OWNER",node_id))
         return {"status":"success","owners":[
-            {"tunnel_id":OWNER_ID,"control_port":7000}
+            {"tunnel_id":OWNER_ID,"control_port":7000,"proxy_ports":[45121,49328] if self.applied else [45121]}
         ] if self.owner else []}
     async def send_to_node(self,node_id,endpoint,data):
         self.calls.append(("SIGNED",node_id,endpoint,data))
         if endpoint.endswith("/apply") and not self.apply_success:
             return {"status":"error","message":"UNIT_TEST_ONLY"}
+        if endpoint.endswith("/apply"):
+            self.applied=True
         return {"status":"success"}
 
 class SharedFrpsChildLifecycle(unittest.IsolatedAsyncioTestCase):
