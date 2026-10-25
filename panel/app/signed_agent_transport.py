@@ -33,6 +33,13 @@ _DOMAIN = re.compile(
 class SignedAgentUnavailable(RuntimeError):
     """Generic failure. Never echo credentials or URLs in public responses."""
 
+class SignedAgentHTTPFailure(SignedAgentUnavailable):
+    """Sanitized verified HTTP status, never a response body or target URL."""
+
+    def __init__(self, status_code: int):
+        self.status_code = status_code
+        super().__init__("Signed Node HTTP failure")
+
 
 def validate_agent_origin(address: str, *, using_frp: bool) -> str:
     """Normalize and refuse proxy/redirect/cleartext WAN endpoints."""
@@ -167,5 +174,10 @@ async def signed_agent_call(
         if not isinstance(data, dict):
             raise SignedAgentUnavailable("Unexpected Node response")
         return data
+    except httpx.HTTPStatusError as exc:
+        code = exc.response.status_code
+        if 400 <= code <= 599:
+            raise SignedAgentHTTPFailure(code) from exc
+        raise SignedAgentUnavailable("Signed Node HTTP response invalid") from exc
     except (httpx.HTTPError, ValueError) as exc:
         raise SignedAgentUnavailable("Signed Node request failed") from exc
