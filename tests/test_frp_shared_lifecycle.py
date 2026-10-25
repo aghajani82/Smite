@@ -103,6 +103,44 @@ class SharedFrpsChildLifecycle(unittest.IsolatedAsyncioTestCase):
         self.assertNotIn("token",t.spec)
         self.assertFalse(any(x[1]==IR_ID for x in writes))
 
+    async def test_legacy_ipless_owner_uses_configured_panel_wss_domain(self):
+        # Existing signed lab Node IP metadata may be absent; the trusted
+        # Panel domain is enough to plan a KH WSS/443 child and must not
+        # force a second IR frps. No actual socket or network is used.
+        client=FakeClient()
+        old_domain=settings.panel_domain
+        settings.panel_domain="ir.test.example"
+        try:
+            self.ir.node_metadata={"role":"iran"}
+            async with self.sessions() as db:
+                t=await create_shared_child(
+                    db=db,client=client,requested=self.new_request(),
+                    iran_node=self.ir,foreign_node=self.kh)
+                self.assertEqual(t.status,"active")
+                sends=[x for x in client.calls if x[0]=="SIGNED"]
+                self.assertEqual(len(sends),1)
+                self.assertEqual(sends[0][1],KH_ID)
+                self.assertEqual(sends[0][3]["spec"]["server_addr"],"ir.test.example")
+                self.assertIsNotNone((await db.execute(select(FrpProxyLease))).scalar_one_or_none())
+        finally:
+            settings.panel_domain=old_domain
+
+    async def test_ipless_owner_without_panel_domain_fails_closed(self):
+        client=FakeClient()
+        old_domain=settings.panel_domain
+        settings.panel_domain=""
+        try:
+            self.ir.node_metadata={"role":"iran"}
+            async with self.sessions() as db:
+                with self.assertRaises(Exception) as cm:
+                    await create_shared_child(
+                        db=db,client=client,requested=self.new_request(),
+                        iran_node=self.ir,foreign_node=self.kh)
+                self.assertEqual(getattr(cm.exception,"status_code",None),409)
+                self.assertFalse(any(x[0]=="SIGNED" for x in client.calls))
+        finally:
+            settings.panel_domain=old_domain
+
     async def test_unconfirmed_apply_keeps_row_and_lease_for_reconcile(self):
         client=FakeClient(apply_success=False)
         async with self.sessions() as db:
