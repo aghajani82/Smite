@@ -96,7 +96,13 @@ async def prepare_shared_child(*, db, client, iran_node, foreign_node,
         except (ValueError, TypeError, KeyError, SharedFrpAdmissionDenied):
             raise HTTPException(409, "Existing FRP proxy port cannot be reconciled")
 
-    addr = (iran_node.node_metadata or {}).get("ip_address")
+    # Older signed WSS pairs may have no usable Node IP metadata.
+    # The KH adapter pins WSS to its configured Panel hostname on 443,
+    # so prefer the Panel's own trusted domain over a UI-supplied Node IP
+    # placeholder. Missing both still fails closed in the planner.
+    addr = settings.panel_domain
+    if not isinstance(addr, str) or not addr.strip():
+        addr = (iran_node.node_metadata or {}).get("ip_address")
     try:
         return plan_shared_frp_proxy(
             owner_tunnel_id=owner.id,
