@@ -9,12 +9,12 @@ import logging
 import time
 
 from app.database import get_db
-from app.models import Tunnel, Node
+from app.models import Tunnel, Node, FrpProxyLease
 from app.node_client import NodeClient
 from app.config import settings
 from app.engine_admission import engine_pair_readiness, require_engine_ready_pair, ENGINES
 from app.frp_server_admission import require_exclusive_frps_server_admission, FrpsServerAdmissionDenied
-from app.frp_shared_lifecycle import is_shared_child, create_shared_child, reapply_shared_child, remove_shared_child, verify_shared_child_listener
+from app.frp_shared_lifecycle import is_shared_child, create_shared_child, reapply_shared_child, remove_shared_child, verify_shared_child_listener, require_no_shared_frps_owner_dependents
 
 
 router = APIRouter()
@@ -1206,10 +1206,7 @@ async def update_tunnel(
         if is_shared_child(tunnel.spec) or is_shared_child(tunnel_update.spec):
             raise HTTPException(409, "Shared FRP proxy specs are immutable; use explicit remove and create")
         # Never update the owner token/control spec while children depend on it.
-        other_rows = (await db.execute(select(Tunnel).where(Tunnel.core == "frp"))).scalars().all()
-        if any(is_shared_child(child.spec) and child.spec.get("shared_frps_owner") == tunnel.id
-               for child in other_rows if child.id != tunnel.id):
-            raise HTTPException(409, "FRPS owner has dependent proxy tunnels")
+        await require_no_shared_frps_owner_dependents(db=db, owner_tunnel_id=tunnel.id)
 
     # A spec edit automatically re-applies. Reject before ANY database write,
     # local manager restart or remote command if either Node lacks this engine.
@@ -1856,8 +1853,11 @@ async def reapply_all_tunnels(request: Request, db: AsyncSession = Depends(get_d
     result = await db.execute(select(Tunnel))
     tunnels = result.scalars().all()
 
+    lease_present = False
+    if settings.smite_engine_management_mode == "managed":
+        lease_present = (await db.execute(select(FrpProxyLease.tunnel_id))).first() is not None
     if (settings.smite_engine_management_mode == "managed"
-            and any(t.core == "frp" and is_shared_child(t.spec) for t in tunnels)):
+            and (lease_present or any(t.core == "frp" and is_shared_child(t.spec) for t in tunnels))):
         # Multi-proxy shared FRPS owners must not be restarted or have
         # their token rotated by a global legacy Reapply All operation.
         raise HTTPException(409, "Reapply All disabled while shared FRPS children exist; verify or reapply one child")
@@ -1910,10 +1910,8 @@ async def delete_tunnel(tunnel_id: str, request: Request, db: AsyncSession = Dep
         raise HTTPException(status_code=404, detail="Tunnel not found")
     
     if settings.smite_engine_management_mode == "managed" and tunnel.core == "frp":
-        result = await db.execute(select(Tunnel).where(Tunnel.core == "frp"))
-        if any((child.spec or {}).get("shared_frps_owner") == tunnel.id
-               for child in result.scalars().all() if child.id != tunnel.id):
-            raise HTTPException(409, "FRPS owner has dependent proxy tunnels")
+        if not is_shared_child(tunnel.spec):
+            await require_no_shared_frps_owner_dependents(db=db, owner_tunnel_id=tunnel.id)
 
     if tunnel.core == "frp" and is_shared_child(tunnel.spec):
         return await remove_shared_child(db=db, client=NodeClient(), tunnel=tunnel)
