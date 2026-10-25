@@ -1515,7 +1515,24 @@ class AdapterManager:
         return {"active": False}
     
     async def cleanup(self):
-        """Cleanup all tunnels"""
-        for tunnel_id in list(self.active_tunnels.keys()):
-            await self.remove_tunnel(tunnel_id)
+        """Stop active runtimes without forgetting tunnels during Node shutdown.
+
+        Explicit signed Remove remains responsible for deleting a tunnel's
+        durable configuration. The persisted tunnels.json MUST survive a
+        normal container recreation so restore_tunnels can bring FRP back.
+        Adapter.remove stops the child engine (and can unlink its generated
+        engine config), but this shutdown path never edits tunnel_configs or
+        writes tunnels.json. Continue stopping other engines on one failure.
+        """
+        for tunnel_id, adapter in list(self.active_tunnels.items()):
+            try:
+                adapter.remove(tunnel_id)
+            except Exception:
+                # Do not log exception text: engine errors may contain secrets.
+                logger.warning(
+                    "Failed to stop tunnel %s during shutdown; saved state preserved",
+                    tunnel_id,
+                )
+            else:
+                self.active_tunnels.pop(tunnel_id, None)
 
