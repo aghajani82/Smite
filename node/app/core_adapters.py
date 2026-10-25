@@ -6,7 +6,7 @@ import psutil
 import time
 import logging
 from pathlib import Path
-from app.frp_gateway_config import frp_client_server_addr, frp_client_server_port, frp_standard_wss_host, frp_tls_transport_yaml
+from app.frp_gateway_config import frp_client_server_addr, frp_client_server_port, frp_standard_wss_host, frp_tls_transport_yaml, require_shared_frps_wss
 from app.frp_singleton_guard import assert_frps_control_port_available
 import shutil
 
@@ -843,6 +843,9 @@ class FrpAdapter:
     def apply(self, tunnel_id: str, spec: Dict[str, Any]):
         """Apply FRP tunnel - supports both server and client modes"""
         mode = spec.get('mode', 'client')
+        # Fail BEFORE removing a running client or writing its secret-bearing
+        # config. This also runs during boot restore, which calls adapter.apply.
+        require_shared_frps_wss(spec)
         if mode == 'server' and frp_standard_wss_host():
             # Fail BEFORE removing an existing owner, writing token-bearing
             # configs, or spawning a second server. Never hijack :7000.
@@ -1455,6 +1458,11 @@ class AdapterManager:
             from app.engine_inventory import require_engine_ready
             require_engine_ready(tunnel_core)
 
+        if tunnel_core == "frp":
+            # The manager removes an existing tunnel before delegating to
+            # FrpAdapter. Validate shared-client WSS first so a misconfigured
+            # reapply cannot tear down the previous client process.
+            require_shared_frps_wss(spec)
         if (tunnel_core == "frp" and spec.get("mode") == "server"
                 and frp_standard_wss_host()):
             # AdapterManager used to remove the working owner BEFORE
