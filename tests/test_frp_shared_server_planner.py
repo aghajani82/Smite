@@ -92,6 +92,13 @@ class SharedFrpsPlanningTests(unittest.TestCase):
         self.deny(child_spec={
             "shared_frps_owner": OWNER, "bind_port": 7000,
             "ports": [49328], "token": "different-token"})
+        # Even the correct secret must never be persisted in child specs.
+        self.deny(child_spec={
+            "shared_frps_owner": OWNER, "bind_port": 7000,
+            "ports": [49328], "token": SECRET})
+        self.deny(child_spec={
+            "shared_frps_owner": OWNER, "bind_port": 7000,
+            "ports": [49328], "token": ""})
         self.deny(owner_spec={"bind_port": 7000, "token": ""})
 
     def test_multiple_ports_and_mismatched_pairs_denied(self):
