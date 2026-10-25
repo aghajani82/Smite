@@ -74,6 +74,16 @@ class FrpsSingletonSlotTests(unittest.TestCase):
                     tunnel_id="trial-frp-49328", control_port=7000
                 )
 
+    def test_adapter_manager_checks_before_removing_working_owner(self):
+        source = (ROOT / "node/app/core_adapters.py").read_text()
+        segment = source.split("class AdapterManager:", 1)[1]
+        method = segment.split("    async def apply_tunnel(", 1)[1].split(
+            "    async def remove_tunnel(", 1
+        )[0]
+        guard_pos = method.index("assert_frps_control_port_available(")
+        destructive_pos = method.index("await self.remove_tunnel(tunnel_id)")
+        self.assertLess(guard_pos, destructive_pos)
+
     def test_no_secret_leaks_in_errors(self):
         try:
             self.check(shared_frps_owner="token-private-should-not-appear")
