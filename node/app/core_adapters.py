@@ -1455,6 +1455,17 @@ class AdapterManager:
             from app.engine_inventory import require_engine_ready
             require_engine_ready(tunnel_core)
 
+        if (tunnel_core == "frp" and spec.get("mode") == "server"
+                and frp_standard_wss_host()):
+            # AdapterManager used to remove the working owner BEFORE
+            # FrpAdapter's listener collision guard could run. Refuse
+            # owner Reapply or a second bind BEFORE any process removal.
+            assert_frps_control_port_available(
+                tunnel_id=tunnel_id,
+                control_port=spec.get("bind_port", 7000),
+                shared_frps_owner=spec.get("shared_frps_owner"),
+            )
+
         if tunnel_id in self.active_tunnels:
             logger.info(f"Tunnel {tunnel_id} already exists, removing it first")
             await self.remove_tunnel(tunnel_id)
