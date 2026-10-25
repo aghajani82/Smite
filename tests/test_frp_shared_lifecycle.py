@@ -28,11 +28,13 @@ KH_ID="node-kh-test"
 SECRET="TEST-ONLY-FRP-NOT-LIVE"
 
 class FakeClient:
-    def __init__(self, *, owner=True, apply_success=True, listener_ready=True):
+    def __init__(self, *, owner=True, apply_success=True, listener_ready=True,
+                 remove_keeps_port=False):
         self.calls=[]
         self.owner=owner
         self.apply_success=apply_success
         self.listener_ready=listener_ready
+        self.remove_keeps_port=remove_keeps_port
         self.applied=False
     async def get_verified_frps_owners(self, node_id):
         self.calls.append(("GET_OWNER",node_id))
@@ -45,6 +47,8 @@ class FakeClient:
             return {"status":"error","message":"UNIT_TEST_ONLY"}
         if endpoint.endswith("/apply"):
             self.applied=True
+        if endpoint.endswith("/remove") and not self.remove_keeps_port:
+            self.applied=False
         return {"status":"success"}
 
 class SharedFrpsChildLifecycle(unittest.IsolatedAsyncioTestCase):
@@ -153,6 +157,42 @@ class SharedFrpsChildLifecycle(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(report["status"],"active")
             self.assertEqual(t.status,"active")
             self.assertFalse(any(x[0]=="SIGNED" for x in client.calls))
+
+    async def test_successful_kh_remove_but_ir_listener_still_present_holds_lease(self):
+        client=FakeClient(remove_keeps_port=True)
+        async with self.sessions() as db:
+            child=await create_shared_child(
+                db=db,client=client,requested=self.new_request(),
+                iran_node=self.ir,foreign_node=self.kh)
+            self.assertEqual(child.status,"active")
+            client.calls.clear()
+            with self.assertRaises(Exception) as cm:
+                await remove_shared_child(db=db,client=client,tunnel=child)
+            self.assertEqual(getattr(cm.exception,"status_code",None),409)
+            self.assertIsNotNone(await db.get(Tunnel,child.id))
+            lease=(await db.execute(select(FrpProxyLease))).scalar_one()
+            self.assertEqual(lease.remote_port,49328)
+            self.assertIsNotNone(await db.get(Tunnel,OWNER_ID))
+        self.assertEqual(
+            [x[1:3] for x in client.calls if x[0]=="SIGNED"],
+            [(KH_ID,"/api/agent/tunnels/remove")])
+        self.assertFalse(any(x[0]=="SIGNED" and x[1]==IR_ID for x in client.calls))
+
+    async def test_missing_signed_ir_release_proof_holds_lease(self):
+        client=FakeClient()
+        async with self.sessions() as db:
+            child=await create_shared_child(
+                db=db,client=client,requested=self.new_request(),
+                iran_node=self.ir,foreign_node=self.kh)
+            async def unavailable(_node_id):
+                return {"status":"error","message":"TEST_ONLY_NO_SIGNED_PROOF"}
+            client.get_verified_frps_owners=unavailable
+            with self.assertRaises(Exception) as cm:
+                await remove_shared_child(db=db,client=client,tunnel=child)
+            self.assertEqual(getattr(cm.exception,"status_code",None),409)
+            self.assertIsNotNone(await db.get(Tunnel,child.id))
+            self.assertIsNotNone((await db.execute(select(FrpProxyLease))).scalar_one_or_none())
+            self.assertIsNotNone(await db.get(Tunnel,OWNER_ID))
 
     async def test_failed_remove_keeps_child_lease_and_owner(self):
         client=FakeClient()
