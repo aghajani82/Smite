@@ -4,6 +4,8 @@ on:
   pull_request:
     paths:
       - 'panel/app/frp_shared_server.py'
+      - 'panel/app/frp_shared_lifecycle.py'
+      - 'panel/app/models.py'
       - 'panel/app/frp_server_admission.py'
       - 'panel/app/routers/tunnels.py'
       - 'node/app/frp_singleton_guard.py'
@@ -15,6 +17,7 @@ on:
       - 'tests/test_frp_singleton_guard.py'
       - 'tests/test_frp_exclusive_server_admission.py'
       - 'tests/test_frp_owner_status.py'
+      - 'tests/test_frp_shared_lifecycle.py'
       - '.github/workflows/frp-singleton-admission.yml'
   workflow_dispatch:
 
@@ -31,17 +34,18 @@ jobs:
         with:
           python-version: '3.11'
       - name: Minimal offline socket fixture dependency
-        run: python -m pip install 'psutil==7.1.0'
+        run: python -m pip install 'psutil==7.1.0' 'fastapi==0.104.1' 'pydantic==2.5.0' 'pydantic-settings==2.1.0' 'sqlalchemy==2.0.23' 'aiosqlite==0.19.0'
       - name: Compile both managed FRP admission boundaries
         run: |
-          python -m py_compile panel/app/frp_shared_server.py panel/app/frp_server_admission.py panel/app/routers/tunnels.py panel/app/node_client.py node/app/frp_singleton_guard.py node/app/frp_owner_status.py node/app/routers/agent.py node/app/core_adapters.py
-          python -m py_compile tests/test_frp_shared_server_planner.py tests/test_frp_singleton_guard.py tests/test_frp_exclusive_server_admission.py tests/test_frp_owner_status.py
+          python -m py_compile panel/app/frp_shared_server.py panel/app/frp_shared_lifecycle.py panel/app/models.py panel/app/frp_server_admission.py panel/app/routers/tunnels.py panel/app/node_client.py node/app/frp_singleton_guard.py node/app/frp_owner_status.py node/app/routers/agent.py node/app/core_adapters.py
+          python -m py_compile tests/test_frp_shared_server_planner.py tests/test_frp_singleton_guard.py tests/test_frp_exclusive_server_admission.py tests/test_frp_owner_status.py tests/test_frp_shared_lifecycle.py
       - name: Reject duplicate FRPS owner or unsafe remote proxy
         run: |
           python -B tests/test_frp_shared_server_planner.py -v
           python -B tests/test_frp_exclusive_server_admission.py -v
           python -B tests/test_frp_singleton_guard.py -v
           python -B tests/test_frp_owner_status.py -v
+          python -B tests/test_frp_shared_lifecycle.py -v
       - name: Confirm nothing deployed
         run: |
           echo 'FRPS_RUNTIME=NOT_STARTED'
