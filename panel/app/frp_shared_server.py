@@ -133,6 +133,9 @@ def plan_shared_frp_proxy(
     # Do not pass an unreviewed server-mode child spec to the Node adapter.
     client_spec = {
         "mode": "client",
+        # Persist owner identity on the signed KH client as a guard marker;
+        # KH must reject fallback to plaintext port 7000 on restore/reapply.
+        "shared_frps_owner": owner_tunnel_id,
         "type": "tcp",
         "server_addr": server_addr,
         "server_port": SIGNED_FRPS_CONTROL_PORT,
