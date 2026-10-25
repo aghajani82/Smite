@@ -10,7 +10,7 @@ from sqlalchemy import select
 from app.database import AsyncSessionLocal
 from app.models import Node, Settings
 from app.config import settings
-from app.signed_agent_transport import signed_agent_call, SignedAgentUnavailable
+from app.signed_agent_transport import signed_agent_call, SignedAgentUnavailable, SignedAgentHTTPFailure
 from app.uopti_backhaul_dispatch import prepare_node_command
 from app.uopti_backhaul_standard import StandardBackhaulSpecError
 from app.signed_node_origins import approved_node, ApprovedOriginUnavailable
@@ -105,6 +105,11 @@ class NodeClient:
                 method=method, target=target, payload=payload, timeout=timeout,
                 gateway_control_url=gateway_control_url,
             )
+        except SignedAgentHTTPFailure as exc:
+            # Only the integer response code from the authenticated, pinned
+            # target is surfaced. Never expose a response body or URL.
+            return {"status": "error", "message":
+                    f"Signed Node rejected request (HTTP {exc.status_code})"}
         except (SignedAgentUnavailable, ApprovedOriginUnavailable, ValueError):
             # Never serialize tokens, raw authorization headers or TLS exceptions.
             return {"status": "error", "message": "Signed Node control unavailable"}
