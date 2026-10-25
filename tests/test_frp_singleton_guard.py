@@ -6,6 +6,7 @@ listeners and never start frps or rewrite a config.
 from __future__ import annotations
 
 import importlib.util
+import os
 from pathlib import Path
 from types import SimpleNamespace
 import unittest
@@ -18,6 +19,12 @@ HELPER = ROOT / "node/app/frp_singleton_guard.py"
 spec = importlib.util.spec_from_file_location("frp_singleton_guard_test", HELPER)
 guard = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(guard)
+
+gateway_spec = importlib.util.spec_from_file_location(
+    "frp_shared_wss_preflight_test", ROOT / "node/app/frp_gateway_config.py"
+)
+gateway = importlib.util.module_from_spec(gateway_spec)
+gateway_spec.loader.exec_module(gateway)
 
 
 def listener(port: int, ip: str = "127.0.0.1", status: str = psutil.CONN_LISTEN):
@@ -74,6 +81,45 @@ class FrpsSingletonSlotTests(unittest.TestCase):
                     tunnel_id="trial-frp-49328", control_port=7000
                 )
 
+    def test_shared_child_wss_preflight_fails_closed_without_gateway(self):
+        shared = {
+            "mode":"client", "shared_frps_owner":"trial-frp-45121",
+            "server_port":7000,
+        }
+        for env in (
+            {},
+            {"SMITE_FRP_STANDARD_WSS":"0", "PANEL_ADDRESS":"ir.example.test:443"},
+            {"SMITE_FRP_STANDARD_WSS":"1", "PANEL_ADDRESS":"ir.example.test:7000"},
+            {"SMITE_FRP_STANDARD_WSS":"1", "PANEL_ADDRESS":"http://ir.example.test:443"},
+        ):
+            with self.subTest(env=env), patch.dict(os.environ, env, clear=True):
+                with self.assertRaises(ValueError):
+                    gateway.require_shared_frps_wss(shared)
+
+    def test_shared_child_requires_exact_gateway_and_signed_parent(self):
+        shared = {
+            "mode":"client", "shared_frps_owner":"trial-frp-45121",
+            "server_port":7000,
+        }
+        env = {"SMITE_FRP_STANDARD_WSS":"1", "PANEL_ADDRESS":"ir.example.test:443"}
+        with patch.dict(os.environ, env, clear=True):
+            self.assertIsNone(gateway.require_shared_frps_wss(shared))
+            self.assertEqual(gateway.frp_client_server_addr("untrusted.example"),"ir.example.test")
+            self.assertEqual(gateway.frp_client_server_port(shared,7000),443)
+            self.assertEqual(gateway.frp_tls_transport_yaml(shared),"transport:\\n  protocol: wss\\n".replace("\\n","\n"))
+            for bad in (
+                dict(shared, mode="server"),
+                dict(shared, server_port=7001),
+                dict(shared, frp_gateway_port=7000),
+                dict(shared, frp_tls_server_name="other.example.test"),
+                dict(shared, shared_frps_owner=""),
+            ):
+                with self.subTest(bad_keys=list(bad)), self.assertRaises(ValueError):
+                    gateway.require_shared_frps_wss(bad)
+            # Pre-existing standalone clients are unaffected by this
+            # shared-child-only hardening.
+            self.assertIsNone(gateway.require_shared_frps_wss({"mode":"client","server_port":7000}))
+
     def test_adapter_manager_checks_before_removing_working_owner(self):
         source = (ROOT / "node/app/core_adapters.py").read_text()
         segment = source.split("class AdapterManager:", 1)[1]
@@ -83,6 +129,7 @@ class FrpsSingletonSlotTests(unittest.TestCase):
         guard_pos = method.index("assert_frps_control_port_available(")
         destructive_pos = method.index("await self.remove_tunnel(tunnel_id)")
         self.assertLess(guard_pos, destructive_pos)
+        self.assertLess(method.index("require_shared_frps_wss(spec)"), destructive_pos)
 
     def test_no_secret_leaks_in_errors(self):
         try:
@@ -105,6 +152,7 @@ class FrpsSingletonSlotTests(unittest.TestCase):
         config_pos = apply.index("with open(config_file, 'w')")
         self.assertLess(guard_pos, remove_pos)
         self.assertLess(guard_pos, config_pos)
+        self.assertLess(apply.index("require_shared_frps_wss(spec)"), remove_pos)
         self.assertNotIn(
             'logger.info(f"FRP tunnel {tunnel_id} received spec: {spec}")',
             apply,
