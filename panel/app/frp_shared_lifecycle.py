@@ -51,7 +51,10 @@ async def prepare_shared_child(*, db, client, iran_node, foreign_node,
     proof = await client.get_verified_frps_owners(iran_node.id)
     entries = proof.get("owners") if isinstance(proof, dict) and proof.get("status") == "success" else None
     if (not isinstance(entries, list) or len(entries) != 1
-            or entries[0] != {"tunnel_id": owner.id, "control_port": 7000}):
+            or not isinstance(entries[0], dict)
+            or entries[0].get("tunnel_id") != owner.id
+            or entries[0].get("control_port") != 7000
+            or not isinstance(entries[0].get("proxy_ports"), list)):
         raise HTTPException(409, "Trusted FRPS owner runtime proof unavailable")
 
     siblings = (await db.execute(select(Tunnel).where(
@@ -104,8 +107,24 @@ async def send_shared_child_apply(*, db, tunnel, client, plan):
         }
     )
     if isinstance(response, dict) and response.get("status") == "success":
-        tunnel.status = "active"
-        tunnel.error_message = None
+        # Process launch is not proof that frpc authenticated or FRPS
+        # registered its remote proxy. Only signed IR listening evidence
+        # can promote the child to Active.
+        proof = await client.get_verified_frps_owners(tunnel.iran_node_id)
+        owners = proof.get("owners") if isinstance(proof, dict) else None
+        ports = (
+            owners[0].get("proxy_ports", [])
+            if isinstance(owners, list) and len(owners) == 1
+            and isinstance(owners[0], dict)
+            and owners[0].get("tunnel_id") == plan.owner_tunnel_id
+            and owners[0].get("control_port") == 7000 else []
+        )
+        if isinstance(ports, list) and plan.remote_port in ports:
+            tunnel.status = "active"
+            tunnel.error_message = None
+        else:
+            tunnel.status = "pending"
+            tunnel.error_message = "Waiting for verified IR FRPS proxy listener"
     else:
         # A lost response may be a successful client Apply. Never retry
         # automatically and never release the unique allocation here.
