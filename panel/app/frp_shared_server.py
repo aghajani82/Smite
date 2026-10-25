@@ -122,9 +122,11 @@ def plan_shared_frp_proxy(
     token = owner_spec.get("token")
     if not isinstance(token, str) or not token:
         raise SharedFrpAdmissionDenied("Existing FRPS owner token unavailable")
-    child_token = child_spec.get("token")
-    if child_token not in (None, "", token):
-        raise SharedFrpAdmissionDenied("Child token differs from approved FRPS owner")
+    # The child must never supply OR persist a copy of the FRPS secret.
+    # Only the verified owner's stored token is used in the transient
+    # signed client Apply, never in a user-supplied child Tunnel spec.
+    if "token" in child_spec:
+        raise SharedFrpAdmissionDenied("Child may not supply an FRPS token")
     if not isinstance(server_addr, str) or not server_addr.strip():
         raise SharedFrpAdmissionDenied("Approved IR FRPS address missing")
 
