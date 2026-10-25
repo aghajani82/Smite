@@ -505,6 +505,7 @@ const Tunnels = () => {
         <AddTunnelModal
           nodes={nodes}
           servers={servers}
+          tunnels={tunnels}
           onClose={() => setShowAddModal(false)}
           onSuccess={() => {
             setShowAddModal(false)
@@ -984,11 +985,12 @@ const EditTunnelModal = ({ tunnel, onClose, onSuccess }: EditTunnelModalProps) =
 interface AddTunnelModalProps {
   nodes: any[]
   servers: any[]
+  tunnels: Tunnel[]
   onClose: () => void
   onSuccess: () => void
 }
 
-const AddTunnelModal = ({ nodes, servers, onClose, onSuccess }: AddTunnelModalProps) => {
+const AddTunnelModal = ({ nodes, servers, tunnels, onClose, onSuccess }: AddTunnelModalProps) => {
   const { t, dir } = useLanguage()
   const [showTechnicalSettings, setShowTechnicalSettings] = useState(false)
   const [creating, setCreating] = useState(false)
@@ -1006,6 +1008,7 @@ const AddTunnelModal = ({ nodes, servers, onClose, onSuccess }: AddTunnelModalPr
     chisel_control_port: '',  // Empty means auto (listen_port + 10000)
     frp_bind_port: '7000',
     frp_token: '',
+    frp_shared_owner: '',
     frp_local_ip: '127.0.0.1',
     use_ipv6: false,
     node_ipv6: '',  // Optional IPv6 address for node (Rathole/Chisel)
@@ -1023,6 +1026,12 @@ const AddTunnelModal = ({ nodes, servers, onClose, onSuccess }: AddTunnelModalPr
     engines: Record<string, string>
   }>({ pair: '', mode: 'loading', engines: {} })
   const selectedPair = `${formData.iran_node_id || formData.node_id}|${formData.foreign_node_id}`
+  const eligibleFrpsOwners = tunnels.filter(x =>
+    x.core === 'frp' && x.type === 'tcp' && x.status === 'active'
+    && (x.iran_node_id || x.node_id) === (formData.iran_node_id || formData.node_id)
+    && x.foreign_node_id === formData.foreign_node_id
+    && !x.spec?.shared_frps_owner && Number(x.spec?.bind_port || 7000) === 7000
+  )
   useEffect(() => {
     let cancelled = false
     const iran_node_id = formData.iran_node_id || formData.node_id
@@ -1194,7 +1203,20 @@ const AddTunnelModal = ({ nodes, servers, onClose, onSuccess }: AddTunnelModalPr
         spec.ports = ports
         spec.listen_port = ports[0]
         spec.remote_port = ports[0]
-        if (formData.frp_token) {
+        if (formData.frp_shared_owner) {
+          if (formData.type !== 'tcp' || ports.length !== 1) {
+            alert(dir === 'rtl' ? 'برای FRPS مشترک فقط یک پورت TCP انتخاب کن.' : 'Shared FRPS requires exactly one TCP port.')
+            return
+          }
+          if (!eligibleFrpsOwners.some(x => x.id === formData.frp_shared_owner)) {
+            alert(dir === 'rtl' ? 'مالک FRPS فعال و معتبر انتخاب نشده.' : 'Choose a valid active FRPS owner.')
+            return
+          }
+          spec.shared_frps_owner = formData.frp_shared_owner
+        } else if (eligibleFrpsOwners.length > 0 && engineReadiness.mode === 'managed') {
+          alert(dir === 'rtl' ? 'FRPS فعال وجود دارد. برای پورت جدید مالک فعلی را انتخاب کن.' : 'An FRPS owner is already active; attach the new proxy to it.')
+          return
+        } else if (formData.frp_token) {
           spec.token = formData.frp_token
         }
         spec.local_ip = formData.frp_local_ip || '127.0.0.1'
@@ -1565,6 +1587,26 @@ const AddTunnelModal = ({ nodes, servers, onClose, onSuccess }: AddTunnelModalPr
           
           {formData.core === 'frp' && (
             <>
+              {engineReadiness.mode === 'managed' && (
+                <div className="rounded-lg border border-blue-200 dark:border-blue-800 p-3">
+                  <label className="block text-sm font-semibold text-gray-800 dark:text-gray-100 mb-2">
+                    {dir === 'rtl' ? 'مدیریت FRPS / افزودن پورت' : 'FRPS owner / add port'}
+                  </label>
+                  <select value={formData.frp_shared_owner}
+                    onChange={e => setFormData({...formData, frp_shared_owner:e.target.value, frp_token:''})}
+                    className="w-full px-3 py-2 border rounded-lg dark:bg-gray-700 dark:text-white">
+                    <option value="">{dir === 'rtl' ? 'راه‌اندازی FRPS جدید (فقط اولین تانل)' : 'Create first FRPS only'}</option>
+                    {eligibleFrpsOwners.map(owner => (
+                      <option key={owner.id} value={owner.id}>{owner.name}</option>
+                    ))}
+                  </select>
+                  <p className="mt-2 text-xs text-gray-600 dark:text-gray-300">
+                    {dir === 'rtl'
+                      ? 'برای پورت دوم و بعدی، FRPS فعال را انتخاب کن؛ هیچ FRPS جدیدی روی ایران ساخته نمی‌شود.'
+                      : 'For second and later ports, select the running owner; no second IR FRPS will be launched.'}
+                  </p>
+                </div>
+              )}
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 {showTechnicalSettings && <div>
                   <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
@@ -1605,7 +1647,7 @@ const AddTunnelModal = ({ nodes, servers, onClose, onSuccess }: AddTunnelModalPr
                   </p>
                 </div>
               </div>
-              {showTechnicalSettings && <div>
+              {showTechnicalSettings && !formData.frp_shared_owner && <div>
                 <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
                   Token (Optional - Auto-generated if empty)
                 </label>
