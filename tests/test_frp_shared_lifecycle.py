@@ -98,6 +98,7 @@ class SharedFrpsChildLifecycle(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(writes[0][2],"/api/agent/tunnels/apply")
         spec=writes[0][3]["spec"]
         self.assertEqual(spec["mode"],"client")
+        self.assertEqual(spec["shared_frps_owner"],OWNER_ID)
         self.assertEqual(spec["token"],SECRET)
         self.assertNotIn("token",t.spec)
         self.assertFalse(any(x[1]==IR_ID for x in writes))
