@@ -23,6 +23,28 @@ def is_shared_child(spec) -> bool:
     return isinstance(spec, Mapping) and "shared_frps_owner" in spec
 
 
+async def require_no_shared_frps_owner_dependents(*, db, owner_tunnel_id):
+    """Fail closed for owner edit/remove if children OR durable leases exist."""
+    if not isinstance(owner_tunnel_id, str) or not owner_tunnel_id:
+        raise HTTPException(409, "FRPS owner identity missing")
+    lease = (await db.execute(
+        select(FrpProxyLease.tunnel_id).where(
+            FrpProxyLease.owner_tunnel_id == owner_tunnel_id)
+    )).first()
+    if lease is not None:
+        raise HTTPException(409, "FRPS owner has dependent proxy leases")
+    # Historical child rows may precede the lease migration. They still
+    # forbid owner modification even if an operator removed a lease.
+    rows = (await db.execute(select(Tunnel).where(Tunnel.core == "frp"))).scalars()
+    if any(
+        row.id != owner_tunnel_id
+        and is_shared_child(row.spec)
+        and row.spec.get("shared_frps_owner") == owner_tunnel_id
+        for row in rows
+    ):
+        raise HTTPException(409, "FRPS owner has dependent proxy tunnels")
+
+
 async def prepare_shared_child(*, db, client, iran_node, foreign_node,
                                child_spec, child_type, exclude_tunnel_id=None):
     """Check live *signed* FRPS owner and allocate only one client proxy plan."""
