@@ -6,6 +6,7 @@ on:
       - '.github/workflows/smite-rc2-tag-only.yml'
       - 'tests/test_smite_rc2_tag_only.py'
       - 'tests/test_smite_rc5_lab_tag_only.py'
+      - 'tests/test_smite_rc4_lab_tag_only.py'
   workflow_dispatch:
     inputs:
       expected_source_sha:
