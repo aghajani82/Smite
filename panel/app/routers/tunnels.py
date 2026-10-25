@@ -14,6 +14,7 @@ from app.node_client import NodeClient
 from app.config import settings
 from app.engine_admission import engine_pair_readiness, require_engine_ready_pair, ENGINES
 from app.frp_server_admission import require_exclusive_frps_server_admission, FrpsServerAdmissionDenied
+from app.frp_shared_lifecycle import is_shared_child, create_shared_child, reapply_shared_child, remove_shared_child
 
 
 router = APIRouter()
@@ -287,6 +288,12 @@ async def create_tunnel(tunnel: TunnelCreate, request: Request, db: AsyncSession
             iran_node.id if iran_node else (node.id if node else ""),
             foreign_node.id if foreign_node else "",
             NodeClient(),
+        )
+
+    if tunnel.core == "frp" and is_shared_child(tunnel.spec):
+        return await create_shared_child(
+            db=db, client=NodeClient(), requested=tunnel,
+            iran_node=iran_node, foreign_node=foreign_node,
         )
 
     if tunnel.core == "frp":
@@ -1195,6 +1202,14 @@ async def update_tunnel(
         raise HTTPException(400, "Unsafe Standard Backhaul update") from exc
 
     spec_changed = tunnel_update.spec is not None and tunnel_update.spec != tunnel.spec
+    if spec_changed and tunnel.core == "frp" and settings.smite_engine_management_mode == "managed":
+        if is_shared_child(tunnel.spec) or is_shared_child(tunnel_update.spec):
+            raise HTTPException(409, "Shared FRP proxy specs are immutable; use explicit remove and create")
+        # Never update the owner token/control spec while children depend on it.
+        other_rows = (await db.execute(select(Tunnel).where(Tunnel.core == "frp"))).scalars().all()
+        if any(is_shared_child(child.spec) and child.spec.get("shared_frps_owner") == tunnel.id
+               for child in other_rows if child.id != tunnel.id):
+            raise HTTPException(409, "FRPS owner has dependent proxy tunnels")
 
     # A spec edit automatically re-applies. Reject before ANY database write,
     # local manager restart or remote command if either Node lacks this engine.
@@ -1434,6 +1449,8 @@ async def apply_tunnel(tunnel_id: str, request: Request, db: AsyncSession = Depe
     client = NodeClient()
     # Also covers single Apply and Reapply All; refuse before side effects.
     await require_managed_tunnel_pair(tunnel, client)
+    if tunnel.core == "frp" and is_shared_child(tunnel.spec):
+        return await reapply_shared_child(db=db, client=client, tunnel=tunnel)
     if tunnel.core == "frp":
         await require_managed_frps_slot(
             db, iran_node_id=tunnel.iran_node_id or tunnel.node_id or "",
@@ -1879,6 +1896,9 @@ async def delete_tunnel(tunnel_id: str, request: Request, db: AsyncSession = Dep
         if any((child.spec or {}).get("shared_frps_owner") == tunnel.id
                for child in result.scalars().all() if child.id != tunnel.id):
             raise HTTPException(409, "FRPS owner has dependent proxy tunnels")
+
+    if tunnel.core == "frp" and is_shared_child(tunnel.spec):
+        return await remove_shared_child(db=db, client=NodeClient(), tunnel=tunnel)
 
     needs_gost_forwarding = tunnel.type in ["tcp", "udp", "ws", "grpc"] and tunnel.core == "gost"
     needs_rathole_server = tunnel.core == "rathole"
