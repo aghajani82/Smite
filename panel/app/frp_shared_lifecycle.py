@@ -221,6 +221,29 @@ async def remove_shared_child(*, db, client, tunnel):
     )
     if not isinstance(response, dict) or response.get("status") != "success":
         raise HTTPException(409, "Shared FRP child cleanup unconfirmed")
+
+    # KH acknowledged local client removal, but FRPS may still be holding
+    # the remote socket (delayed close, lost deregistration, stale client).
+    # Never release the persistent port lease until *signed IR* confirms the
+    # exact owner and absence of the child's proxy listener. A missing owner,
+    # incomplete inventory or transport failure must HOLD the lease.
+    proof = await client.get_verified_frps_owners(lease.iran_node_id)
+    owners = (
+        proof.get("owners")
+        if isinstance(proof, dict) and proof.get("status") == "success"
+        else None
+    )
+    owner_verified = (
+        isinstance(owners, list) and len(owners) == 1
+        and isinstance(owners[0], dict)
+        and owners[0].get("tunnel_id") == lease.owner_tunnel_id
+        and owners[0].get("control_port") == 7000
+        and isinstance(owners[0].get("proxy_ports"), list)
+    )
+    if not owner_verified or lease.remote_port in owners[0]["proxy_ports"]:
+        raise HTTPException(
+            409, "Shared FRP proxy release not verified; lease retained"
+        )
     await db.delete(lease)
     await db.delete(tunnel)
     await db.commit()
