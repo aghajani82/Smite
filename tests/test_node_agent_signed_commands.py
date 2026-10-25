@@ -334,8 +334,8 @@ class AgentGuardTest(unittest.TestCase):
 
     def test_frps_owner_proof_requires_exact_signed_get_no_query_and_replay(self):
         """Regression: Panel signs the live owner proof without broadening HMAC targets."""
-        from unittest.mock import patch
-        import app.frp_owner_status  # Load Node submodule for mock resolution.
+        from types import ModuleType
+        from unittest.mock import Mock, patch
         target = "/api/agent/frp/owners"
         self.assertEqual(self.client.get(target).status_code, 401)
 
@@ -343,8 +343,12 @@ class AgentGuardTest(unittest.TestCase):
         self.assertEqual(body, b"")
         evidence = [{"tunnel_id": "owner-frps-45121",
                      "control_port": 7000, "proxy_ports": [45121]}]
-        with patch("app.frp_owner_status.active_signed_frps_owners",
-                   return_value=evidence) as owner_probe:
+        owner_probe = Mock(return_value=evidence)
+        fake_module = ModuleType("app.frp_owner_status")
+        fake_module.active_signed_frps_owners = owner_probe
+        # Strict-auth workflow intentionally lacks psutil; independently
+        # tested owner runtime is replaced only for this API protocol test.
+        with patch.dict(sys.modules, {"app.frp_owner_status": fake_module}):
             response = self.client.get(target, headers=headers)
         self.assertEqual(response.status_code, 200, response.text)
         self.assertEqual(response.json(), {"status": "success", "owners": evidence})
