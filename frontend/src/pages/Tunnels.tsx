@@ -232,10 +232,22 @@ const Tunnels = () => {
     }
   }
 
+  const verifySharedFrpProxy = async (tunnel: Tunnel) => {
+    try {
+      const response = await api.post(`/tunnels/${tunnel.id}/verify-proxy`)
+      fetchData()
+      if (response.data?.status !== 'active') {
+        alert('Shared FRPS proxy is not listening on IR yet. No restart or reapply was performed.')
+      }
+    } catch (error: any) {
+      alert(error.response?.data?.detail || 'Unable to verify the shared FRPS proxy')
+    }
+  }
+
   const reapplyTunnel = async (tunnel: Tunnel) => {
     try {
       const response = await api.post(`/tunnels/${tunnel.id}/apply`)
-      if (response.data && response.data.status === 'success') {
+      if (response.data && ['success', 'applied'].includes(response.data.status)) {
         fetchData()
       } else {
         throw new Error(response.data?.message || 'Failed to reapply tunnel')
@@ -473,6 +485,15 @@ const Tunnels = () => {
 
                 {/* Action Buttons */}
                 <div className="flex gap-2 shrink-0">
+                  {tunnel.core === 'frp' && Boolean(tunnel.spec?.shared_frps_owner) && (
+                    <button
+                      onClick={() => verifySharedFrpProxy(tunnel)}
+                      className="px-2.5 py-2 text-sm font-semibold text-blue-700 dark:text-blue-300 hover:bg-blue-50 dark:hover:bg-blue-900/20 rounded-lg"
+                      title="Signed read-only FRPS proxy verification; no reapply"
+                    >
+                      Verify
+                    </button>
+                  )}
                   <button
                     onClick={() => reapplyTunnel(tunnel)}
                     className="p-2.5 text-green-600 hover:bg-green-50 dark:hover:bg-green-900/20 rounded-lg transition-colors"
