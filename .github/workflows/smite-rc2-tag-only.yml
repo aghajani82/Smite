@@ -8,7 +8,7 @@ on:
   workflow_dispatch:
     inputs:
       expected_source_sha:
-        description: 'Exact reviewed Smite merge SHA, never branch SHA'
+        description: 'Exact reviewed Smite commit SHA; main releases remain merge-only'
         type: string
         required: true
       confirm_tag_only:
@@ -31,7 +31,7 @@ jobs:
         run: python3 -B tests/test_smite_rc2_tag_only.py -v
 
   tag-only:
-    if: github.event_name == 'workflow_dispatch'
+    if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main'
     needs: offline-gate
     runs-on: ubuntu-latest
     permissions:
@@ -83,3 +83,58 @@ jobs:
           echo "GHCR_IMAGES_PUBLISHED=NO"
           echo "GITHUB_RELEASE_CREATED=NO"
           echo "IR_KH_DEPLOYMENT=NO"
+
+  # Owner-triggered non-main lab tag path. Never calls GHCR or deploys.
+  lab-tag-only:
+    if: >-
+      github.event_name == 'workflow_dispatch' &&
+      github.ref == 'refs/heads/feature/smite-rc2-frp-singleton-multiport-20261025'
+    needs: offline-gate
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          fetch-tags: true
+          ref: \${{ github.sha }}
+          persist-credentials: true
+      - name: Tag exact trusted RC2 source without merging or publishing
+        shell: bash
+        env:
+          EXPECTED_SOURCE_SHA: \${{ inputs.expected_source_sha }}
+          CONFIRM_TAG_ONLY: \${{ inputs.confirm_tag_only }}
+        run: |
+          set -euo pipefail
+          reviewed="ac67625c0fde00392a9142801b55ee61f296c86c"
+          tag="v2.0.0-rc.3"
+          required_branch="refs/heads/feature/smite-rc2-frp-singleton-multiport-20261025"
+          hold() { echo "HOLD: lab tag exact owner/source/consent gate failed" >&2; exit 2; }
+          [[ "$GITHUB_EVENT_NAME" == "workflow_dispatch" ]] || hold
+          [[ "$GITHUB_REPOSITORY" == "aghajani82/Smite" ]] || hold
+          [[ "$GITHUB_ACTOR" == "aghajani82" ]] || hold
+          [[ "$GITHUB_REF" == "$required_branch" ]] || hold
+          [[ "$CONFIRM_TAG_ONLY" == "true" ]] || hold
+          [[ "$EXPECTED_SOURCE_SHA" == "$reviewed" ]] || hold
+          [[ "$(git rev-parse HEAD)" == "$GITHUB_SHA" ]] || hold
+          [[ "$(git rev-parse "$reviewed^{commit}")" == "$reviewed" ]] || hold
+          git merge-base --is-ancestor "$reviewed" HEAD || hold
+
+          git ls-remote --tags origin > "$RUNNER_TEMP/lab-tags-before" || hold
+          if grep -Fq "refs/tags/$tag" "$RUNNER_TEMP/lab-tags-before"; then
+            hold
+          fi
+          [[ -z "$(git tag --list "$tag")" ]] || hold
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git tag -a "$tag" "$reviewed" \
+            -m "Smite signed RC2 trial candidate $tag at reviewed source $reviewed; no merge or deployment"
+          git push origin "refs/tags/$tag:refs/tags/$tag" || hold
+          git ls-remote --tags origin > "$RUNNER_TEMP/lab-tags-after" || hold
+          grep -Fq "refs/tags/$tag" "$RUNNER_TEMP/lab-tags-after" || hold
+          echo "LAB_CANDIDATE_TAG_CREATED=$tag"
+          echo "REVIEWED_SOURCE_COMMIT=$reviewed"
+          echo "MAIN_MERGE=NO"
+          echo "GHCR_PUSH=NO"
+          echo "DEPLOYMENT=NO"
