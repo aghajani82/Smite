@@ -128,7 +128,7 @@ jobs:
 
           # Owner-reviewed branch tip must be current at tagging time.
           git ls-remote --heads origin > "$RUNNER_TEMP/rc4-remote-heads" || hold
-          grep -Fxq "$EXPECTED_SOURCE_SHA\$(printf '\t')$required_branch" "$RUNNER_TEMP/rc4-remote-heads" || hold
+          grep -Fxq "$(printf '%s\t%s' "$EXPECTED_SOURCE_SHA" "$required_branch")" "$RUNNER_TEMP/rc4-remote-heads" || hold
 
           # Tag lookup failures are HOLD, not permission to overwrite.
           git ls-remote --tags origin > "$RUNNER_TEMP/rc4-remote-tags" || hold
