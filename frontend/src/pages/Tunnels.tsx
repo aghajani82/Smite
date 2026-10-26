@@ -3,6 +3,7 @@ import { Plus, Trash2, Edit2, RotateCw } from 'lucide-react'
 import api from '../api/client'
 import { parseAddressPort, formatAddressPort } from '../utils/addressUtils'
 import { parseInboundPorts } from '../utils/inboundPorts'
+import { isSharedFrpsChild as isSharedFrpsChildSpec, sharedChildRenamePayload } from '../utils/frpSharedChildEdit'
 import { useLanguage } from '../contexts/LanguageContext'
 
 interface Tunnel {
@@ -559,7 +560,7 @@ interface EditTunnelModalProps {
 
 const EditTunnelModal = ({ tunnel, onClose, onSuccess }: EditTunnelModalProps) => {
   const { t } = useLanguage()
-  const isSharedFrpsChild = tunnel.core === 'frp' && typeof tunnel.spec?.shared_frps_owner === 'string' && Boolean(tunnel.spec.shared_frps_owner)
+  const isSharedFrpsChild = isSharedFrpsChildSpec(tunnel.core, tunnel.spec)
   const forwardToParsed = tunnel.spec?.forward_to ? parseAddressPort(tunnel.spec.forward_to) : null
   const remoteIp = tunnel.spec?.remote_ip || forwardToParsed?.host || '127.0.0.1'
   const remotePort = tunnel.spec?.remote_port || forwardToParsed?.port || 8080
@@ -623,7 +624,7 @@ const EditTunnelModal = ({ tunnel, onClose, onSuccess }: EditTunnelModalProps) =
       if (isSharedFrpsChild) {
         // RC5 backend forbids spec updates to shared FRP children (HTTP 409).
         // Rename-only: do not fabricate a token, control port, or port list.
-        await api.put(`/tunnels/${tunnel.id}`, { name: formData.name.trim() })
+        await api.put(`/tunnels/${tunnel.id}`, sharedChildRenamePayload(formData.name))
         onSuccess()
         return
       }
