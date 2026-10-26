@@ -379,5 +379,58 @@ class AgentGuardTest(unittest.TestCase):
 
 
 
+    def test_signed_kh_xhttp_inventory_get_only_with_explicit_opt_in(self):
+        """No anonymous read, replay, query strings, wrong role or legacy fallback."""
+        from unittest.mock import patch
+        target = "/api/agent/inbounds/xhttp"
+        before = (
+            settings.node_role,
+            settings.smite_sanaei_inventory_enabled,
+            settings.smite_sanaei_db_path,
+        )
+        self.addCleanup(lambda: (
+            setattr(settings, "node_role", before[0]),
+            setattr(settings, "smite_sanaei_inventory_enabled", before[1]),
+            setattr(settings, "smite_sanaei_db_path", before[2]),
+        ))
+        settings.node_role = "foreign"
+        settings.smite_sanaei_inventory_enabled = True
+        settings.smite_sanaei_db_path = "/run/smite-sanaei-ro/x-ui.db"
+
+        self.assertEqual(self.client.get(target).status_code, 401)
+        payload, signed_headers = self.signed("GET", target, nonce="3" * 32)
+        self.assertEqual(payload, b"")
+        with patch("app.sanaei_inbound_inventory.list_approved_xhttp_inbounds",
+                   return_value=[{
+                       "port": 49328, "network": "xhttp", "protocol": "vless",
+                       "listen": "127.0.0.1", "path": "/49328/sso",
+                       "enabled": True,
+                   }]) as reader:
+            response = self.client.get(target, headers=signed_headers)
+        self.assertEqual(response.status_code, 200, response.text)
+        self.assertEqual(response.json()["schema_version"], 1)
+        self.assertEqual(response.json()["inbounds"][0]["path"], "/49328/sso")
+        reader.assert_called_once_with(settings.smite_sanaei_db_path)
+        self.assertEqual(self.client.get(target, headers=signed_headers).status_code, 401)
+
+        for unsafe in (target + "?p=49328", target + "/",
+                       "https://kh.example.net" + target):
+            with self.assertRaises(panel_signer.AgentRequestPreparationError):
+                self.signed("GET", unsafe)
+        with self.assertRaises(panel_signer.AgentRequestPreparationError):
+            self.signed("POST", target, payload={})
+        with self.assertRaises(panel_signer.AgentRequestPreparationError):
+            self.signed("GET", target, payload={})
+
+        settings.node_role = "iran"
+        _, h = self.signed("GET", target)
+        self.assertEqual(self.client.get(target, headers=h).status_code, 409)
+        settings.node_role = "foreign"
+        settings.smite_sanaei_inventory_enabled = False
+        _, h = self.signed("GET", target)
+        self.assertEqual(self.client.get(target, headers=h).status_code, 409)
+
+
+
 if __name__ == "__main__":
     unittest.main()

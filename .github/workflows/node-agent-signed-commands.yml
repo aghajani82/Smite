@@ -15,6 +15,8 @@ on:
       - 'node/app/engine_inventory.py'
       - 'panel/app/node_client.py'
       - 'node/app/routers/agent.py'
+      - 'node/app/sanaei_inbound_inventory.py'
+      - 'tests/test_sanaei_inbound_inventory.py'
       - 'panel/app/agent_request_signer.py'
       - 'tests/test_node_agent_signed_commands.py'
       - '.github/workflows/node-agent-signed-commands.yml'
@@ -40,13 +42,15 @@ jobs:
         run: |
           python -m py_compile \
             node/app/agent_auth.py node/app/config.py node/app/engine_inventory.py \
-            node/app/routers/agent.py panel/app/agent_request_signer.py \
-            tests/test_node_agent_signed_commands.py \
+            node/app/routers/agent.py node/app/sanaei_inbound_inventory.py \
+            panel/app/agent_request_signer.py \
+            tests/test_node_agent_signed_commands.py tests/test_sanaei_inbound_inventory.py \
             node/app/replay_enrollment.py tests/test_replay_enrollment_offline.py \
             node/app/replay_restore_hold.py tests/test_replay_restore_quarantine.py
       - name: Agent runtime auth, replay persistence and cross-role signing tests
         run: |
           python -B tests/test_node_agent_signed_commands.py -v
+          python -B tests/test_sanaei_inbound_inventory.py -v
           python -B tests/test_replay_enrollment_offline.py -v
           python -B tests/test_replay_restore_quarantine.py -v
       - name: Legacy auth remains default
