@@ -55,6 +55,8 @@ class RouteIntentIssuerTests(unittest.TestCase):
         self.assertEqual(record["nonce"], "c" * 32)
         self.assertEqual(record["port"], 49328)
         self.assertEqual(record["path"], "/49328/sso")
+        self.assertEqual(record["mac"],
+                         "84f4ff3cf88f3479b00057efb6cbe3bced8dca53743b947045a6738d19dcc30e")
         self.assertEqual(wire, json.dumps(record, ensure_ascii=True,
                                         sort_keys=True, separators=(",", ":")).encode("ascii"))
         sig = record.pop("mac")
