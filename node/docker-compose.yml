@@ -23,6 +23,9 @@ services:
       - node-data:/var/lib/smite-node
       # Read-only directory mount exposes only the broker Unix socket when U-OPTI provisions it.
       - /run/u-opti/smite:/run/u-opti/smite:ro
+      # KH-only opt-in: U-OPTI validates the host DB before setting this path.
+      # /dev/null keeps IR/default installs inactive without creating a host path.
+      - ${SMITE_SANAEI_DB_HOST_PATH:-/dev/null}:/run/smite-sanaei-ro/x-ui.db:ro
     env_file:
       - .env
     environment:
@@ -31,6 +34,8 @@ services:
       - PANEL_CA_PATH=${PANEL_CA_PATH:-/etc/smite-node/certs/ca.crt}
       - PANEL_ADDRESS=${PANEL_ADDRESS}
       - PANEL_API_PORT=${PANEL_API_PORT:-8000}
+      - SMITE_SANAEI_INVENTORY_ENABLED=${SMITE_SANAEI_INVENTORY_ENABLED:-false}
+      - SMITE_SANAEI_DB_PATH=/run/smite-sanaei-ro/x-ui.db
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:${NODE_API_PORT:-8888}/healthz')"]

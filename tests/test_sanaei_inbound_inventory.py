@@ -92,6 +92,14 @@ class SanaeiInboundInventoryTests(unittest.TestCase):
         self.inbound()
         with self.assertRaises(SanaeiInventoryUnavailable):
             list_approved_xhttp_inbounds(str(self.path))
+
+    def test_compose_mount_is_opt_in_by_path_and_read_only(self):
+        compose = (ROOT / "node/docker-compose.yml").read_text()
+        expected_mount = "${SMITE_SANAEI_DB_HOST_PATH:-/dev/null}:/run/smite-sanaei-ro/x-ui.db:ro"
+        self.assertIn(expected_mount, compose)
+        self.assertIn("SMITE_SANAEI_INVENTORY_ENABLED=${SMITE_SANAEI_INVENTORY_ENABLED:-false}", compose)
+        self.assertIn("SMITE_SANAEI_DB_PATH=/run/smite-sanaei-ro/x-ui.db", compose)
+        self.assertNotIn("/opt/3x-ui/instances/01/db/x-ui.db", compose)
         with sqlite3.connect(self.path) as con:
             con.execute("DELETE FROM inbounds")
         self.inbound(stream_override={"network": "xhttp", "xhttpSettings": {}})

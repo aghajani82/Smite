@@ -16,6 +16,7 @@ on:
       - 'panel/app/node_client.py'
       - 'node/app/routers/agent.py'
       - 'node/app/sanaei_inbound_inventory.py'
+      - 'node/docker-compose.yml'
       - 'tests/test_sanaei_inbound_inventory.py'
       - 'panel/app/agent_request_signer.py'
       - 'tests/test_node_agent_signed_commands.py'
