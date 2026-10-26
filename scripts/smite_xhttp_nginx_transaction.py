@@ -64,24 +64,36 @@ def _frps_socket_inventory() -> tuple[int, frozenset[int]]:
 
     No user-supplied PID, process name, or listen list is considered proof.
     """
-    sockets = _run(["ss", "-Hlntp"])
+    sockets = _run(["/usr/bin/ss", "-Hlntp"])
     observed: dict[int, int] = {}
+    all_frps: list[tuple[str, int]] = []
     for line in sockets.splitlines():
         columns = line.split(maxsplit=5)
         if len(columns) < 6:
             continue
         local = columns[3]
-        match = re.fullmatch(r"127\.0\.0\.1:(\d+)", local)
         pid = BIND.search(columns[5])
-        if not match or not pid:
+        if not pid:
+            continue
+        process_pid = int(pid.group(1))
+        all_frps.append((local, process_pid))
+        match = re.fullmatch(r"127\.0\.0\.1:(\d+)", local)
+        if not match:
             continue
         port = int(match.group(1))
         if port in observed:
             raise RouteTransactionHold("DUPLICATE_FRPS_LISTENER")
-        observed[port] = int(pid.group(1))
+        observed[port] = process_pid
     if 7000 not in observed:
         raise RouteTransactionHold("FRPS_OWNER_7000_MISSING")
     owner_pid = observed[7000]
+    # Every socket owned by this FRPS must be loopback. Reject wildcard and
+    # IPv6/public listeners even if the control port itself is loopback.
+    if any(
+        pid == owner_pid and re.fullmatch(r"127\.0\.0\.1:\d+", local) is None
+        for local, pid in all_frps
+    ):
+        raise RouteTransactionHold("FRPS_PUBLIC_BIND_FORBIDDEN")
     owned = frozenset(port for port, pid in observed.items() if pid == owner_pid)
     if len(owned) < 2:
         raise RouteTransactionHold("FRPS_PROXY_NOT_PRESENT")
