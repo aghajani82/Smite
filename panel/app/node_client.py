@@ -229,6 +229,19 @@ class NodeClient:
             node_id, method="GET", target="/api/agent/inbounds/xhttp", timeout=3.0,
         )
 
+    async def forward_uopti_xhttp_route(self, node_id: str, intent: bytes) -> Dict[str, Any]:
+        """Forward one canonical broker envelope through the signed IR Node."""
+        import base64
+        if type(intent) is not bytes or not 0 < len(intent) <= 4096:
+            return {"status": "error", "message": "Invalid route intent"}
+        if settings.smite_panel_agent_auth_mode != "signed":
+            return {"status": "error", "message": "Signed Node control unavailable"}
+        payload = {"intent_b64": base64.b64encode(intent).decode("ascii")}
+        return await self._signed_agent_request(
+            node_id, method="POST", target="/api/agent/uopti/xhttp-route",
+            payload=payload, timeout=10.0,
+        )
+
     async def get_tunnel_status(self, node_id: str, tunnel_id: str = "") -> Dict[str, Any]:
         """Get tunnel status from node"""
         if settings.smite_panel_agent_auth_mode == "signed":

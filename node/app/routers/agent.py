@@ -5,6 +5,7 @@ from app.engine_inventory import engine_inventory, require_engine_ready, EngineI
 from pydantic import BaseModel
 from typing import Dict, Any
 import logging
+from starlette.concurrency import run_in_threadpool
 
 # Strict mode gates status AND Apply/Remove without route-level bypass.
 # Default legacy mode intentionally preserves current Node interoperability.
@@ -22,6 +23,10 @@ class TunnelApply(BaseModel):
 
 class TunnelRemove(BaseModel):
     tunnel_id: str
+
+
+class UoptiRouteIntent(BaseModel):
+    intent_b64: str
 
 
 @router.post("/tunnels/apply")
@@ -116,6 +121,28 @@ async def get_signed_xhttp_inbounds():
     except SanaeiInventoryUnavailable as exc:
         raise HTTPException(503, detail="Sanaei inventory unavailable") from exc
     return {"status": "success", "schema_version": 1, "inbounds": items}
+
+
+@router.post("/uopti/xhttp-route")
+async def forward_uopti_xhttp_route(data: UoptiRouteIntent):
+    """Forward one Panel-signed intent to the local root broker over UDS."""
+    from app.config import settings
+    from app.uopti_route_broker_client import (
+        BrokerForwardUnavailable, decode_intent_b64, forward_route_intent,
+    )
+    if (settings.smite_agent_auth_mode != "strict"
+            or settings.node_role != "iran"
+            or not settings.smite_uopti_route_broker_enabled):
+        raise HTTPException(409, detail="U-OPTI route broker unavailable")
+    try:
+        wire = decode_intent_b64(data.intent_b64)
+        await run_in_threadpool(
+            forward_route_intent, wire, settings.smite_uopti_route_broker_socket,
+        )
+    except BrokerForwardUnavailable as exc:
+        # Do not expose broker internals or retry an ambiguous host transaction.
+        raise HTTPException(503, detail="U-OPTI route broker HOLD") from exc
+    return {"status": "success", "result": "route_added"}
 
 
 @router.get("/engines")

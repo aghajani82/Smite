@@ -119,6 +119,31 @@ class SignedTransportTest(unittest.IsolatedAsyncioTestCase):
                 with self.assertRaises(SignedAgentUnavailable):
                     validate_agent_origin(address, using_frp=frp)
 
+    async def test_route_intent_uses_bounded_signed_ir_node_post(self):
+        intent = b'{"audience":"u-opti:ir:xhttp-route:v1","nonce":"a"}'
+        request = AsyncMock(return_value={"status": "success"})
+        with patch.object(NodeClient, "_signed_agent_request", new=request):
+            result = await NodeClient().forward_uopti_xhttp_route(
+                self.node_id, intent,
+            )
+        self.assertEqual(result, {"status": "success"})
+        request.assert_awaited_once()
+        args, kwargs = request.await_args
+        self.assertEqual(args, (self.node_id,))
+        self.assertEqual(kwargs["method"], "POST")
+        self.assertEqual(kwargs["target"], "/api/agent/uopti/xhttp-route")
+        self.assertEqual(kwargs["payload"], {
+            "intent_b64": __import__("base64").b64encode(intent).decode("ascii")
+        })
+        self.assertEqual(kwargs["timeout"], 10.0)
+
+        request.reset_mock()
+        refused = await NodeClient().forward_uopti_xhttp_route(
+            self.node_id, b"x" * 4097,
+        )
+        self.assertEqual(refused["status"], "error")
+        request.assert_not_awaited()
+
     async def test_signed_apply_sends_exact_bytes_over_verified_https(self):
         seen = []
         self_test = self

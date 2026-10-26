@@ -206,6 +206,83 @@ class AgentGuardTest(unittest.TestCase):
         ).status_code, 200)
         self.assertEqual(self.adapters.remove_calls, ["signed"])
 
+    def test_uopti_route_broker_forward_is_signed_ir_only_and_fail_closed(self):
+        import base64
+        from unittest.mock import patch
+        from app.uopti_route_broker_client import BrokerForwardUnavailable
+
+        prior = (
+            settings.node_role,
+            settings.smite_uopti_route_broker_enabled,
+            settings.smite_uopti_route_broker_socket,
+        )
+        settings.node_role = "iran"
+        settings.smite_uopti_route_broker_enabled = True
+        settings.smite_uopti_route_broker_socket = "/run/u-opti/smite/xhttp-broker.sock"
+        try:
+            wire = b'{"audience":"u-opti:ir:xhttp-route:v1","mac":"fixture"}'
+            payload = {"intent_b64": base64.b64encode(wire).decode("ascii")}
+            body, headers = self.signed(
+                "POST", "/api/agent/uopti/xhttp-route", payload=payload,
+            )
+            with patch("app.uopti_route_broker_client.forward_route_intent") as forward:
+                reply = self.client.post(
+                    "/api/agent/uopti/xhttp-route", content=body, headers=headers,
+                )
+            self.assertEqual(reply.status_code, 200, reply.text)
+            self.assertEqual(reply.json(), {"status": "success", "result": "route_added"})
+            forward.assert_called_once_with(
+                wire, "/run/u-opti/smite/xhttp-broker.sock",
+            )
+
+            # Replay of the same signed outer request must never reach the UDS.
+            with patch("app.uopti_route_broker_client.forward_route_intent") as forward:
+                replay = self.client.post(
+                    "/api/agent/uopti/xhttp-route", content=body, headers=headers,
+                )
+            self.assertEqual(replay.status_code, 401)
+            forward.assert_not_called()
+
+            settings.node_role = "foreign"
+            body, headers = self.signed(
+                "POST", "/api/agent/uopti/xhttp-route", payload=payload,
+            )
+            with patch("app.uopti_route_broker_client.forward_route_intent") as forward:
+                wrong_role = self.client.post(
+                    "/api/agent/uopti/xhttp-route", content=body, headers=headers,
+                )
+            self.assertEqual(wrong_role.status_code, 409)
+            forward.assert_not_called()
+
+            settings.node_role = "iran"
+            body, headers = self.signed(
+                "POST", "/api/agent/uopti/xhttp-route",
+                payload={"intent_b64": "%%%"},
+            )
+            malformed = self.client.post(
+                "/api/agent/uopti/xhttp-route", content=body, headers=headers,
+            )
+            self.assertEqual(malformed.status_code, 503)
+
+            body, headers = self.signed(
+                "POST", "/api/agent/uopti/xhttp-route", payload=payload,
+            )
+            with patch(
+                "app.uopti_route_broker_client.forward_route_intent",
+                side_effect=BrokerForwardUnavailable("fixture"),
+            ):
+                uncertain = self.client.post(
+                    "/api/agent/uopti/xhttp-route", content=body, headers=headers,
+                )
+            self.assertEqual(uncertain.status_code, 503)
+            self.assertNotIn("fixture", uncertain.text)
+        finally:
+            (
+                settings.node_role,
+                settings.smite_uopti_route_broker_enabled,
+                settings.smite_uopti_route_broker_socket,
+            ) = prior
+
     def test_wrong_key_and_payload_tamper_rejected_before_adapter(self):
         data = {"tunnel_id": "one", "core": "frp", "type": "tcp", "spec": {}}
         good, headers = self.signed("POST", "/api/agent/tunnels/apply", payload=data)

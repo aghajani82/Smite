@@ -28,6 +28,10 @@ class Settings(BaseSettings):
     # is required; missing or untrusted SQLite must HOLD, never auto-install.
     smite_sanaei_inventory_enabled: bool = False
     smite_sanaei_db_path: str = "/run/smite-sanaei-ro/x-ui.db"
+
+    # IR-only, explicit opt-in forwarding to the local U-OPTI route broker.
+    smite_uopti_route_broker_enabled: bool = False
+    smite_uopti_route_broker_socket: str = "/run/u-opti/smite/xhttp-broker.sock"
     
     class Config:
         env_file = ".env"
