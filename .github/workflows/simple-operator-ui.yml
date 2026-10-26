@@ -34,6 +34,11 @@ jobs:
         run: |
           ./node_modules/.bin/esbuild src/utils/inboundPorts.ts --bundle --format=cjs --platform=node --outfile=tests/inboundPorts.generated.cjs
           node --test tests/inboundPorts.test.cjs
+      - name: Test immutable shared FRPS child edit form
+        working-directory: frontend
+        run: |
+          ./node_modules/.bin/esbuild src/utils/frpSharedChildEdit.ts --bundle --format=cjs --platform=node --outfile=tests/frpSharedChildEdit.generated.cjs
+          node --test tests/frpSharedChildEdit.test.cjs
       - name: Verify optional login code and MFA session handling
         working-directory: frontend
         run: |
