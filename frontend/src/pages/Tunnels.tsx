@@ -179,7 +179,7 @@ const getBackhaulDisplayInfo = (spec: Record<string, any> | undefined): Backhaul
 }
 
 const Tunnels = () => {
-  const { t } = useLanguage()
+  const { t, dir } = useLanguage()
   const [tunnels, setTunnels] = useState<Tunnel[]>([])
   const [nodes, setNodes] = useState<any[]>([])
   const [servers, setServers] = useState<any[]>([])
@@ -242,6 +242,36 @@ const Tunnels = () => {
       }
     } catch (error: any) {
       alert(error.response?.data?.detail || 'Unable to verify the shared FRPS proxy')
+    }
+  }
+
+  const registerXhttpRoute = async (tunnel: Tunnel) => {
+    try {
+      const inventory = await api.get(`/tunnels/${tunnel.id}/uopti-xhttp-inbounds`)
+      const choices = inventory.data?.inbounds
+      if (!Array.isArray(choices) || choices.length === 0) {
+        alert(dir === 'rtl' ? 'هیچ ورودی فعال VLESS/XHTTP روی KH پیدا نشد.' : 'No enabled VLESS/XHTTP inbound was found on KH.')
+        return
+      }
+      const labels = choices.map((item: any) => `${item.port}  ${item.path}`).join('\n')
+      const answer = prompt(
+        (dir === 'rtl'
+          ? `پورت ورودی KH را از فهرست انتخاب کن:\n${labels}\n\nپورت:`
+          : `Choose a KH inbound from this signed inventory:\n${labels}\n\nPort:`),
+        String(choices[0].port),
+      )
+      if (answer === null) return
+      const port = Number(answer.trim())
+      if (!Number.isInteger(port) || !choices.some((item: any) => item.port === port)) {
+        alert(dir === 'rtl' ? 'پورت انتخاب‌شده در فهرست معتبر نیست.' : 'The selected port is not in the verified inventory.')
+        return
+      }
+      const result = await api.post(`/tunnels/${tunnel.id}/uopti-xhttp-route`, { inbound_port: port })
+      alert(result.data?.status === 'success'
+        ? (dir === 'rtl' ? 'مسیر XHTTP ثبت شد.' : 'XHTTP route registered.')
+        : (dir === 'rtl' ? 'ثبت مسیر تأیید نشد؛ وضعیت را بررسی کن.' : 'Route registration was not confirmed; verify current state.'))
+    } catch (error: any) {
+      alert(error.response?.data?.detail || (dir === 'rtl' ? 'ثبت مسیر XHTTP انجام نشد.' : 'XHTTP route registration failed.'))
     }
   }
 
@@ -487,13 +517,24 @@ const Tunnels = () => {
                 {/* Action Buttons */}
                 <div className="flex gap-2 shrink-0">
                   {tunnel.core === 'frp' && Boolean(tunnel.spec?.shared_frps_owner) && (
-                    <button
-                      onClick={() => verifySharedFrpProxy(tunnel)}
-                      className="px-2.5 py-2 text-sm font-semibold text-blue-700 dark:text-blue-300 hover:bg-blue-50 dark:hover:bg-blue-900/20 rounded-lg"
-                      title="Signed read-only FRPS proxy verification; no reapply"
-                    >
-                      Verify
-                    </button>
+                    <>
+                      <button
+                        onClick={() => verifySharedFrpProxy(tunnel)}
+                        className="px-2.5 py-2 text-sm font-semibold text-blue-700 dark:text-blue-300 hover:bg-blue-50 dark:hover:bg-blue-900/20 rounded-lg"
+                        title="Signed read-only FRPS proxy verification; no reapply"
+                      >
+                        Verify
+                      </button>
+                      {tunnel.status === 'active' && (
+                        <button
+                          onClick={() => registerXhttpRoute(tunnel)}
+                          className="px-2.5 py-2 text-sm font-semibold text-indigo-700 dark:text-indigo-300 hover:bg-indigo-50 dark:hover:bg-indigo-900/20 rounded-lg"
+                          title="Register one verified KH XHTTP inbound through U-OPTI"
+                        >
+                          XHTTP
+                        </button>
+                      )}
+                    </>
                   )}
                   <button
                     onClick={() => reapplyTunnel(tunnel)}

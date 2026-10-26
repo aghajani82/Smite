@@ -14,6 +14,11 @@ on:
       - 'node/app/config.py'
       - 'node/app/engine_inventory.py'
       - 'panel/app/node_client.py'
+      - 'panel/app/config.py'
+      - 'panel/app/routers/tunnels.py'
+      - 'panel/app/xhttp_route_lifecycle.py'
+      - 'tests/test_panel_xhttp_route_lifecycle.py'
+      - 'frontend/src/pages/Tunnels.tsx'
       - 'node/app/routers/agent.py'
       - 'node/app/sanaei_inbound_inventory.py'
       - 'node/docker-compose.yml'
@@ -38,20 +43,24 @@ jobs:
           python -m pip install \
             'fastapi==0.104.1' 'httpx==0.25.2' \
             'pydantic==2.5.0' 'pydantic-settings==2.1.0' \
-            'cryptography==41.0.7'
+            'cryptography==41.0.7' 'sqlalchemy==2.0.23' 'aiosqlite==0.19.0'
       - name: Python syntax
         run: |
           python -m py_compile \
             node/app/agent_auth.py node/app/config.py node/app/engine_inventory.py \
             node/app/routers/agent.py node/app/sanaei_inbound_inventory.py \
             panel/app/agent_request_signer.py \
+            panel/app/config.py panel/app/routers/tunnels.py \
+            panel/app/xhttp_route_lifecycle.py \
             tests/test_node_agent_signed_commands.py tests/test_sanaei_inbound_inventory.py \
+            tests/test_panel_xhttp_route_lifecycle.py \
             node/app/replay_enrollment.py tests/test_replay_enrollment_offline.py \
             node/app/replay_restore_hold.py tests/test_replay_restore_quarantine.py
       - name: Agent runtime auth, replay persistence and cross-role signing tests
         run: |
           python -B tests/test_node_agent_signed_commands.py -v
           python -B tests/test_sanaei_inbound_inventory.py -v
+          python -B tests/test_panel_xhttp_route_lifecycle.py -v
           python -B tests/test_replay_enrollment_offline.py -v
           python -B tests/test_replay_restore_quarantine.py -v
       - name: Legacy auth remains default

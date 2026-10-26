@@ -107,6 +107,10 @@ class TunnelUpdate(BaseModel):
     spec: dict | None = None
 
 
+class XhttpRouteRegistration(BaseModel):
+    inbound_port: int
+
+
 class TunnelResponse(BaseModel):
     id: str
     name: str
@@ -1445,6 +1449,45 @@ async def verify_frp_proxy(tunnel_id: str, db: AsyncSession = Depends(get_db)):
     return await verify_shared_child_listener(
         db=db, client=NodeClient(), tunnel=tunnel,
     )
+
+
+@router.post("/{tunnel_id}/uopti-xhttp-route")
+async def register_uopti_xhttp_route(
+    tunnel_id: str, selection: XhttpRouteRegistration,
+    db: AsyncSession = Depends(get_db),
+):
+    """Create the approved route for one active shared FRP child."""
+    from app.xhttp_route_lifecycle import XhttpRouteHold, register_xhttp_route
+
+    if (settings.smite_panel_agent_auth_mode != "signed"
+            or settings.smite_engine_management_mode != "managed"):
+        raise HTTPException(409, "Signed managed Node control is required")
+    try:
+        return await register_xhttp_route(
+            db=db, tunnel_id=tunnel_id, inbound_port=selection.inbound_port,
+            client=NodeClient(), now=int(time.time()),
+        )
+    except XhttpRouteHold as exc:
+        # Stable, non-secret refusal; never echo evidence or transport details.
+        raise HTTPException(409, str(exc)) from exc
+
+
+@router.get("/{tunnel_id}/uopti-xhttp-inbounds")
+async def get_uopti_xhttp_inbounds(
+    tunnel_id: str, db: AsyncSession = Depends(get_db),
+):
+    """List the authenticated KH inbound choices for the FRP child wizard."""
+    from app.xhttp_route_lifecycle import XhttpRouteHold, list_child_xhttp_inbounds
+
+    if (settings.smite_panel_agent_auth_mode != "signed"
+            or settings.smite_engine_management_mode != "managed"):
+        raise HTTPException(409, "Signed managed Node control is required")
+    try:
+        return {"inbounds": await list_child_xhttp_inbounds(
+            db=db, tunnel_id=tunnel_id, client=NodeClient(),
+        )}
+    except XhttpRouteHold as exc:
+        raise HTTPException(409, str(exc)) from exc
 
 
 @router.post("/{tunnel_id}/apply")
