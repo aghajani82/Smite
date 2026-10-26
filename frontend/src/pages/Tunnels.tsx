@@ -559,6 +559,7 @@ interface EditTunnelModalProps {
 
 const EditTunnelModal = ({ tunnel, onClose, onSuccess }: EditTunnelModalProps) => {
   const { t } = useLanguage()
+  const isSharedFrpsChild = tunnel.core === 'frp' && typeof tunnel.spec?.shared_frps_owner === 'string' && Boolean(tunnel.spec.shared_frps_owner)
   const forwardToParsed = tunnel.spec?.forward_to ? parseAddressPort(tunnel.spec.forward_to) : null
   const remoteIp = tunnel.spec?.remote_ip || forwardToParsed?.host || '127.0.0.1'
   const remotePort = tunnel.spec?.remote_port || forwardToParsed?.port || 8080
@@ -606,7 +607,8 @@ const EditTunnelModal = ({ tunnel, onClose, onSuccess }: EditTunnelModalProps) =
     rathole_local_port: tunnel.spec?.local_port?.toString() || '',
     chisel_control_port: tunnel.spec?.control_port ? tunnel.spec.control_port.toString() : '',
     frp_bind_port: tunnel.spec?.bind_port ? tunnel.spec.bind_port.toString() : '7000',
-    frp_token: tunnel.spec?.token || '',
+    // Shared children never own or edit the FRPS credential.
+    frp_token: isSharedFrpsChild ? '' : (tunnel.spec?.token || ''),
     frp_local_ip: tunnel.spec?.local_ip || '127.0.0.1',
     node_ipv6: tunnel.spec?.node_ipv6 || '',
   })
@@ -618,6 +620,13 @@ const EditTunnelModal = ({ tunnel, onClose, onSuccess }: EditTunnelModalProps) =
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     try {
+      if (isSharedFrpsChild) {
+        // RC5 backend forbids spec updates to shared FRP children (HTTP 409).
+        // Rename-only: do not fabricate a token, control port, or port list.
+        await api.put(`/tunnels/${tunnel.id}`, { name: formData.name.trim() })
+        onSuccess()
+        return
+      }
       let updatedSpec = { ...tunnel.spec }
       
       const useV4ToV6 = updatedSpec.use_ipv6 || false
@@ -895,7 +904,15 @@ const EditTunnelModal = ({ tunnel, onClose, onSuccess }: EditTunnelModalProps) =
             </>
           )}
           
-          {tunnel.core === 'frp' && (
+          {tunnel.core === 'frp' && (isSharedFrpsChild ? (
+            <div role="note" className="rounded-lg border border-blue-200 bg-blue-50 p-3 text-sm text-blue-950 dark:border-blue-800 dark:bg-blue-900/20 dark:text-blue-100">
+              <p className="font-semibold">Shared FRPS child — rename only</p>
+              <p className="mt-1">This proxy uses the existing FRPS owner. Its control port, token and inbound port cannot be edited here.</p>
+              <p className="mt-2">Owner ID: <code className="break-all">{tunnel.spec.shared_frps_owner}</code></p>
+              <p>Inbound port: <strong>{formData.ports}</strong> · FRPS control: 7000</p>
+              <p className="mt-1">To change the inbound port, use the verified remove/add-child workflow. Do not restart the FRPS owner.</p>
+            </div>
+          ) : (
             <>
               <div className="grid grid-cols-2 gap-4">
                 <div>
@@ -942,7 +959,8 @@ const EditTunnelModal = ({ tunnel, onClose, onSuccess }: EditTunnelModalProps) =
                   Token (Optional - Auto-generated if empty)
                 </label>
                 <input
-                  type="text"
+                  type="password"
+                  autoComplete="off"
                   value={formData.frp_token}
                   onChange={(e) =>
                     setFormData({ ...formData, frp_token: e.target.value })
@@ -953,7 +971,7 @@ const EditTunnelModal = ({ tunnel, onClose, onSuccess }: EditTunnelModalProps) =
                 <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">Authentication token (will be auto-generated if not provided)</p>
               </div>
             </>
-          )}
+          ))}
           
           {/* Node IPv6 address field for Rathole when v4 to v6 is enabled */}
           {tunnel.core === 'rathole' && tunnel.spec?.use_ipv6 && (
