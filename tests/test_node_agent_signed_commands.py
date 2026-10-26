@@ -209,7 +209,9 @@ class AgentGuardTest(unittest.TestCase):
     def test_uopti_route_broker_forward_is_signed_ir_only_and_fail_closed(self):
         import base64
         from unittest.mock import patch
-        from app.uopti_route_broker_client import BrokerForwardUnavailable
+        from app.uopti_route_broker_client import (
+            BrokerForwardUnavailable, BrokerRootGrantRequired,
+        )
 
         prior = (
             settings.node_role,
@@ -276,6 +278,20 @@ class AgentGuardTest(unittest.TestCase):
                 )
             self.assertEqual(uncertain.status_code, 503)
             self.assertNotIn("fixture", uncertain.text)
+
+            body, headers = self.signed(
+                "POST", "/api/agent/uopti/xhttp-route", payload=payload,
+            )
+            with patch(
+                "app.uopti_route_broker_client.forward_route_intent",
+                side_effect=BrokerRootGrantRequired("ROOT_OPERATOR_GRANT_REQUIRED"),
+            ) as forward:
+                missing_grant = self.client.post(
+                    "/api/agent/uopti/xhttp-route", content=body, headers=headers,
+                )
+            self.assertEqual(missing_grant.status_code, 409)
+            self.assertEqual(missing_grant.json()["detail"], "ROOT_OPERATOR_GRANT_REQUIRED")
+            forward.assert_called_once()
         finally:
             (
                 settings.node_role,

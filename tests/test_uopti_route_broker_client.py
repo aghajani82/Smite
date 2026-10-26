@@ -4,6 +4,7 @@ from unittest.mock import patch
 
 from app.uopti_route_broker_client import (
     BrokerForwardUnavailable,
+    BrokerRootGrantRequired,
     decode_intent_b64,
     forward_route_intent,
 )
@@ -65,6 +66,13 @@ class BrokerForwardTest(unittest.TestCase):
             with patch("app.uopti_route_broker_client.socket.socket", return_value=fake):
                 with self.subTest(response=response), self.assertRaises(BrokerForwardUnavailable):
                     forward_route_intent(b'{"intent":1}', "/run/broker.sock")
+
+    def test_exact_pre_transaction_root_grant_reply_is_actionable(self):
+        fake = FakeSocket(b"HOLD_ROOT_OPERATOR_GRANT_REQUIRED\n")
+        with patch("app.uopti_route_broker_client.socket.socket", return_value=fake):
+            with self.assertRaisesRegex(BrokerRootGrantRequired,
+                                        "ROOT_OPERATOR_GRANT_REQUIRED"):
+                forward_route_intent(b'{"intent":1}', "/run/broker.sock")
 
     def test_invalid_arguments_never_open_socket(self):
         with patch("app.uopti_route_broker_client.socket.socket") as create_socket:

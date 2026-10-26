@@ -168,6 +168,9 @@ async def register_xhttp_route(*, db, tunnel_id: str, inbound_port: int,
 
     response = await client.forward_uopti_xhttp_route(ir.id, wire)
     if not isinstance(response, dict) or response.get("status") != "success":
+        if (isinstance(response, dict)
+                and response.get("message") == "Signed Node rejected request (HTTP 409)"):
+            raise XhttpRouteHold("ROOT_OPERATOR_GRANT_REQUIRED")
         raise XhttpRouteHold("BROKER_ROUTE_RESULT_UNCONFIRMED")
     return {"status": "success", "result": "route_registered"}
 

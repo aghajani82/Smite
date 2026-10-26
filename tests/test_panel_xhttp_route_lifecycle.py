@@ -59,6 +59,7 @@ def objects():
 class Client:
     def __init__(self):
         self.forwarded = None
+        self.route_response = {"status": "success", "result": "route_added"}
 
     async def get_verified_frps_owners(self, node_id):
         assert node_id == "node-ir-0001"
@@ -76,7 +77,7 @@ class Client:
 
     async def forward_uopti_xhttp_route(self, node_id, wire):
         self.forwarded = (node_id, wire)
-        return {"status": "success", "result": "route_added"}
+        return self.route_response
 
 
 class RouteLifecycleTests(unittest.IsolatedAsyncioTestCase):
@@ -122,6 +123,25 @@ class RouteLifecycleTests(unittest.IsolatedAsyncioTestCase):
                 )
         key_reader.assert_not_called()
         self.assertIsNone(client.forwarded)
+
+    async def test_pre_transaction_missing_root_grant_is_actionable(self):
+        child, lease, owner, ir, kh = objects()
+        db = FakeDb(child, lease, owner, ir, kh)
+        client = Client()
+        client.route_response = {
+            "status": "error",
+            "message": "Signed Node rejected request (HTTP 409)",
+        }
+        with patch.object(lifecycle, "select", side_effect=lambda model: Query(model)), \
+             patch.object(lifecycle, "_broker_key", return_value=b"k" * 32), \
+             patch.object(lifecycle, "sign_route_intent", return_value=b"signed-intent"):
+            with self.assertRaisesRegex(lifecycle.XhttpRouteHold,
+                                        "ROOT_OPERATOR_GRANT_REQUIRED"):
+                await lifecycle.register_xhttp_route(
+                    db=db, tunnel_id=child.id, inbound_port=45121,
+                    client=client, now=123456,
+                )
+        self.assertEqual(client.forwarded, (ir.id, b"signed-intent"))
 
     async def test_inbound_picker_returns_only_sanitized_signed_facts(self):
         child, lease, *_ = objects()

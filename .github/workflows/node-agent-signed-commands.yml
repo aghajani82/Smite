@@ -20,11 +20,13 @@ on:
       - 'tests/test_panel_xhttp_route_lifecycle.py'
       - 'frontend/src/pages/Tunnels.tsx'
       - 'node/app/routers/agent.py'
+      - 'node/app/uopti_route_broker_client.py'
       - 'node/app/sanaei_inbound_inventory.py'
       - 'node/docker-compose.yml'
       - 'tests/test_sanaei_inbound_inventory.py'
       - 'panel/app/agent_request_signer.py'
       - 'tests/test_node_agent_signed_commands.py'
+      - 'tests/test_uopti_route_broker_client.py'
       - '.github/workflows/node-agent-signed-commands.yml'
 
 permissions:
@@ -49,11 +51,13 @@ jobs:
           python -m py_compile \
             node/app/agent_auth.py node/app/config.py node/app/engine_inventory.py \
             node/app/routers/agent.py node/app/sanaei_inbound_inventory.py \
+            node/app/uopti_route_broker_client.py \
             panel/app/agent_request_signer.py \
             panel/app/config.py panel/app/routers/tunnels.py \
             panel/app/xhttp_route_lifecycle.py \
             tests/test_node_agent_signed_commands.py tests/test_sanaei_inbound_inventory.py \
             tests/test_panel_xhttp_route_lifecycle.py \
+            tests/test_uopti_route_broker_client.py \
             node/app/replay_enrollment.py tests/test_replay_enrollment_offline.py \
             node/app/replay_restore_hold.py tests/test_replay_restore_quarantine.py
       - name: Agent runtime auth, replay persistence and cross-role signing tests
@@ -61,6 +65,7 @@ jobs:
           python -B tests/test_node_agent_signed_commands.py -v
           python -B tests/test_sanaei_inbound_inventory.py -v
           python -B tests/test_panel_xhttp_route_lifecycle.py -v
+          PYTHONPATH=node python -B tests/test_uopti_route_broker_client.py -v
           python -B tests/test_replay_enrollment_offline.py -v
           python -B tests/test_replay_restore_quarantine.py -v
       - name: Legacy auth remains default

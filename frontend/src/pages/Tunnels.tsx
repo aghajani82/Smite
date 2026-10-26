@@ -246,6 +246,7 @@ const Tunnels = () => {
   }
 
   const registerXhttpRoute = async (tunnel: Tunnel) => {
+    let grantContext: Record<string, string | number> | null = null
     try {
       const inventory = await api.get(`/tunnels/${tunnel.id}/uopti-xhttp-inbounds`)
       const choices = inventory.data?.inbounds
@@ -266,12 +267,30 @@ const Tunnels = () => {
         alert(dir === 'rtl' ? 'پورت انتخاب‌شده در فهرست معتبر نیست.' : 'The selected port is not in the verified inventory.')
         return
       }
+      const selectedInbound = choices.find((item: any) => item.port === port)
+      grantContext = {
+        ir_node: tunnel.iran_node_id || tunnel.node_id || '',
+        kh_node: tunnel.foreign_node_id || '',
+        owner: tunnel.spec?.shared_frps_owner || '',
+        child: tunnel.id,
+        lease: tunnel.id,
+        port,
+        path: selectedInbound.path,
+      }
       const result = await api.post(`/tunnels/${tunnel.id}/uopti-xhttp-route`, { inbound_port: port })
       alert(result.data?.status === 'success'
         ? (dir === 'rtl' ? 'مسیر XHTTP ثبت شد.' : 'XHTTP route registered.')
         : (dir === 'rtl' ? 'ثبت مسیر تأیید نشد؛ وضعیت را بررسی کن.' : 'Route registration was not confirmed; verify current state.'))
     } catch (error: any) {
-      alert(error.response?.data?.detail || (dir === 'rtl' ? 'ثبت مسیر XHTTP انجام نشد.' : 'XHTTP route registration failed.'))
+      if (error.response?.data?.detail === 'ROOT_OPERATOR_GRANT_REQUIRED' && grantContext) {
+        const command = 'sudo python3 -B /usr/local/lib/u-opti/modules/smite-rc5-xhttp-broker-provision.py --approve-grant --confirm-local-root'
+        const facts = Object.entries(grantContext).map(([key, value]) => `${key}: ${value}`).join('\n')
+        alert(dir === 'rtl'
+          ? `این درخواست هنوز هیچ مسیری نساخته و Nonce مصرف نشده است. روی ترمینال IR، شواهد Signed فعلی Owner، Inbound سنایی KH و Lease را با این مقادیر تطبیق بده؛ سپس دستور را اجرا و اطلاعات را وارد کن. بعد از PASS، همین عملیات را دوباره از پنل انجام بده.\n\n${command}\n\n${facts}`
+          : `No route was changed and no nonce was consumed. On IR, compare the current signed Owner proof, KH Sanaei inbound and active lease with these values, then run the command and enter them. After PASS, repeat this action in the Panel.\n\n${command}\n\n${facts}`)
+      } else {
+        alert(error.response?.data?.detail || (dir === 'rtl' ? 'ثبت مسیر XHTTP انجام نشد.' : 'XHTTP route registration failed.'))
+      }
     }
   }
 
@@ -573,6 +592,17 @@ const Tunnels = () => {
           onSuccess={() => {
             setShowAddModal(false)
             fetchData()
+          }}
+          onCreatedTunnel={async (tunnel) => {
+            setShowAddModal(false)
+            fetchData()
+            if (tunnel.status === 'active' && tunnel.spec?.shared_frps_owner) {
+              await registerXhttpRoute(tunnel)
+            } else {
+              alert(dir === 'rtl'
+                ? 'فرزند FRP ساخته شد، اما هنوز فعال نیست؛ مسیر XHTTP ثبت نشد. بعد از تأیید فعال‌بودن، از دکمه XHTTP کنار همان Child ادامه بده.'
+                : 'The FRP child was created but is not active yet, so no XHTTP route was attempted. After it becomes active, continue with the XHTTP button on that child.')
+            }
           }}
         />
       )}
@@ -1069,9 +1099,10 @@ interface AddTunnelModalProps {
   tunnels: Tunnel[]
   onClose: () => void
   onSuccess: () => void
+  onCreatedTunnel: (tunnel: Tunnel) => Promise<void>
 }
 
-const AddTunnelModal = ({ nodes, servers, tunnels, onClose, onSuccess }: AddTunnelModalProps) => {
+const AddTunnelModal = ({ nodes, servers, tunnels, onClose, onSuccess, onCreatedTunnel }: AddTunnelModalProps) => {
   const { t, dir } = useLanguage()
   const [showTechnicalSettings, setShowTechnicalSettings] = useState(false)
   const [creating, setCreating] = useState(false)
@@ -1316,8 +1347,14 @@ const AddTunnelModal = ({ nodes, servers, tunnels, onClose, onSuccess }: AddTunn
         spec: spec,
       }
       setCreating(true)
-      await api.post('/tunnels', payload)
-      onSuccess()
+      const response = await api.post('/tunnels', payload)
+      const createdTunnel = response.data as Tunnel | undefined
+      if (formData.core === 'frp' && Boolean(formData.frp_shared_owner)
+          && createdTunnel?.id) {
+        await onCreatedTunnel(createdTunnel)
+      } else {
+        onSuccess()
+      }
     } catch (error) {
       console.error('Failed to create tunnel:', error)
       alert('Failed to create tunnel')

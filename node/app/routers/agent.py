@@ -128,7 +128,8 @@ async def forward_uopti_xhttp_route(data: UoptiRouteIntent):
     """Forward one Panel-signed intent to the local root broker over UDS."""
     from app.config import settings
     from app.uopti_route_broker_client import (
-        BrokerForwardUnavailable, decode_intent_b64, forward_route_intent,
+        BrokerForwardUnavailable, BrokerRootGrantRequired,
+        decode_intent_b64, forward_route_intent,
     )
     if (settings.smite_agent_auth_mode != "strict"
             or settings.node_role != "iran"
@@ -139,6 +140,11 @@ async def forward_uopti_xhttp_route(data: UoptiRouteIntent):
         await run_in_threadpool(
             forward_route_intent, wire, settings.smite_uopti_route_broker_socket,
         )
+    except BrokerRootGrantRequired as exc:
+        # This exact response is emitted only before nonce consumption or
+        # route mutation; it safely directs the operator to the separate
+        # root-only per-child approval command.
+        raise HTTPException(409, detail="ROOT_OPERATOR_GRANT_REQUIRED") from exc
     except BrokerForwardUnavailable as exc:
         # Do not expose broker internals or retry an ambiguous host transaction.
         raise HTTPException(503, detail="U-OPTI route broker HOLD") from exc

@@ -12,10 +12,15 @@ import socket
 
 MAX_INTENT_BYTES = 4096
 SOCKET_RESPONSE = b"PASS_ROUTE_ADDED\n"
+GRANT_REQUIRED_RESPONSE = b"HOLD_ROOT_OPERATOR_GRANT_REQUIRED\n"
 
 
 class BrokerForwardUnavailable(RuntimeError):
     """The local broker did not confirm a completed route transaction."""
+
+
+class BrokerRootGrantRequired(BrokerForwardUnavailable):
+    """A pre-transaction root approval is missing; no nonce was consumed."""
 
 
 def decode_intent_b64(value: str) -> bytes:
@@ -51,5 +56,8 @@ def forward_route_intent(wire: bytes, socket_path: str) -> None:
                 response.extend(part)
     except (OSError, TimeoutError) as exc:
         raise BrokerForwardUnavailable("BROKER_UNAVAILABLE_OR_UNCERTAIN") from exc
-    if bytes(response) != SOCKET_RESPONSE:
+    received = bytes(response)
+    if received == GRANT_REQUIRED_RESPONSE:
+        raise BrokerRootGrantRequired("ROOT_OPERATOR_GRANT_REQUIRED")
+    if received != SOCKET_RESPONSE:
         raise BrokerForwardUnavailable("BROKER_HOLD_OR_UNCERTAIN")
