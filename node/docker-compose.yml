@@ -8,6 +8,9 @@ services:
       context: .
       dockerfile: Dockerfile
     container_name: smite-node
+    # U-OPTI provisions this dedicated host GID for the read-only broker socket.
+    # Keep the Node adapter's required UID 0; the broker checks the exact UID/GID.
+    user: "0:${SMITE_UOPTI_BROKER_GID:-0}"
     network_mode: host
     cap_add:
       - NET_ADMIN
