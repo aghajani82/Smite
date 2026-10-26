@@ -66,7 +66,7 @@ class RouteIntentIssuerTests(unittest.TestCase):
 
     def test_wrong_binding_port_path_credentials_and_evidence_refused(self):
         for updates in (
-            {"ir_node": "other-ir-0001"},
+            {"ir_node": "x"},
             {"owner": ""},
             {"lease": "short"},
             {"port": 7000, "path": "/7000/control"},
@@ -80,6 +80,16 @@ class RouteIntentIssuerTests(unittest.TestCase):
         ):
             with self.subTest(updates=updates), self.assertRaises(RouteIntentHold):
                 self.issue(replace(binding(), **updates))
+
+    def test_different_valid_node_is_bound_into_hmac_but_requires_root_grant(self):
+        # A syntactically valid alternate Node may be signed, but is NEVER
+        # authorized by the issuer. U-OPTI's independent TrustedGrant must
+        # reject any IR/KH identity mismatch before touching Nginx.
+        first = self.issue()
+        second = self.issue(replace(binding(), ir_node="other-ir-0001"))
+        self.assertNotEqual(first, second)
+        self.assertEqual(json.loads(second)["ir_node"], "other-ir-0001")
+        self.assertNotEqual(json.loads(first)["mac"], json.loads(second)["mac"])
 
     def test_dedicated_key_and_server_timestamp_required(self):
         for key in (b"", b"b" * 16, b"b" * 64, "key"):
