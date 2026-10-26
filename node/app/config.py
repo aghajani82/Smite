@@ -23,6 +23,11 @@ class Settings(BaseSettings):
     # Managed mode does not treat binaries bundled in the Node image as ready.
     smite_engine_inventory_mode: Literal["legacy", "managed"] = "legacy"
     smite_engine_manifest_path: str = "/etc/smite-node/engine-state/engines.json"
+
+    # KH-only, opt-in inventory. A separately approved read-only bind mount
+    # is required; missing or untrusted SQLite must HOLD, never auto-install.
+    smite_sanaei_inventory_enabled: bool = False
+    smite_sanaei_db_path: str = "/run/smite-sanaei-ro/x-ui.db"
     
     class Config:
         env_file = ".env"
