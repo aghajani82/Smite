@@ -18,6 +18,8 @@ services:
       - ./certs:/etc/smite-node/certs:ro
       - ./config:/etc/smite-node
       - node-data:/var/lib/smite-node
+      # Read-only directory mount exposes only the broker Unix socket when U-OPTI provisions it.
+      - /run/u-opti/smite:/run/u-opti/smite:ro
     env_file:
       - .env
     environment:
