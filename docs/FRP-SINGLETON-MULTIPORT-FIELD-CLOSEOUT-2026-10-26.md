@@ -95,6 +95,27 @@ This is the *future product contract*, not a current claim. The existing `script
 
 **Checkpoint guidance:** close the *field-trial infrastructure milestone* but leave the **automatic Add Inbound / Route Sync milestone OPEN**. Future implementation should be in independent feature branches and PRs, not by mutating immutable RC5.
 
+## 5A. Development progress after field closeout (2026-10-26)
+
+These are **reviewed source changes on the feature branch, not upgrades to the live IR/KH pair**. The immutable signed RC5 release still contains the older code.
+
+| Workstream | GitHub changes / CI | Implementation status | Deployment status |
+|---|---|---|---|
+| Shared FRPS child Edit form | [PR #25](https://github.com/aghajani82/Smite/pull/25) merged; 4/4 workflows PASS | Child name-only edit; owner, Bind Port, FRPS Token and child port read-only/protected; existing server-side 409 guard retained | Not published/deployed |
+| KH Sanaei VLESS/XHTTP discovery | [PR #26](https://github.com/aghajani82/Smite/pull/26) merged; 10/10 workflows PASS | KH-only strict signed GET `/api/agent/inbounds/xhttp`, SQLite parser validates enabled XHTTP loopback inbounds and returns only sanitized port/path/network facts | Default OFF; approved read-only DB mount and new signed Node image still required |
+| IR Nginx automatic XHTTP route | [PR #27](https://github.com/aghajani82/Smite/pull/27) merged; 3/3 workflows PASS | Pure exact+prefix location **planner**, path-preserving loopback upstream, route collision and invalid input tests | **Not automatic yet**; no privileged host writer, `nginx -t`/reload orchestration or lifecycle API yet |
+| Simple IR/KH install and enrollment | Not implemented in this milestone | Clean installer needs release-pinned Panel/Node, explicit roles, scoped enrollment, verified 443 and safe Nginx helper deployment | Not deployed |
+
+### Next implementation boundary
+
+1. Build the strictly scoped, root-owned IR Nginx route transaction helper and **approved include**, with dry-run, backup, atomic staged update, `nginx -t`, reload, scoped rollback, crash recovery and collision tests. Do not grant broad host filesystem write privileges to a Panel container. Preserve U-OPTI ownership of existing routes and avoid changing `/45121/www`.
+2. Deliver an audited **read-only** KH 3x-ui DB mount/provider install gate (the KH Node sees only the explicitly approved source), and wire the signed inventory through the Panel FRP wizard.
+3. Wire signed child Apply + route registration with reconciliation for ambiguous POST, unique durable lease and verified owner; never retry automatically or restart the singleton FRPS.
+4. Implement the release-pinned role-based IR Panel / IR Node / KH Node bootstrap installer, with independent FRP/Backhaul selection, one public TLS 443 gateway and no automatic global Git pull.
+5. Run CI/security/E2E on newly built disposable VPS snapshots using **three inbounds**, boot/restart survival and two simultaneous real clients; only then publish separately signed source-matched images and request explicit permission for live cutover.
+
+**Persian operator status:** فرم Edit در کد اصلاح شده؛ شناسایی امضاشده اینباند سنایی و طرح‌ریز مسیر Nginx هم به کد اضافه شده‌اند. اما نصب روی سرورهای فعلی، اتصال خودکار به Nginx و ویزارد نصب نهایی هنوز انجام نشده‌اند. تا آماده‌شدن این موارد، دو تانل فعلی را بدون تغییر نگه دارید.
+
 ## 6. References
 
 - [FRPS multiport feature PR #20](https://github.com/aghajani82/Smite/pull/20)
