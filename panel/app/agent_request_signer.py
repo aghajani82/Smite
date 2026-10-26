@@ -21,6 +21,7 @@ ALLOWED_AGENT_TARGETS = frozenset((
     "/api/agent/engines",
     "/api/agent/frp/owners",
     "/api/agent/inbounds/xhttp",
+    "/api/agent/uopti/xhttp-route",
     "/api/agent/tunnels/status",
 ))
 
@@ -55,7 +56,8 @@ def prepare_agent_request(
     _target_check(target)
     allowed = (
         (method == "POST" and target in (
-            "/api/agent/tunnels/apply", "/api/agent/tunnels/remove"
+            "/api/agent/tunnels/apply", "/api/agent/tunnels/remove",
+            "/api/agent/uopti/xhttp-route",
         ))
         or (method == "GET" and (
             target in ("/api/agent/status", "/api/agent/engines", "/api/agent/frp/owners", "/api/agent/inbounds/xhttp")
