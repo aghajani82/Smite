@@ -128,7 +128,8 @@ class LocalNginxTransactionTests(unittest.TestCase):
 
     def test_missing_owner_or_control_port_exposure_hold(self):
         self.frps_ports = frozenset({45121, 49328})
-        with self.assertRaises(tx.RouteTransactionHold):
+        # The signed-ready planner rejects missing control-owner proof first.
+        with self.assertRaises(tx.RouteAdmissionDenied):
             self.helper.check(49328, "/49328/sso")
         self.frps_ports = frozenset({7000, 45121, 49328})
         with self.assertRaises(tx.RouteAdmissionDenied):
