@@ -100,6 +100,24 @@ async def signed_frps_owners(request: Request):
     return {"status": "success", "owners": owners}
 
 
+@router.get("/inbounds/xhttp")
+async def get_signed_xhttp_inbounds():
+    """KH-only, explicit opt-in, read-only, no identifiers or client secrets."""
+    from app.config import settings
+    from app.sanaei_inbound_inventory import (
+        list_approved_xhttp_inbounds, SanaeiInventoryUnavailable,
+    )
+    if (settings.smite_agent_auth_mode != "strict"
+            or settings.node_role != "foreign"
+            or not settings.smite_sanaei_inventory_enabled):
+        raise HTTPException(409, detail="Signed Sanaei inventory unavailable")
+    try:
+        items = list_approved_xhttp_inbounds(settings.smite_sanaei_db_path)
+    except SanaeiInventoryUnavailable as exc:
+        raise HTTPException(503, detail="Sanaei inventory unavailable") from exc
+    return {"status": "success", "schema_version": 1, "inbounds": items}
+
+
 @router.get("/engines")
 async def get_engines():
     """Authenticated, read-only engine availability; never installs anything."""
