@@ -95,7 +95,7 @@ class SanaeiInboundInventoryTests(unittest.TestCase):
 
     def test_compose_mount_is_opt_in_by_path_and_read_only(self):
         compose = (ROOT / "node/docker-compose.yml").read_text()
-        expected_mount = "${SMITE_SANAEI_DB_HOST_PATH:-/dev/null}:/run/smite-sanaei-ro/x-ui.db:ro"
+        expected_mount = "${SMITE_SANAEI_DB_HOST_PATH:-/var/lib/u-opti/smite-sanaei-empty}:/run/smite-sanaei-ro:ro"
         self.assertIn(expected_mount, compose)
         self.assertIn("SMITE_SANAEI_INVENTORY_ENABLED=${SMITE_SANAEI_INVENTORY_ENABLED:-false}", compose)
         self.assertIn("SMITE_SANAEI_DB_PATH=/run/smite-sanaei-ro/x-ui.db", compose)
