@@ -108,11 +108,13 @@ These are **reviewed source changes on the feature branch, not upgrades to the l
 
 ### Next implementation boundary
 
-1. Build the strictly scoped, root-owned IR Nginx route transaction helper and **approved include**, with dry-run, backup, atomic staged update, `nginx -t`, reload, scoped rollback, crash recovery and collision tests. Do not grant broad host filesystem write privileges to a Panel container. Preserve U-OPTI ownership of existing routes and avoid changing `/45121/www`.
+1. **Local helper prototype added in PR #29:** fixed-path root-only scoped route creation, preflight, atomic new-file install, `nginx -t`, guarded reload, rollback of the new file, collision tests and FRPS PID checks passed mocked offline CI. **Still needed:** approved TLS/443 bridge installer and vhost-scope attestation, signed/bound IPC broker, crash journal/reconciliation, host E2E tests and release deployment. Never grant broad filesystem privileges to a Panel container or modify U-OPTI-owned `/45121/www`.
 2. Deliver an audited **read-only** KH 3x-ui DB mount/provider install gate (the KH Node sees only the explicitly approved source), and wire the signed inventory through the Panel FRP wizard.
 3. Wire signed child Apply + route registration with reconciliation for ambiguous POST, unique durable lease and verified owner; never retry automatically or restart the singleton FRPS.
 4. Implement the release-pinned role-based IR Panel / IR Node / KH Node bootstrap installer, with independent FRP/Backhaul selection, one public TLS 443 gateway and no automatic global Git pull.
 5. Run CI/security/E2E on newly built disposable VPS snapshots using **three inbounds**, boot/restart survival and two simultaneous real clients; only then publish separately signed source-matched images and request explicit permission for live cutover.
+
+**Host-side transaction reference:** [PR #29](https://github.com/aghajani82/Smite/pull/29) and [security boundary design](SMITE-XHTTP-HOST-ROUTE-TRANSACTION-DESIGN.md). This is NOT installed, not connected to Smite Panel, and not ready for production auto-routing.
 
 **Persian operator status:** فرم Edit در کد اصلاح شده؛ شناسایی امضاشده اینباند سنایی و طرح‌ریز مسیر Nginx هم به کد اضافه شده‌اند. اما نصب روی سرورهای فعلی، اتصال خودکار به Nginx و ویزارد نصب نهایی هنوز انجام نشده‌اند. تا آماده‌شدن این موارد، دو تانل فعلی را بدون تغییر نگه دارید.
 
