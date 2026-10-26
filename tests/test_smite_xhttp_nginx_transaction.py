@@ -11,6 +11,9 @@ from unittest.mock import patch
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
 import smite_xhttp_nginx_transaction as tx
 
+# Preserve the real parser before setUp patches live inventory for transaction tests.
+REAL_SOCKET_PARSER = tx._frps_socket_inventory
+
 
 class LocalNginxTransactionTests(unittest.TestCase):
     def setUp(self):
@@ -133,16 +136,16 @@ class LocalNginxTransactionTests(unittest.TestCase):
             'LISTEN 0 4096 127.0.0.1:49328 0.0.0.0:* users:(("frps",pid=512,fd=9))\n'
         )
         with patch.object(tx, "_run", return_value=loopback):
-            self.assertEqual(tx._frps_socket_inventory(), (512, frozenset({7000, 45121, 49328})))
+            self.assertEqual(REAL_SOCKET_PARSER(), (512, frozenset({7000, 45121, 49328})))
         public = loopback + (
             'LISTEN 0 4096 0.0.0.0:9999 0.0.0.0:* users:(("frps",pid=512,fd=14))\n'
         )
         with patch.object(tx, "_run", return_value=public):
             with self.assertRaises(tx.RouteTransactionHold):
-                tx._frps_socket_inventory()
+                REAL_SOCKET_PARSER()
         mismatch = loopback.replace('pid=512,fd=9', 'pid=123,fd=9')
         with patch.object(tx, "_run", return_value=mismatch):
-            self.assertEqual(tx._frps_socket_inventory(), (512, frozenset({7000, 45121})))
+            self.assertEqual(REAL_SOCKET_PARSER(), (512, frozenset({7000, 45121})))
 
     def test_missing_owner_or_control_port_exposure_hold(self):
         self.frps_ports = frozenset({45121, 49328})
