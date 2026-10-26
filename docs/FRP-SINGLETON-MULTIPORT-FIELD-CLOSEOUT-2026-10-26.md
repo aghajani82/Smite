@@ -1,6 +1,6 @@
 # Smite FRP Singleton Multiport — Field Trial Closeout & Next Milestone
 
-> **Status:** FRP singleton multiport, two XHTTP inbounds, and the operator's real-client tests **PASS** on the disposable IR/KH field-trial hosts. **Automatic** Sanaei inbound discovery and Nginx route provisioning are **NOT implemented/validated** yet.
+> **Status:** FRP singleton multiport and two existing XHTTP inbounds have field-trial real-client **PASS**. Automatic Sanaei inventory selection and route submission are now implemented on [Smite PR #32](https://github.com/aghajani82/Smite/pull/32) and clean-RC broker setup on [U-OPTI PR #48](https://github.com/aghajani82/u-opti/pull/48); current-head CI passed. The new automatic third-inbound route has **not** been tested on a clean dual-VPS install or with a real client.
 >
 > **Date:** 2026-10-26. **Evidence type:** operator terminal output and explicit real-client success report, combined with reviewed release source. This is an observed field-trial milestone, **not** a claim of a full clean-install or all-user production release.
 >
@@ -133,3 +133,14 @@ These are **reviewed source changes on the feature branch, not upgrades to the l
 **بخش باقی‌مانده:** نصب اولیه امن و ساده Panel/Node، شناسایی خودکار پورت و مسیر XHTTP از سنایی، اضافه/حذف خودکار مسیر Nginx و ساده‌سازی فرم ویرایش تانل فرزند. در وضعیت فعلی هنوز برای هر اینباند جدید به تنظیم کنترل‌شده مسیر Nginx نیاز داریم.
 
 **قانون قطعی:** اصلی‌ترین FRPS و تانل‌های سالم را دوباره نصب نکنیم، شاخه main و Grandoptical را تغییر ندهیم و بدون اجازه انتشار یا Deploy انجام ندهیم.
+
+
+## 2026-10-26 — Automatic route source and CI status
+
+The existing Smite FRP wizard now continues from creating an active shared FRP child to selecting a verified KH Sanaei XHTTP inbound and submitting one signed route intent through the IR Node broker. The broker requires a separately installed per-child root grant. The Panel surfaces the approval command only for the exact pre-transaction missing-grant response; it does not retry ambiguous actions.
+
+U-OPTI clean-RC install now stages and activates the local broker and validates the Node's read-only Unix socket forwarding. The KH inventory mount is read-only and exposes sanitized inbound facts only. Per-child grants still require interactive local-root approval with operator comparison of current Signed IR/KH evidence and active lease; evidence verification is reported as operator-asserted.
+
+**CI:** U-OPTI PR #48 current head `f872ce07c78fbe2d8654c61bde31780a54b8b976` passed 16/16 general jobs plus all five triggered focused workflows. Smite PR #32 current head `c0c93506016a784e3d2a5103941084b72910a9da` passed all 12 triggered workflows.
+
+**Still open:** clean disposable Ubuntu IR/KH installation, third-inbound automatic Nginx route, real VLESS/XHTTP client over TLS/443, and reboot/reconnect/failure rollback acceptance. Existing routes `45121` and `49328`, `main`, RC5, current hosts and Grandoptical remain untouched.
