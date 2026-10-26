@@ -126,6 +126,24 @@ class LocalNginxTransactionTests(unittest.TestCase):
             self.helper.apply(49328, "/49328/sso")
         self.assertEqual(self.bridge.read_text(), f"include {self.routes}/*.conf;\n")
 
+    def test_socket_parser_requires_one_loopback_frps_without_public_bind(self):
+        loopback = (
+            'LISTEN 0 4096 127.0.0.1:7000 0.0.0.0:* users:(("frps",pid=512,fd=3))\n'
+            'LISTEN 0 4096 127.0.0.1:45121 0.0.0.0:* users:(("frps",pid=512,fd=7))\n'
+            'LISTEN 0 4096 127.0.0.1:49328 0.0.0.0:* users:(("frps",pid=512,fd=9))\n'
+        )
+        with patch.object(tx, "_run", return_value=loopback):
+            self.assertEqual(tx._frps_socket_inventory(), (512, frozenset({7000, 45121, 49328})))
+        public = loopback + (
+            'LISTEN 0 4096 0.0.0.0:9999 0.0.0.0:* users:(("frps",pid=512,fd=14))\n'
+        )
+        with patch.object(tx, "_run", return_value=public):
+            with self.assertRaises(tx.RouteTransactionHold):
+                tx._frps_socket_inventory()
+        mismatch = loopback.replace('pid=512,fd=9', 'pid=123,fd=9')
+        with patch.object(tx, "_run", return_value=mismatch):
+            self.assertEqual(tx._frps_socket_inventory(), (512, frozenset({7000, 45121})))
+
     def test_missing_owner_or_control_port_exposure_hold(self):
         self.frps_ports = frozenset({45121, 49328})
         # The signed-ready planner rejects missing control-owner proof first.
