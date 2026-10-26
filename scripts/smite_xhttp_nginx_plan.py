@@ -45,7 +45,7 @@ def plan_xhttp_nginx_route(
         raise RouteAdmissionDenied("Trusted inbound and route inventory required")
     port = inbound.get("port")
     path = inbound.get("path")
-    if (type(port) is not int or not 1024 <= port <= 65535
+    if (type(port) is not int or port == 7000 or not 1024 <= port <= 65535
             or not isinstance(path, str) or len(path) > 128
             or not PATH.fullmatch(path) or not path.startswith(f"/{port}/")
             or inbound.get("listen") != "127.0.0.1"
