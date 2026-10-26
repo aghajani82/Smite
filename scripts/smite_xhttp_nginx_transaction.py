@@ -29,7 +29,7 @@ BIN = "/usr/sbin/nginx"
 
 # Only generated locations for numeric-port XHTTP paths are considered. All
 # other names in nginx -T can coexist, but an exact or prefix clash is denied.
-LOCATION = re.compile(r"^\s*location\s+(?:=\s*|\^~\s*)(/[0-9]+/[A-Za-z0-9_/-]+)\s*\{", re.M)
+LOCATION = re.compile(r"^\s*location\s+(?:=\s*|\^~\s*)(/[0-9]+(?:/[A-Za-z0-9_-]+)*/?)\s*\{", re.M)
 BIND = re.compile(r'"frps",pid=(\d+)(?:,|[)])')
 
 
