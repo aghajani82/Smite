@@ -24,7 +24,7 @@ services:
       # Read-only directory mount exposes only the broker Unix socket when U-OPTI provisions it.
       - /run/u-opti/smite:/run/u-opti/smite:ro
       # KH-only opt-in: U-OPTI validates the host DB before setting this path.
-      # /dev/null keeps IR/default installs inactive without creating a host path.
+      # Clean installs use a private empty Node-local directory until configured.
       - ${SMITE_SANAEI_DB_HOST_PATH:-/var/lib/u-opti/smite-sanaei-empty}:/run/smite-sanaei-ro:ro
     env_file:
       - .env
