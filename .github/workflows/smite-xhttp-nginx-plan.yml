@@ -1,0 +1,28 @@
+name: Smite XHTTP Nginx Route Planner (offline)
+
+on:
+  pull_request:
+    paths:
+      - 'scripts/smite_xhttp_nginx_plan.py'
+      - 'tests/test_smite_xhttp_nginx_plan.py'
+      - '.github/workflows/smite-xhttp-nginx-plan.yml'
+  push:
+    branches:
+      - feature/smite-auto-xhttp-route-plan-20261026
+
+permissions:
+  contents: read
+
+jobs:
+  route-planner-offline:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Compile exact route planner and tests
+        run: python -m py_compile scripts/smite_xhttp_nginx_plan.py tests/test_smite_xhttp_nginx_plan.py
+      - name: Verify exact and prefix route, collision and fail-closed guards
+        run: python -B tests/test_smite_xhttp_nginx_plan.py -v
