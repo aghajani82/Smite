@@ -221,6 +221,14 @@ class NodeClient:
             timeout=3.0,
         )
 
+    async def get_signed_sanaei_xhttp_inbounds(self, node_id: str) -> Dict[str, Any]:
+        """Strict read-only KH inventory; never downgrade to legacy transport."""
+        if settings.smite_panel_agent_auth_mode != "signed":
+            return {"status": "error", "message": "Signed XHTTP inventory unavailable"}
+        return await self._signed_agent_request(
+            node_id, method="GET", target="/api/agent/inbounds/xhttp", timeout=3.0,
+        )
+
     async def get_tunnel_status(self, node_id: str, tunnel_id: str = "") -> Dict[str, Any]:
         """Get tunnel status from node"""
         if settings.smite_panel_agent_auth_mode == "signed":
