@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { Plus, Copy, Trash2, CheckCircle, XCircle, AlertCircle } from 'lucide-react'
 import api from '../api/client'
-import { NodePairingAction, usePairingPreviewAvailability } from '../components/NodePairingAction'
+import { NodePairingAction, usePairingPreviewAvailability, useNodeRegistrationMode, type NodeRegistrationMode } from '../components/NodePairingAction'
 import { useLanguage } from '../contexts/LanguageContext'
 
 interface Server {
@@ -19,6 +19,7 @@ const Servers = () => {
   const [servers, setServers] = useState<Server[]>([])
   const [loading, setLoading] = useState(true)
   const pairingPreviewEnabled = usePairingPreviewAvailability()
+  const registrationMode = useNodeRegistrationMode()
   const [showAddModal, setShowAddModal] = useState(false)
   const [showCertModal, setShowCertModal] = useState(false)
   const [certContent, setCertContent] = useState('')
@@ -277,6 +278,7 @@ const Servers = () => {
         <AddServerModal
           onClose={() => setShowAddModal(false)}
           securePreview={pairingPreviewEnabled}
+          registrationMode={registrationMode}
           onSuccess={() => {
             setShowAddModal(false)
             fetchServers()
@@ -299,11 +301,12 @@ const Servers = () => {
 
 interface AddServerModalProps {
   securePreview: boolean
+  registrationMode: NodeRegistrationMode
   onClose: () => void
   onSuccess: () => void
 }
 
-const AddServerModal = ({ onClose, onSuccess, securePreview }: AddServerModalProps) => {
+const AddServerModal = ({ onClose, onSuccess, securePreview, registrationMode }: AddServerModalProps) => {
   const { t } = useLanguage()
   const [name, setName] = useState('')
   const [ipAddress, setIpAddress] = useState('')
@@ -312,11 +315,11 @@ const AddServerModal = ({ onClose, onSuccess, securePreview }: AddServerModalPro
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     try {
-      if (securePreview) {
-        await api.post('/node-pairing/reserve', { name }, {
+      if (registrationMode === 'signed' && securePreview) {
+        await api.post('/node-pairing/reserve', { name, role: 'foreign' }, {
           headers: { 'Cache-Control': 'no-store' },
         })
-      } else {
+      } else if (registrationMode === 'legacy') {
         await api.post('/nodes', { 
         name, 
         ip_address: ipAddress, 
@@ -325,6 +328,9 @@ const AddServerModal = ({ onClose, onSuccess, securePreview }: AddServerModalPro
           role: 'foreign'  // Set role to foreign for servers
         } 
       })
+      } else {
+        // No implicit unsigned fallback when Panel is unavailable or signed pairing is paused.
+        return
       }
       onSuccess()
     } catch {
@@ -335,8 +341,9 @@ const AddServerModal = ({ onClose, onSuccess, securePreview }: AddServerModalPro
   return (
     <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
       <div className="bg-white dark:bg-gray-800 rounded-lg p-6 w-full max-w-md">
-        <h2 className="text-xl font-bold text-gray-900 dark:text-white mb-4">{securePreview ? 'Prepare secure Foreign Node' : 'Add Foreign Server'}</h2>
-        {securePreview && <p className="text-sm text-gray-600 dark:text-gray-300 mb-4">Reserve KH with just a name. Pair it securely over HTTPS/443 after installation; no IP or port needed.</p>}
+        <h2 className="text-xl font-bold text-gray-900 dark:text-white mb-4">{registrationMode === 'signed' ? 'Prepare secure Foreign Node' : 'Add Foreign Server'}</h2>
+        {registrationMode === 'signed' && <p className="text-sm text-gray-600 dark:text-gray-300 mb-4">{securePreview ? 'Reserve KH by name, then complete one-time HTTPS/443 pairing.' : 'Signed enrollment is paused. No legacy IP/port registration will be attempted.'}</p>}
+        {registrationMode === 'unknown' && <p className="text-sm text-red-600 mb-4">Panel enrollment readiness could not be verified. Registration is paused.</p>}
         <form onSubmit={handleSubmit} className="space-y-4">
           <div>
             <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
@@ -350,7 +357,7 @@ const AddServerModal = ({ onClose, onSuccess, securePreview }: AddServerModalPro
               required
             />
           </div>
-          {!securePreview && <>
+          {registrationMode === 'legacy' && <>
           <div>
             <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
               IP Address
@@ -390,9 +397,10 @@ const AddServerModal = ({ onClose, onSuccess, securePreview }: AddServerModalPro
             </button>
             <button
               type="submit"
-              className="px-5 py-2.5 bg-gradient-to-r from-blue-600 to-indigo-600 text-white rounded-lg hover:from-blue-700 hover:to-indigo-700 transition-all duration-200 font-medium shadow-sm hover:shadow-md"
+              disabled={registrationMode === 'unknown' || (registrationMode === 'signed' && !securePreview)}
+              className="disabled:opacity-50 disabled:cursor-not-allowed px-5 py-2.5 bg-gradient-to-r from-blue-600 to-indigo-600 text-white rounded-lg hover:from-blue-700 hover:to-indigo-700 transition-all duration-200 font-medium shadow-sm hover:shadow-md"
             >
-              {securePreview ? 'Reserve Node' : t.dashboard.addServer}
+              {registrationMode === 'signed' ? 'Reserve secure Node' : t.dashboard.addServer}
             </button>
           </div>
         </form>
