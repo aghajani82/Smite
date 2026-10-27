@@ -12,6 +12,26 @@ type Role = 'iran' | 'foreign'
 interface PairingCapabilities {
   pairing_preview_enabled: boolean
   legacy_node_auth_enforced: boolean
+  node_registration_mode: 'legacy' | 'signed'
+}
+
+export type NodeRegistrationMode = 'unknown' | 'legacy' | 'signed'
+
+/** Never assume legacy registration is allowed when the Panel is unreachable. */
+export const useNodeRegistrationMode = (): NodeRegistrationMode => {
+  const [mode, setMode] = useState<NodeRegistrationMode>('unknown')
+  useEffect(() => {
+    const controller = new AbortController()
+    api.get<PairingCapabilities>('/node-pairing/capabilities', {
+      signal: controller.signal,
+      headers: { 'Cache-Control': 'no-store' },
+    }).then(({ data }) => {
+      setMode(data.node_registration_mode === 'signed' ? 'signed'
+        : data.node_registration_mode === 'legacy' ? 'legacy' : 'unknown')
+    }).catch(() => setMode('unknown'))
+    return () => controller.abort()
+  }, [])
+  return mode
 }
 
 /**
@@ -27,7 +47,7 @@ export const usePairingPreviewAvailability = (): boolean => {
       signal: controller.signal,
       headers: { 'Cache-Control': 'no-store' },
     }).then(({ data }) => {
-      setAvailable(data.pairing_preview_enabled === true && data.legacy_node_auth_enforced === false)
+      setAvailable(data.pairing_preview_enabled === true && data.legacy_node_auth_enforced === false && data.node_registration_mode === 'signed')
     }).catch(() => {
       // Older Panel, missing JWT or disabled preview: fail closed for UI.
       setAvailable(false)

@@ -43,13 +43,19 @@ class PreviewUIStaticTest(unittest.TestCase):
         self.assertIn("Pair (preview)", source)
         self.assertIn("does not secure the existing", source)
 
-    def test_both_role_pages_share_same_modal_without_altering_registration(self):
+    def test_iran_and_foreign_reservation_and_signed_fail_closed_ui(self):
         for path, role in ((NODES, "iran"), (SERVERS, "foreign")):
             with self.subTest(path=path):
                 source = path.read_text()
                 self.assertIn('NodePairingAction', source)
                 self.assertIn('role="' + role + '" enabled={pairingPreviewEnabled}', source)
                 self.assertIn("api.post('/nodes'", source)
+                self.assertIn("useNodeRegistrationMode()", source)
+                self.assertIn("registrationMode === 'legacy'", source)
+                self.assertIn("registrationMode === 'signed' && securePreview", source)
+                self.assertIn("api.post('/node-pairing/reserve'", source)
+                self.assertIn("role: '" + role + "'", source)
+                self.assertIn("disabled={registrationMode === 'unknown'", source)
 
     def test_backend_capability_is_authenticated_and_never_discloses_keys(self):
         source = API.read_text()
@@ -57,6 +63,7 @@ class PreviewUIStaticTest(unittest.TestCase):
         self.assertIn("Depends(auth.get_current_user)", source)
         self.assertIn('"pairing_preview_enabled": enabled', source)
         self.assertIn('"legacy_node_auth_enforced": False', source)
+        self.assertIn('"node_registration_mode": settings.smite_node_registration_mode', source)
         self.assertIn('_no_store(response)', source)
 
 

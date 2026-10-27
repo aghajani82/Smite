@@ -45,8 +45,9 @@ def _http_error(status_code: int, detail: str) -> HTTPException:
 
 
 class PairingReserveRequest(BaseModel):
-    # Only a name is supplied by admin; never self-asserted IPs or credentials.
+    # Only a name and immutable role; never trust supplied IPs or credentials.
     name: str = Field(min_length=2, max_length=64, pattern=r"^[A-Za-z0-9][A-Za-z0-9_.-]*$")
+    role: str = Field(pattern=r"^(iran|foreign)$")
 
 
 class PairingReserveResponse(BaseModel):
@@ -140,20 +141,24 @@ async def pairing_capabilities(
         enabled = False
     return {
         "pairing_preview_enabled": enabled,
+        "node_registration_mode": settings.smite_node_registration_mode,
         # Critical: the legacy Node register and Agent APIs are NOT guarded.
         "legacy_node_auth_enforced": False,
     }
 
 
 @router.post("/reserve", response_model=PairingReserveResponse, status_code=201)
-async def reserve_foreign_node(
+async def reserve_node(
     request: PairingReserveRequest,
     response: Response,
     admin: Admin = Depends(auth.get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    """Admin-only empty Foreign slot; no Node calls or legacy registration."""
+    """Admin-only empty role-bound slot; no Node calls or legacy registration."""
     _no_store(response)
+    if (settings.smite_node_registration_mode != "signed"
+            or settings.smite_panel_agent_auth_mode != "signed"):
+        raise _http_error(503, "Signed Node enrollment is not enabled")
     _require_preview()
     if not await run_in_threadpool(_schema_ready):
         raise _http_error(503, "Pairing database migration is required")
@@ -166,7 +171,7 @@ async def reserve_foreign_node(
             fingerprint="reserved-" + secrets.token_hex(16),
             status="pending",
             node_metadata={
-                "role": "foreign",
+                "role": request.role,
                 "node_name": request.name,
                 "provisioning": "reserved_for_pairing",
             },
