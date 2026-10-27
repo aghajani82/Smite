@@ -6,7 +6,8 @@ import psutil
 import time
 import logging
 from pathlib import Path
-from app.frp_gateway_config import frp_client_server_addr, frp_client_server_port, frp_standard_wss_host, frp_tls_transport_yaml
+from app.frp_gateway_config import frp_client_server_addr, frp_client_server_port, frp_standard_wss_host, frp_tls_transport_yaml, require_shared_frps_wss
+from app.frp_singleton_guard import assert_frps_control_port_available
 import shutil
 
 logger = logging.getLogger(__name__)
@@ -841,11 +842,21 @@ class FrpAdapter:
     
     def apply(self, tunnel_id: str, spec: Dict[str, Any]):
         """Apply FRP tunnel - supports both server and client modes"""
+        mode = spec.get('mode', 'client')
+        # Fail BEFORE removing a running client or writing its secret-bearing
+        # config. This also runs during boot restore, which calls adapter.apply.
+        require_shared_frps_wss(spec)
+        if mode == 'server' and frp_standard_wss_host():
+            # Fail BEFORE removing an existing owner, writing token-bearing
+            # configs, or spawning a second server. Never hijack :7000.
+            assert_frps_control_port_available(
+                tunnel_id=tunnel_id,
+                control_port=spec.get('bind_port', 7000),
+                shared_frps_owner=spec.get('shared_frps_owner'),
+            )
         if tunnel_id in self.processes:
             logger.info(f"FRP tunnel {tunnel_id} already exists, removing it first")
             self.remove(tunnel_id)
-        
-        mode = spec.get('mode', 'client')
         
         if mode == 'server':
             bind_port = spec.get('bind_port', 7000)
@@ -913,7 +924,7 @@ class FrpAdapter:
                 log_f.close()
                 raise RuntimeError("FRP server binary (frps) not found. Please install FRP.")
         else:
-            logger.info(f"FRP tunnel {tunnel_id} received spec: {spec}")
+            logger.info("FRP client tunnel %s received a client spec (contents redacted)", tunnel_id)
             
             server_addr = spec.get('server_addr', '').strip()
             server_addr = frp_client_server_addr(server_addr)
@@ -1447,6 +1458,22 @@ class AdapterManager:
             from app.engine_inventory import require_engine_ready
             require_engine_ready(tunnel_core)
 
+        if tunnel_core == "frp":
+            # The manager removes an existing tunnel before delegating to
+            # FrpAdapter. Validate shared-client WSS first so a misconfigured
+            # reapply cannot tear down the previous client process.
+            require_shared_frps_wss(spec)
+        if (tunnel_core == "frp" and spec.get("mode") == "server"
+                and frp_standard_wss_host()):
+            # AdapterManager used to remove the working owner BEFORE
+            # FrpAdapter's listener collision guard could run. Refuse
+            # owner Reapply or a second bind BEFORE any process removal.
+            assert_frps_control_port_available(
+                tunnel_id=tunnel_id,
+                control_port=spec.get("bind_port", 7000),
+                shared_frps_owner=spec.get("shared_frps_owner"),
+            )
+
         if tunnel_id in self.active_tunnels:
             logger.info(f"Tunnel {tunnel_id} already exists, removing it first")
             await self.remove_tunnel(tunnel_id)
@@ -1488,7 +1515,24 @@ class AdapterManager:
         return {"active": False}
     
     async def cleanup(self):
-        """Cleanup all tunnels"""
-        for tunnel_id in list(self.active_tunnels.keys()):
-            await self.remove_tunnel(tunnel_id)
+        """Stop active runtimes without forgetting tunnels during Node shutdown.
+
+        Explicit signed Remove remains responsible for deleting a tunnel's
+        durable configuration. The persisted tunnels.json MUST survive a
+        normal container recreation so restore_tunnels can bring FRP back.
+        Adapter.remove stops the child engine (and can unlink its generated
+        engine config), but this shutdown path never edits tunnel_configs or
+        writes tunnels.json. Continue stopping other engines on one failure.
+        """
+        for tunnel_id, adapter in list(self.active_tunnels.items()):
+            try:
+                adapter.remove(tunnel_id)
+            except Exception:
+                # Do not log exception text: engine errors may contain secrets.
+                logger.warning(
+                    "Failed to stop tunnel %s during shutdown; saved state preserved",
+                    tunnel_id,
+                )
+            else:
+                self.active_tunnels.pop(tunnel_id, None)
 

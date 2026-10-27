@@ -10,7 +10,7 @@ from sqlalchemy import select
 from app.database import AsyncSessionLocal
 from app.models import Node, Settings
 from app.config import settings
-from app.signed_agent_transport import signed_agent_call, SignedAgentUnavailable
+from app.signed_agent_transport import signed_agent_call, SignedAgentUnavailable, SignedAgentHTTPFailure
 from app.uopti_backhaul_dispatch import prepare_node_command
 from app.uopti_backhaul_standard import StandardBackhaulSpecError
 from app.signed_node_origins import approved_node, ApprovedOriginUnavailable
@@ -105,6 +105,11 @@ class NodeClient:
                 method=method, target=target, payload=payload, timeout=timeout,
                 gateway_control_url=gateway_control_url,
             )
+        except SignedAgentHTTPFailure as exc:
+            # Only the integer response code from the authenticated, pinned
+            # target is surfaced. Never expose a response body or URL.
+            return {"status": "error", "message":
+                    f"Signed Node rejected request (HTTP {exc.status_code})"}
         except (SignedAgentUnavailable, ApprovedOriginUnavailable, ValueError):
             # Never serialize tokens, raw authorization headers or TLS exceptions.
             return {"status": "error", "message": "Signed Node control unavailable"}
@@ -201,6 +206,40 @@ class NodeClient:
             return {"status": "unavailable", "message": "Managed inventory requires signed Node control"}
         return await self._signed_agent_request(
             node_id, method="GET", target="/api/agent/engines", timeout=3.0,
+        )
+
+    async def get_verified_frps_owners(self, node_id: str) -> Dict[str, Any]:
+        """Authenticated read-only evidence of the existing FRPS daemon.
+
+        Strict Signed control only; no legacy fallback, no signed POST and
+        no candidate token or other secret is exposed in the response.
+        """
+        if settings.smite_panel_agent_auth_mode != "signed":
+            return {"status": "error", "message": "Signed FRPS owner evidence unavailable"}
+        return await self._signed_agent_request(
+            node_id, method="GET", target="/api/agent/frp/owners",
+            timeout=3.0,
+        )
+
+    async def get_signed_sanaei_xhttp_inbounds(self, node_id: str) -> Dict[str, Any]:
+        """Strict read-only KH inventory; never downgrade to legacy transport."""
+        if settings.smite_panel_agent_auth_mode != "signed":
+            return {"status": "error", "message": "Signed XHTTP inventory unavailable"}
+        return await self._signed_agent_request(
+            node_id, method="GET", target="/api/agent/inbounds/xhttp", timeout=3.0,
+        )
+
+    async def forward_uopti_xhttp_route(self, node_id: str, intent: bytes) -> Dict[str, Any]:
+        """Forward one canonical broker envelope through the signed IR Node."""
+        import base64
+        if type(intent) is not bytes or not 0 < len(intent) <= 4096:
+            return {"status": "error", "message": "Invalid route intent"}
+        if settings.smite_panel_agent_auth_mode != "signed":
+            return {"status": "error", "message": "Signed Node control unavailable"}
+        payload = {"intent_b64": base64.b64encode(intent).decode("ascii")}
+        return await self._signed_agent_request(
+            node_id, method="POST", target="/api/agent/uopti/xhttp-route",
+            payload=payload, timeout=10.0,
         )
 
     async def get_tunnel_status(self, node_id: str, tunnel_id: str = "") -> Dict[str, Any]:

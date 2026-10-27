@@ -1,0 +1,28 @@
+name: Smite Panel XHTTP Route Intent (offline)
+
+on:
+  pull_request:
+    paths:
+      - 'panel/app/xhttp_route_intent.py'
+      - 'tests/test_panel_xhttp_route_intent.py'
+      - '.github/workflows/smite-signed-xhttp-route-intent.yml'
+  push:
+    branches:
+      - feature/smite-signed-xhttp-route-intent-20261026
+
+permissions:
+  contents: read
+
+jobs:
+  signed-intent-pure:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Compile standalone HMAC intent issuer and tests
+        run: python3 -m py_compile panel/app/xhttp_route_intent.py tests/test_panel_xhttp_route_intent.py
+      - name: Verify U-OPTI-compatible exact signed route intent
+        run: python3 -B tests/test_panel_xhttp_route_intent.py -v

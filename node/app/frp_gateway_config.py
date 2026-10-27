@@ -26,6 +26,29 @@ def frp_standard_wss_host():
     return hostname
 
 
+def require_shared_frps_wss(spec):
+    """Refuse a shared child if KH cannot use the configured WSS/443 edge.
+
+    This is a preflight for the EXISTING signed FRP child path; legacy
+    independent clients are unaffected. Call it before replacing processes
+    and again during cold-boot restore. No network or filesystem side effect.
+    """
+    if "shared_frps_owner" not in spec:
+        return
+    owner = spec.get("shared_frps_owner")
+    if not isinstance(owner, str) or not owner or spec.get("mode") != "client":
+        raise ValueError("Shared FRPS client owner or mode invalid")
+    host = frp_standard_wss_host()
+    if not host:
+        raise ValueError("Shared FRPS client requires configured WSS/443")
+    if spec.get("server_port") not in (7000, "7000"):
+        raise ValueError("Shared FRPS client control port invalid")
+    if spec.get("frp_gateway_port") not in (None, "", 443, "443"):
+        raise ValueError("Shared FRPS client must use WSS/443")
+    if spec.get("frp_tls_server_name") not in (None, "", host):
+        raise ValueError("Shared FRPS client SNI differs from configured WSS host")
+
+
 def frp_client_server_addr(original):
     return frp_standard_wss_host() or original
 
