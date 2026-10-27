@@ -1,4 +1,4 @@
-"""Offline Stage18 admin-only Foreign Node reservation tests.
+"""Offline admin-only role-bound signed Node reservation tests.
 
 No production lifespan, sockets, live nodes, Docker, Nginx or VPS.
 """
@@ -42,11 +42,15 @@ class ReservationTest(unittest.TestCase):
             settings.db_path, settings.smite_node_pairing_preview_enabled,
             settings.smite_node_pairing_master_key,
             settings.smite_node_pairing_ingress_token,
+            settings.smite_node_registration_mode,
+            settings.smite_panel_agent_auth_mode,
         )
         settings.db_path = str(self.path)
         settings.smite_node_pairing_preview_enabled = False
         settings.smite_node_pairing_master_key = Fernet.generate_key().decode()
         settings.smite_node_pairing_ingress_token = "ingress-" + "a" * 32
+        settings.smite_node_registration_mode = "signed"
+        settings.smite_panel_agent_auth_mode = "signed"
 
         self.app = FastAPI()
         self.app.include_router(node_pairing.router, prefix="/api/node-pairing")
@@ -62,14 +66,16 @@ class ReservationTest(unittest.TestCase):
         asyncio.run(self.engine.dispose())
         (settings.db_path, settings.smite_node_pairing_preview_enabled,
          settings.smite_node_pairing_master_key,
-         settings.smite_node_pairing_ingress_token) = self.old
+         settings.smite_node_pairing_ingress_token,
+         settings.smite_node_registration_mode,
+         settings.smite_panel_agent_auth_mode) = self.old
         self.tmp.cleanup()
 
     def admin(self):
         self.app.dependency_overrides[auth.get_current_user] = lambda: SimpleNamespace(id="admin-test")
 
-    def reserve(self, name="node-kh-01"):
-        return self.client.post("/api/node-pairing/reserve", json={"name": name})
+    def reserve(self, name="node-kh-01", role="foreign"):
+        return self.client.post("/api/node-pairing/reserve", json={"name": name, "role": role})
 
     def test_anonymous_denied_and_disabled_preview_stays_inert(self):
         self.assertIn(self.reserve().status_code, (401, 403))
@@ -106,6 +112,49 @@ class ReservationTest(unittest.TestCase):
         self.assertNotIn("node_secret", issued.text)
         with sqlite3.connect(self.path) as db:
             self.assertEqual(db.execute("SELECT count(*) FROM nodes").fetchone()[0], 1)
+
+    def test_iran_and_foreign_roles_are_immutable_in_pending_reservation(self):
+        self.admin()
+        settings.smite_node_pairing_preview_enabled = True
+        for role, name in (("iran", "node-ir-01"), ("foreign", "node-kh-02")):
+            with self.subTest(role=role):
+                response = self.reserve(name=name, role=role)
+                self.assertEqual(response.status_code, 201, response.text)
+                node_id = response.json()["node_id"]
+                with sqlite3.connect(self.path) as db:
+                    row = db.execute(
+                        "SELECT status, metadata FROM nodes WHERE id=?", (node_id,)
+                    ).fetchone()
+                self.assertEqual(row[0], "pending")
+                self.assertEqual(json.loads(row[1]), {
+                    "role": role,
+                    "node_name": name,
+                    "provisioning": "reserved_for_pairing",
+                })
+                issued = self.client.post("/api/node-pairing/issue", json={
+                    "node_id": node_id, "role": role, "ttl_seconds": 600,
+                })
+                self.assertEqual(issued.status_code, 200, issued.text)
+                mismatched = self.client.post("/api/node-pairing/issue", json={
+                    "node_id": node_id,
+                    "role": "foreign" if role == "iran" else "iran",
+                    "ttl_seconds": 600,
+                })
+                self.assertEqual(mismatched.status_code, 409)
+
+    def test_invalid_role_and_non_signed_registration_fail_closed(self):
+        self.admin()
+        settings.smite_node_pairing_preview_enabled = True
+        for role in ("", "IR", "other", "Iran", "foreign-admin"):
+            with self.subTest(role=role):
+                self.assertEqual(self.reserve(name="role-invalid", role=role).status_code, 422)
+        settings.smite_node_registration_mode = "legacy"
+        self.assertEqual(self.reserve().status_code, 503)
+        settings.smite_node_registration_mode = "signed"
+        settings.smite_panel_agent_auth_mode = "legacy"
+        self.assertEqual(self.reserve().status_code, 503)
+        with sqlite3.connect(self.path) as db:
+            self.assertEqual(db.execute("SELECT count(*) FROM nodes").fetchone()[0], 0)
 
     def test_invalid_names_and_missing_schema_fail_closed(self):
         self.admin()

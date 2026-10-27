@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { Plus, Copy, Trash2, CheckCircle, XCircle, Download, AlertCircle } from 'lucide-react'
 import api from '../api/client'
-import { NodePairingAction, usePairingPreviewAvailability } from '../components/NodePairingAction'
+import { NodePairingAction, usePairingPreviewAvailability, useNodeRegistrationMode, type NodeRegistrationMode } from '../components/NodePairingAction'
 import { useLanguage } from '../contexts/LanguageContext'
 
 interface Node {
@@ -19,6 +19,7 @@ const Nodes = () => {
   const [nodes, setNodes] = useState<Node[]>([])
   const [loading, setLoading] = useState(true)
   const pairingPreviewEnabled = usePairingPreviewAvailability()
+  const registrationMode = useNodeRegistrationMode()
   const [showAddModal, setShowAddModal] = useState(false)
   const [showCertModal, setShowCertModal] = useState(false)
   const [certContent, setCertContent] = useState<string>('')
@@ -271,6 +272,8 @@ const Nodes = () => {
       {showAddModal && (
         <AddNodeModal
           onClose={() => setShowAddModal(false)}
+          registrationMode={registrationMode}
+          securePreview={pairingPreviewEnabled}
           onSuccess={() => {
             setShowAddModal(false)
             fetchNodes()
@@ -294,9 +297,11 @@ const Nodes = () => {
 interface AddNodeModalProps {
   onClose: () => void
   onSuccess: () => void
+  registrationMode: NodeRegistrationMode
+  securePreview: boolean
 }
 
-const AddNodeModal = ({ onClose, onSuccess }: AddNodeModalProps) => {
+const AddNodeModal = ({ onClose, onSuccess, registrationMode, securePreview }: AddNodeModalProps) => {
   const { t } = useLanguage()
   const [name, setName] = useState('')
   const [ipAddress, setIpAddress] = useState('')
@@ -305,23 +310,32 @@ const AddNodeModal = ({ onClose, onSuccess }: AddNodeModalProps) => {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     try {
-      await api.post('/nodes', { 
-        name, 
-        ip_address: ipAddress, 
-        api_port: parseInt(apiPort) || 8888,
-        metadata: {} 
-      })
+      if (registrationMode === 'signed' && securePreview) {
+        await api.post('/node-pairing/reserve', { name, role: 'iran' }, {
+          headers: { 'Cache-Control': 'no-store' },
+        })
+      } else if (registrationMode === 'legacy') {
+        await api.post('/nodes', {
+          name, ip_address: ipAddress, api_port: parseInt(apiPort) || 8888,
+          metadata: { role: 'iran' },
+        })
+      } else {
+        // Never downgrade to unsigned registration on missing readiness.
+        return
+      }
       onSuccess()
     } catch (error) {
-      console.error('Failed to add node:', error)
-      alert('Failed to add node')
+      console.error('Node reservation failed')
+      alert('Node registration unavailable. Verify signed pairing readiness.')
     }
   }
 
   return (
     <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
       <div className="bg-white dark:bg-gray-800 rounded-lg p-6 w-full max-w-md">
-        <h2 className="text-xl font-bold text-gray-900 dark:text-white mb-4">{t.nodes.addNode}</h2>
+        <h2 className="text-xl font-bold text-gray-900 dark:text-white mb-4">{registrationMode === 'signed' ? 'Prepare secure Iran Node' : t.nodes.addNode}</h2>
+        {registrationMode === 'signed' && <p className="text-sm text-gray-600 dark:text-gray-300 mb-4">{securePreview ? 'Reserve by name, then complete one-time HTTPS/443 pairing.' : 'Secure pairing is not ready. No legacy IP/port registration will be attempted.'}</p>}
+        {registrationMode === 'unknown' && <p className="text-sm text-red-600 mb-4">Panel enrollment readiness could not be verified. Registration is paused.</p>}
         <form onSubmit={handleSubmit} className="space-y-4">
           <div>
             <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
@@ -335,6 +349,7 @@ const AddNodeModal = ({ onClose, onSuccess }: AddNodeModalProps) => {
               required
             />
           </div>
+          {registrationMode === 'legacy' && <>
           <div>
             <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
               IP Address
@@ -363,6 +378,7 @@ const AddNodeModal = ({ onClose, onSuccess }: AddNodeModalProps) => {
               required
             />
           </div>
+          </>}
           <div className="flex gap-3 justify-end">
             <button
               type="button"
@@ -373,9 +389,10 @@ const AddNodeModal = ({ onClose, onSuccess }: AddNodeModalProps) => {
             </button>
             <button
               type="submit"
-              className="px-5 py-2.5 bg-gradient-to-r from-blue-600 to-indigo-600 text-white rounded-lg hover:from-blue-700 hover:to-indigo-700 transition-all duration-200 font-medium shadow-sm hover:shadow-md"
+              disabled={registrationMode === 'unknown' || (registrationMode === 'signed' && !securePreview)}
+              className="disabled:opacity-50 disabled:cursor-not-allowed px-5 py-2.5 bg-gradient-to-r from-blue-600 to-indigo-600 text-white rounded-lg hover:from-blue-700 hover:to-indigo-700 transition-all duration-200 font-medium shadow-sm hover:shadow-md"
             >
-              {t.nodes.addNode}
+              {registrationMode === 'signed' ? 'Reserve secure Node' : t.nodes.addNode}
             </button>
           </div>
         </form>
