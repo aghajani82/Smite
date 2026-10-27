@@ -118,8 +118,22 @@ class TunnelReapplyManager:
                 }
             )
             
+            from app.config import settings
+
             for tunnel in tunnels:
                 try:
+                    # Historical auto-Reapply is not lease/owner-aware. In the
+                    # signed managed RC, FRP is exclusively Node-owned and
+                    # must never be restarted by this timer.
+                    if (tunnel.core == "frp"
+                            and settings.smite_engine_management_mode == "managed"
+                            and settings.smite_panel_agent_auth_mode == "signed"):
+                        logger.info(
+                            "Skipping automatic signed managed FRP timer Apply for %s",
+                            tunnel.id,
+                        )
+                        continue
+
                     is_reverse_tunnel = tunnel.core in {"rathole", "backhaul", "chisel", "frp"}
                     
                     if is_reverse_tunnel:

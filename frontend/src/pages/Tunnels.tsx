@@ -3,6 +3,7 @@ import { Plus, Trash2, Edit2, RotateCw } from 'lucide-react'
 import api from '../api/client'
 import { parseAddressPort, formatAddressPort } from '../utils/addressUtils'
 import { parseInboundPorts } from '../utils/inboundPorts'
+import { isSharedFrpsChild as isSharedFrpsChildSpec, sharedChildRenamePayload } from '../utils/frpSharedChildEdit'
 import { useLanguage } from '../contexts/LanguageContext'
 
 interface Tunnel {
@@ -178,7 +179,7 @@ const getBackhaulDisplayInfo = (spec: Record<string, any> | undefined): Backhaul
 }
 
 const Tunnels = () => {
-  const { t } = useLanguage()
+  const { t, dir } = useLanguage()
   const [tunnels, setTunnels] = useState<Tunnel[]>([])
   const [nodes, setNodes] = useState<any[]>([])
   const [servers, setServers] = useState<any[]>([])
@@ -232,10 +233,71 @@ const Tunnels = () => {
     }
   }
 
+  const verifySharedFrpProxy = async (tunnel: Tunnel) => {
+    try {
+      const response = await api.post(`/tunnels/${tunnel.id}/verify-proxy`)
+      fetchData()
+      if (response.data?.status !== 'active') {
+        alert('Shared FRPS proxy is not listening on IR yet. No restart or reapply was performed.')
+      }
+    } catch (error: any) {
+      alert(error.response?.data?.detail || 'Unable to verify the shared FRPS proxy')
+    }
+  }
+
+  const registerXhttpRoute = async (tunnel: Tunnel) => {
+    let grantContext: Record<string, string | number> | null = null
+    try {
+      const inventory = await api.get(`/tunnels/${tunnel.id}/uopti-xhttp-inbounds`)
+      const choices = inventory.data?.inbounds
+      if (!Array.isArray(choices) || choices.length === 0) {
+        alert(dir === 'rtl' ? 'هیچ ورودی فعال VLESS/XHTTP روی KH پیدا نشد.' : 'No enabled VLESS/XHTTP inbound was found on KH.')
+        return
+      }
+      const labels = choices.map((item: any) => `${item.port}  ${item.path}`).join('\n')
+      const answer = prompt(
+        (dir === 'rtl'
+          ? `پورت ورودی KH را از فهرست انتخاب کن:\n${labels}\n\nپورت:`
+          : `Choose a KH inbound from this signed inventory:\n${labels}\n\nPort:`),
+        String(choices[0].port),
+      )
+      if (answer === null) return
+      const port = Number(answer.trim())
+      if (!Number.isInteger(port) || !choices.some((item: any) => item.port === port)) {
+        alert(dir === 'rtl' ? 'پورت انتخاب‌شده در فهرست معتبر نیست.' : 'The selected port is not in the verified inventory.')
+        return
+      }
+      const selectedInbound = choices.find((item: any) => item.port === port)
+      grantContext = {
+        ir_node: tunnel.iran_node_id || tunnel.node_id || '',
+        kh_node: tunnel.foreign_node_id || '',
+        owner: tunnel.spec?.shared_frps_owner || '',
+        child: tunnel.id,
+        lease: tunnel.id,
+        port,
+        path: selectedInbound.path,
+      }
+      const result = await api.post(`/tunnels/${tunnel.id}/uopti-xhttp-route`, { inbound_port: port })
+      alert(result.data?.status === 'success'
+        ? (dir === 'rtl' ? 'مسیر XHTTP ثبت شد.' : 'XHTTP route registered.')
+        : (dir === 'rtl' ? 'ثبت مسیر تأیید نشد؛ وضعیت را بررسی کن.' : 'Route registration was not confirmed; verify current state.'))
+    } catch (error: any) {
+      if (error.response?.data?.detail === 'ROOT_OPERATOR_GRANT_REQUIRED' && grantContext) {
+        const command = 'sudo python3 -B /usr/local/lib/u-opti/modules/smite-rc5-xhttp-broker-provision.py --approve-grant --confirm-local-root'
+        const facts = Object.entries(grantContext).map(([key, value]) => `${key}: ${value}`).join('\n')
+        alert(dir === 'rtl'
+          ? `این درخواست هنوز هیچ مسیری نساخته و Nonce مصرف نشده است. روی ترمینال IR، شواهد Signed فعلی Owner، Inbound سنایی KH و Lease را با این مقادیر تطبیق بده؛ سپس دستور را اجرا و اطلاعات را وارد کن. بعد از PASS، همین عملیات را دوباره از پنل انجام بده.\n\n${command}\n\n${facts}`
+          : `No route was changed and no nonce was consumed. On IR, compare the current signed Owner proof, KH Sanaei inbound and active lease with these values, then run the command and enter them. After PASS, repeat this action in the Panel.\n\n${command}\n\n${facts}`)
+      } else {
+        alert(error.response?.data?.detail || (dir === 'rtl' ? 'ثبت مسیر XHTTP انجام نشد.' : 'XHTTP route registration failed.'))
+      }
+    }
+  }
+
   const reapplyTunnel = async (tunnel: Tunnel) => {
     try {
       const response = await api.post(`/tunnels/${tunnel.id}/apply`)
-      if (response.data && response.data.status === 'success') {
+      if (response.data && ['success', 'applied'].includes(response.data.status)) {
         fetchData()
       } else {
         throw new Error(response.data?.message || 'Failed to reapply tunnel')
@@ -473,6 +535,26 @@ const Tunnels = () => {
 
                 {/* Action Buttons */}
                 <div className="flex gap-2 shrink-0">
+                  {tunnel.core === 'frp' && Boolean(tunnel.spec?.shared_frps_owner) && (
+                    <>
+                      <button
+                        onClick={() => verifySharedFrpProxy(tunnel)}
+                        className="px-2.5 py-2 text-sm font-semibold text-blue-700 dark:text-blue-300 hover:bg-blue-50 dark:hover:bg-blue-900/20 rounded-lg"
+                        title="Signed read-only FRPS proxy verification; no reapply"
+                      >
+                        Verify
+                      </button>
+                      {tunnel.status === 'active' && (
+                        <button
+                          onClick={() => registerXhttpRoute(tunnel)}
+                          className="px-2.5 py-2 text-sm font-semibold text-indigo-700 dark:text-indigo-300 hover:bg-indigo-50 dark:hover:bg-indigo-900/20 rounded-lg"
+                          title="Register one verified KH XHTTP inbound through U-OPTI"
+                        >
+                          XHTTP
+                        </button>
+                      )}
+                    </>
+                  )}
                   <button
                     onClick={() => reapplyTunnel(tunnel)}
                     className="p-2.5 text-green-600 hover:bg-green-50 dark:hover:bg-green-900/20 rounded-lg transition-colors"
@@ -505,10 +587,22 @@ const Tunnels = () => {
         <AddTunnelModal
           nodes={nodes}
           servers={servers}
+          tunnels={tunnels}
           onClose={() => setShowAddModal(false)}
           onSuccess={() => {
             setShowAddModal(false)
             fetchData()
+          }}
+          onCreatedTunnel={async (tunnel) => {
+            setShowAddModal(false)
+            fetchData()
+            if (tunnel.status === 'active' && tunnel.spec?.shared_frps_owner) {
+              await registerXhttpRoute(tunnel)
+            } else {
+              alert(dir === 'rtl'
+                ? 'فرزند FRP ساخته شد، اما هنوز فعال نیست؛ مسیر XHTTP ثبت نشد. بعد از تأیید فعال‌بودن، از دکمه XHTTP کنار همان Child ادامه بده.'
+                : 'The FRP child was created but is not active yet, so no XHTTP route was attempted. After it becomes active, continue with the XHTTP button on that child.')
+            }
           }}
         />
       )}
@@ -537,6 +631,7 @@ interface EditTunnelModalProps {
 
 const EditTunnelModal = ({ tunnel, onClose, onSuccess }: EditTunnelModalProps) => {
   const { t } = useLanguage()
+  const isSharedFrpsChild = isSharedFrpsChildSpec(tunnel.core, tunnel.spec)
   const forwardToParsed = tunnel.spec?.forward_to ? parseAddressPort(tunnel.spec.forward_to) : null
   const remoteIp = tunnel.spec?.remote_ip || forwardToParsed?.host || '127.0.0.1'
   const remotePort = tunnel.spec?.remote_port || forwardToParsed?.port || 8080
@@ -584,7 +679,8 @@ const EditTunnelModal = ({ tunnel, onClose, onSuccess }: EditTunnelModalProps) =
     rathole_local_port: tunnel.spec?.local_port?.toString() || '',
     chisel_control_port: tunnel.spec?.control_port ? tunnel.spec.control_port.toString() : '',
     frp_bind_port: tunnel.spec?.bind_port ? tunnel.spec.bind_port.toString() : '7000',
-    frp_token: tunnel.spec?.token || '',
+    // Shared children never own or edit the FRPS credential.
+    frp_token: isSharedFrpsChild ? '' : (tunnel.spec?.token || ''),
     frp_local_ip: tunnel.spec?.local_ip || '127.0.0.1',
     node_ipv6: tunnel.spec?.node_ipv6 || '',
   })
@@ -596,6 +692,13 @@ const EditTunnelModal = ({ tunnel, onClose, onSuccess }: EditTunnelModalProps) =
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     try {
+      if (isSharedFrpsChild) {
+        // RC5 backend forbids spec updates to shared FRP children (HTTP 409).
+        // Rename-only: do not fabricate a token, control port, or port list.
+        await api.put(`/tunnels/${tunnel.id}`, sharedChildRenamePayload(formData.name))
+        onSuccess()
+        return
+      }
       let updatedSpec = { ...tunnel.spec }
       
       const useV4ToV6 = updatedSpec.use_ipv6 || false
@@ -873,7 +976,15 @@ const EditTunnelModal = ({ tunnel, onClose, onSuccess }: EditTunnelModalProps) =
             </>
           )}
           
-          {tunnel.core === 'frp' && (
+          {tunnel.core === 'frp' && (isSharedFrpsChild ? (
+            <div role="note" className="rounded-lg border border-blue-200 bg-blue-50 p-3 text-sm text-blue-950 dark:border-blue-800 dark:bg-blue-900/20 dark:text-blue-100">
+              <p className="font-semibold">Shared FRPS child — rename only</p>
+              <p className="mt-1">This proxy uses the existing FRPS owner. Its control port, token and inbound port cannot be edited here.</p>
+              <p className="mt-2">Owner ID: <code className="break-all">{tunnel.spec.shared_frps_owner}</code></p>
+              <p>Inbound port: <strong>{formData.ports}</strong> · FRPS control: 7000</p>
+              <p className="mt-1">To change the inbound port, use the verified remove/add-child workflow. Do not restart the FRPS owner.</p>
+            </div>
+          ) : (
             <>
               <div className="grid grid-cols-2 gap-4">
                 <div>
@@ -920,7 +1031,8 @@ const EditTunnelModal = ({ tunnel, onClose, onSuccess }: EditTunnelModalProps) =
                   Token (Optional - Auto-generated if empty)
                 </label>
                 <input
-                  type="text"
+                  type="password"
+                  autoComplete="off"
                   value={formData.frp_token}
                   onChange={(e) =>
                     setFormData({ ...formData, frp_token: e.target.value })
@@ -931,7 +1043,7 @@ const EditTunnelModal = ({ tunnel, onClose, onSuccess }: EditTunnelModalProps) =
                 <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">Authentication token (will be auto-generated if not provided)</p>
               </div>
             </>
-          )}
+          ))}
           
           {/* Node IPv6 address field for Rathole when v4 to v6 is enabled */}
           {tunnel.core === 'rathole' && tunnel.spec?.use_ipv6 && (
@@ -984,11 +1096,13 @@ const EditTunnelModal = ({ tunnel, onClose, onSuccess }: EditTunnelModalProps) =
 interface AddTunnelModalProps {
   nodes: any[]
   servers: any[]
+  tunnels: Tunnel[]
   onClose: () => void
   onSuccess: () => void
+  onCreatedTunnel: (tunnel: Tunnel) => Promise<void>
 }
 
-const AddTunnelModal = ({ nodes, servers, onClose, onSuccess }: AddTunnelModalProps) => {
+const AddTunnelModal = ({ nodes, servers, tunnels, onClose, onSuccess, onCreatedTunnel }: AddTunnelModalProps) => {
   const { t, dir } = useLanguage()
   const [showTechnicalSettings, setShowTechnicalSettings] = useState(false)
   const [creating, setCreating] = useState(false)
@@ -1006,6 +1120,7 @@ const AddTunnelModal = ({ nodes, servers, onClose, onSuccess }: AddTunnelModalPr
     chisel_control_port: '',  // Empty means auto (listen_port + 10000)
     frp_bind_port: '7000',
     frp_token: '',
+    frp_shared_owner: '',
     frp_local_ip: '127.0.0.1',
     use_ipv6: false,
     node_ipv6: '',  // Optional IPv6 address for node (Rathole/Chisel)
@@ -1023,6 +1138,12 @@ const AddTunnelModal = ({ nodes, servers, onClose, onSuccess }: AddTunnelModalPr
     engines: Record<string, string>
   }>({ pair: '', mode: 'loading', engines: {} })
   const selectedPair = `${formData.iran_node_id || formData.node_id}|${formData.foreign_node_id}`
+  const eligibleFrpsOwners = tunnels.filter(x =>
+    x.core === 'frp' && x.type === 'tcp' && x.status === 'active'
+    && (x.iran_node_id || x.node_id) === (formData.iran_node_id || formData.node_id)
+    && x.foreign_node_id === formData.foreign_node_id
+    && !x.spec?.shared_frps_owner && Number(x.spec?.bind_port || 7000) === 7000
+  )
   useEffect(() => {
     let cancelled = false
     const iran_node_id = formData.iran_node_id || formData.node_id
@@ -1194,7 +1315,20 @@ const AddTunnelModal = ({ nodes, servers, onClose, onSuccess }: AddTunnelModalPr
         spec.ports = ports
         spec.listen_port = ports[0]
         spec.remote_port = ports[0]
-        if (formData.frp_token) {
+        if (formData.frp_shared_owner) {
+          if (formData.type !== 'tcp' || ports.length !== 1) {
+            alert(dir === 'rtl' ? 'برای FRPS مشترک فقط یک پورت TCP انتخاب کن.' : 'Shared FRPS requires exactly one TCP port.')
+            return
+          }
+          if (!eligibleFrpsOwners.some(x => x.id === formData.frp_shared_owner)) {
+            alert(dir === 'rtl' ? 'مالک FRPS فعال و معتبر انتخاب نشده.' : 'Choose a valid active FRPS owner.')
+            return
+          }
+          spec.shared_frps_owner = formData.frp_shared_owner
+        } else if (eligibleFrpsOwners.length > 0 && engineReadiness.mode === 'managed') {
+          alert(dir === 'rtl' ? 'FRPS فعال وجود دارد. برای پورت جدید مالک فعلی را انتخاب کن.' : 'An FRPS owner is already active; attach the new proxy to it.')
+          return
+        } else if (formData.frp_token) {
           spec.token = formData.frp_token
         }
         spec.local_ip = formData.frp_local_ip || '127.0.0.1'
@@ -1213,8 +1347,14 @@ const AddTunnelModal = ({ nodes, servers, onClose, onSuccess }: AddTunnelModalPr
         spec: spec,
       }
       setCreating(true)
-      await api.post('/tunnels', payload)
-      onSuccess()
+      const response = await api.post('/tunnels', payload)
+      const createdTunnel = response.data as Tunnel | undefined
+      if (formData.core === 'frp' && Boolean(formData.frp_shared_owner)
+          && createdTunnel?.id) {
+        await onCreatedTunnel(createdTunnel)
+      } else {
+        onSuccess()
+      }
     } catch (error) {
       console.error('Failed to create tunnel:', error)
       alert('Failed to create tunnel')
@@ -1565,6 +1705,26 @@ const AddTunnelModal = ({ nodes, servers, onClose, onSuccess }: AddTunnelModalPr
           
           {formData.core === 'frp' && (
             <>
+              {engineReadiness.mode === 'managed' && (
+                <div className="rounded-lg border border-blue-200 dark:border-blue-800 p-3">
+                  <label className="block text-sm font-semibold text-gray-800 dark:text-gray-100 mb-2">
+                    {dir === 'rtl' ? 'مدیریت FRPS / افزودن پورت' : 'FRPS owner / add port'}
+                  </label>
+                  <select value={formData.frp_shared_owner}
+                    onChange={e => setFormData({...formData, frp_shared_owner:e.target.value, frp_token:''})}
+                    className="w-full px-3 py-2 border rounded-lg dark:bg-gray-700 dark:text-white">
+                    <option value="">{dir === 'rtl' ? 'راه‌اندازی FRPS جدید (فقط اولین تانل)' : 'Create first FRPS only'}</option>
+                    {eligibleFrpsOwners.map(owner => (
+                      <option key={owner.id} value={owner.id}>{owner.name}</option>
+                    ))}
+                  </select>
+                  <p className="mt-2 text-xs text-gray-600 dark:text-gray-300">
+                    {dir === 'rtl'
+                      ? 'برای پورت دوم و بعدی، FRPS فعال را انتخاب کن؛ هیچ FRPS جدیدی روی ایران ساخته نمی‌شود.'
+                      : 'For second and later ports, select the running owner; no second IR FRPS will be launched.'}
+                  </p>
+                </div>
+              )}
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 {showTechnicalSettings && <div>
                   <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
@@ -1605,7 +1765,7 @@ const AddTunnelModal = ({ nodes, servers, onClose, onSuccess }: AddTunnelModalPr
                   </p>
                 </div>
               </div>
-              {showTechnicalSettings && <div>
+              {showTechnicalSettings && !formData.frp_shared_owner && <div>
                 <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
                   Token (Optional - Auto-generated if empty)
                 </label>

@@ -70,6 +70,79 @@ class ManagedRestartTest(unittest.IsolatedAsyncioTestCase):
         self.adapter.remove.assert_not_called()
         self.adapter.apply.assert_not_called()
 
+    async def test_graceful_shutdown_preserves_frp_persistence_for_next_boot(self):
+        """Regression: RC3 shutdown erased KH FRPC tunnels.json on recreate."""
+        import json
+        from hashlib import sha256
+
+        record = {
+            "core": "frp",
+            "spec": {"mode": "client", "local_port": 45121, "remote_port": 45121},
+        }
+        self.manager.tunnel_configs = {"trial-frp-45121": record}
+        self.manager.active_tunnels = {"trial-frp-45121": self.adapter}
+        self.manager._save_tunnels = AdapterManager._save_tunnels.__get__(self.manager)
+        self.manager._save_tunnels()
+        before = self.manager.tunnels_file.read_bytes()
+        before_hash = sha256(before).hexdigest()
+
+        await self.manager.cleanup()
+
+        self.adapter.remove.assert_called_once_with("trial-frp-45121")
+        self.assertEqual(self.manager.active_tunnels, {})
+        self.assertEqual(self.manager.tunnel_configs, {"trial-frp-45121": record})
+        self.assertEqual(sha256(self.manager.tunnels_file.read_bytes()).hexdigest(), before_hash)
+        self.assertEqual(json.loads(self.manager.tunnels_file.read_text()),
+                         {"trial-frp-45121": record})
+
+        # Simulate a fresh Node process: reload exactly the same mounted volume.
+        cold_boot = object.__new__(AdapterManager)
+        cold_boot.config_dir = self.manager.config_dir
+        cold_boot.tunnels_file = self.manager.tunnels_file
+        cold_boot.tunnel_configs = {}
+        cold_boot.active_tunnels = {}
+        cold_boot.get_adapter = Mock(return_value=self.adapter)
+        self.adapter.reset_mock()
+        with patch("app.engine_inventory.require_engine_ready") as enrolled:
+            await cold_boot.restore_tunnels()
+        enrolled.assert_called_once_with("frp")
+        self.adapter.apply.assert_called_once_with(
+            "trial-frp-45121", record["spec"])
+        self.assertIn("trial-frp-45121", cold_boot.active_tunnels)
+
+    async def test_failed_shutdown_stop_cannot_erase_saved_specs(self):
+        import json
+        record = {"core": "frp", "spec": {"mode": "client"}}
+        self.manager.tunnel_configs = {"saved": record}
+        self.manager.active_tunnels = {"saved": self.adapter}
+        self.manager._save_tunnels = AdapterManager._save_tunnels.__get__(self.manager)
+        self.manager._save_tunnels()
+        before = self.manager.tunnels_file.read_bytes()
+        self.adapter.remove.side_effect = RuntimeError("redact-secret-material")
+
+        await self.manager.cleanup()
+
+        self.assertEqual(self.manager.tunnels_file.read_bytes(), before)
+        self.assertEqual(self.manager.tunnel_configs, {"saved": record})
+        self.assertIn("saved", self.manager.active_tunnels)
+        self.assertEqual(json.loads(self.manager.tunnels_file.read_text()),
+                         {"saved": record})
+
+    async def test_explicit_remove_still_deletes_saved_tunnel(self):
+        import json
+        record = {"core": "frp", "spec": {"mode": "client"}}
+        self.manager.tunnel_configs = {"saved": record}
+        self.manager.active_tunnels = {"saved": self.adapter}
+        self.manager._save_tunnels = AdapterManager._save_tunnels.__get__(self.manager)
+        self.manager._save_tunnels()
+
+        await self.manager.remove_tunnel("saved")
+
+        self.adapter.remove.assert_called_once_with("saved")
+        self.assertEqual(json.loads(self.manager.tunnels_file.read_text()), {})
+        self.assertEqual(self.manager.tunnel_configs, {})
+        self.assertEqual(self.manager.active_tunnels, {})
+
     async def test_legacy_restore_keeps_stable_behavior(self):
         settings.smite_engine_inventory_mode = "legacy"
         with patch("app.engine_inventory.require_engine_ready",

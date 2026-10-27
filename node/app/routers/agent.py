@@ -5,6 +5,7 @@ from app.engine_inventory import engine_inventory, require_engine_ready, EngineI
 from pydantic import BaseModel
 from typing import Dict, Any
 import logging
+from starlette.concurrency import run_in_threadpool
 
 # Strict mode gates status AND Apply/Remove without route-level bypass.
 # Default legacy mode intentionally preserves current Node interoperability.
@@ -22,6 +23,10 @@ class TunnelApply(BaseModel):
 
 class TunnelRemove(BaseModel):
     tunnel_id: str
+
+
+class UoptiRouteIntent(BaseModel):
+    intent_b64: str
 
 
 @router.post("/tunnels/apply")
@@ -86,6 +91,64 @@ async def get_status(request: Request):
         "active_tunnels": len(adapter_manager.active_tunnels),
         "tunnels": list(adapter_manager.active_tunnels.keys())
     }
+
+
+@router.get("/frp/owners")
+async def signed_frps_owners(request: Request):
+    """Read-only, auth-required proof of the ONE local FRPS owner."""
+    from app.config import settings
+    from app.frp_owner_status import active_signed_frps_owners
+    if settings.smite_agent_auth_mode != "strict":
+        # Not a legacy HMAC or anonymous discovery API.
+        raise HTTPException(409, detail="Signed FRPS owner evidence unavailable")
+    owners = active_signed_frps_owners(request.app.state.adapter_manager)
+    return {"status": "success", "owners": owners}
+
+
+@router.get("/inbounds/xhttp")
+async def get_signed_xhttp_inbounds():
+    """KH-only, explicit opt-in, read-only, no identifiers or client secrets."""
+    from app.config import settings
+    from app.sanaei_inbound_inventory import (
+        list_approved_xhttp_inbounds, SanaeiInventoryUnavailable,
+    )
+    if (settings.smite_agent_auth_mode != "strict"
+            or settings.node_role != "foreign"
+            or not settings.smite_sanaei_inventory_enabled):
+        raise HTTPException(409, detail="Signed Sanaei inventory unavailable")
+    try:
+        items = list_approved_xhttp_inbounds(settings.smite_sanaei_db_path)
+    except SanaeiInventoryUnavailable as exc:
+        raise HTTPException(503, detail="Sanaei inventory unavailable") from exc
+    return {"status": "success", "schema_version": 1, "inbounds": items}
+
+
+@router.post("/uopti/xhttp-route")
+async def forward_uopti_xhttp_route(data: UoptiRouteIntent):
+    """Forward one Panel-signed intent to the local root broker over UDS."""
+    from app.config import settings
+    from app.uopti_route_broker_client import (
+        BrokerForwardUnavailable, BrokerRootGrantRequired,
+        decode_intent_b64, forward_route_intent,
+    )
+    if (settings.smite_agent_auth_mode != "strict"
+            or settings.node_role != "iran"
+            or not settings.smite_uopti_route_broker_enabled):
+        raise HTTPException(409, detail="U-OPTI route broker unavailable")
+    try:
+        wire = decode_intent_b64(data.intent_b64)
+        await run_in_threadpool(
+            forward_route_intent, wire, settings.smite_uopti_route_broker_socket,
+        )
+    except BrokerRootGrantRequired as exc:
+        # This exact response is emitted only before nonce consumption or
+        # route mutation; it safely directs the operator to the separate
+        # root-only per-child approval command.
+        raise HTTPException(409, detail="ROOT_OPERATOR_GRANT_REQUIRED") from exc
+    except BrokerForwardUnavailable as exc:
+        # Do not expose broker internals or retry an ambiguous host transaction.
+        raise HTTPException(503, detail="U-OPTI route broker HOLD") from exc
+    return {"status": "success", "result": "route_added"}
 
 
 @router.get("/engines")
