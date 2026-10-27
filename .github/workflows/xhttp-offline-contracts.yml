@@ -1,0 +1,32 @@
+name: XHTTP Offline Contracts (Source-only)
+
+on:
+  pull_request:
+    paths:
+      - 'scripts/smite_xhttp_nginx_plan.py'
+      - 'tests/test_smite_xhttp_nginx_plan.py'
+      - 'panel/app/xhttp_route_intent.py'
+      - 'tests/test_panel_xhttp_route_intent.py'
+      - '.github/workflows/xhttp-offline-contracts.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  safe-contracts:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Verify source-only Python compiles
+        run: |
+          python -B -m py_compile scripts/smite_xhttp_nginx_plan.py tests/test_smite_xhttp_nginx_plan.py
+          python -B -m py_compile panel/app/xhttp_route_intent.py tests/test_panel_xhttp_route_intent.py
+      - name: Refuse unsafe path, port, prefix or unverified FRPS listener
+        run: python -B tests/test_smite_xhttp_nginx_plan.py -v
+      - name: Verify canonical HMAC intent and fail-closed invalid bindings
+        run: python -B tests/test_panel_xhttp_route_intent.py -v
