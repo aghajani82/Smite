@@ -34,6 +34,27 @@ This file is the canonical **delivery-status board** for the Smite repository. E
 
 **Source of truth:** this board is the only active milestone list. Keep U-OPTI Issue #47 as historical audit/handoff pointer; do not create new staged PR chains or redundant work trackers. Old #20/#32 are closed after verified source promotion; use main #37 and immutable paired images for lab tests. Branch deletion and live server changes are intentionally out of scope.
 
+## Disposable rebuild package lock — verified 2026-10-27
+
+**Decision:** Smite and U-OPTI feature source integration is complete for the requested **Standard IR→KH→Sanaei→FRP/XHTTP** lab path; no further feature-branch code promotion is required before the disposable reinstall. This **does not** certify runtime/pairing/live traffic or authorize Grandoptical/production changes.
+
+**Latest tested paired offline image artifact:**
+
+| Evidence | Exact value |
+| --- | --- |
+| Smite source-built commit (PR #37) | `4e16633a304db6c03f7f2911cc7d77213b0c4ec1` |
+| Corresponding CI run | [Stage15 offline Panel+Node run 40461876836](https://github.com/aghajani82/Smite/actions/runs/40461876836), SUCCESS on 2026-10-27 |
+| ZIP artifact | `smite-stage15-offline-images-4e16633a304db6c03f7f2911cc7d77213b0c4ec1` (artifact ID `12714389112`) |
+| GitHub-reported ZIP SHA256 | `2bda0c80aa77ce6fa6bd1af0a4ed0d8fccfad670915dfd2f56a6120b08d19a71` |
+| Independent workflow log SHA256 of `stage15-images.json` | `fe32c9c54714cfdb482f27112829eba13d5188e9e1e7e26c7266d8d54e85462a` |
+| Artifact expires | **2026-10-30 06:36 UTC**; save securely off both VPSs before rebuilding |
+| Exact published Smite main source-equivalence check | Main `fd31105bf52b699687e32b7268df17c7c980b484` differs from build source **only** in this Markdown delivery board; all 226 other tracked source/CI/test file blobs matched |
+| U-OPTI installer verified on main | `cb72d42af7bc78e18152588bdc8562d96b454f07`; Clean-RC profile consumes user-provided `SMITE_RC_BUNDLE_DIR`, `SMITE_RC_SOURCE_SHA` and `SMITE_RC_MANIFEST_SHA256` with independent archive integrity gate |
+
+**Operator rebuild prerequisites:** download and retain the complete ZIP *before* wiping either lab host; verify ZIP SHA256 and, once extracted, the manifest SHA256 and both archive checksums through U-OPTI's `smite-clean-image-pair.py`. Keep a recoverable snapshot/off-host backup of IR/KH configs, DNS/cert records, access keys and any 3x-ui data to preserve. Source/archive checks do **not** establish a signed production image or authorize any production deployment. Only rebuild **disposable** IR/KH; do not touch Grandoptical.
+
+**Fresh install order after bundle saved:** U-OPTI main on IR/KH → explicit `SMITE_INSTALL_PROFILE=clean-rc` with locked bundle inputs → IR Panel+Node first boot → admin-approved one-use Signed Pairing and Replay provisioning → KH Node secure Pairing → Sanaei read-only inventory → one FRPS owner + child ports → root-owned TrustedGrant → XHTTP route → new test client → reboot/rollback/restore. All field stages remain PENDING until evidence is recorded. No install or host change was performed during this audit.
+
 ## Current laboratory state (operator audit, 2026-10-27)
 
 | Component | Evidence / state |
