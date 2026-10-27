@@ -24,7 +24,7 @@ No pairing code, key, token, UUID or admin credential belongs in a report, GitHu
 | ID | Milestone | Code / CI | Lab/field | Next action |
 | --- | --- | --- | --- | --- |
 | M0 | Clean-RC IR Panel + Node, admin account and local Broker | U-OPTI clean recovery path integrated | **Partial PASS**: containers/Broker; pairing paused | Keep state intact; read-only audits first |
-| M1 | Signed-only, role-bound IR/KH Node reservation in Panel UI | Reviewed as Smite **PR #33** on integration branch; isolated promotion to main | **NOT DEPLOYED** | Rebuild/reverify paired Panel+Node candidate images, not a source-only UI edit |
+| M1 | Signed-only, role-bound IR/KH Node reservation in Panel UI | **SOURCE/CI PASS; merged into Smite main** via PR #34 (merge `cc6e74daae0cacbff0b896221304c95b0a41bb28`) | **NOT DEPLOYED** | Rebuild/reverify paired Panel+Node candidate images; do not assume source merge upgrades RC1 Docker images |
 | M2 | IR one-time admin-approved HTTPS/443 pairing, durable replay and signed check-in | Existing U-OPTI wizard `u-opti --smite-pairing` and signed Smite endpoints; default OFF | **PENDING** | Confirm candidate source SHA/image provenance, gateway ingress, schema, backup, secret mounts, signed both-way proofs and rollback; then opt-in field pairing |
 | M3 | KH Node install, approved origin, signed pairing and least-privilege Sanaei metadata | KH inventory read-only mount remains separate draft **PR #32** | **PENDING** | Review and integrate the read-only mount separately; never export client credentials |
 | M4 | One shared FRPS owner, explicit additional XHTTP ports; signed route intent → U-OPTI Broker → Nginx | In RC2 development branch; requires TrustedGrant and discrete end-to-end gates | **PENDING** | Test no duplicate FRPS, scope grant, atomic route and rollback on lab IR/KH |
@@ -42,10 +42,11 @@ No pairing code, key, token, UUID or admin credential belongs in a report, GitHu
 
 ## Important GitHub references
 
-- Smite **PR #33**: role-bound signed Iran/KH reservation and fail-closed UI (merged into the RC2 integration branch).
+- Smite **PR #33**: role-bound signed Iran/KH reservation and fail-closed UI (merged into RC2 integration branch); **PR #34** promoted those exact seven reviewed files plus this board to **main**, 11/11 CI checks successful.
 - Smite **PR #17**: older overlapping pairing draft; must not be merged directly into main.
 - Smite **PR #20**: multiport/FRPS integration draft (field-wide gate not complete).
 - Smite **PR #32**: separate KH Sanaei read-only inventory draft.
 - U-OPTI **PR #56**: Clean-RC IR interrupted-install recovery integrated in main.
+- U-OPTI **PR #57**: docs aligned to this board and broken/stale recovery/wizard CI assertions repaired; merged into U-OPTI **main** at `cb72d42af7bc78e18152588bdc8562d96b454f07`, 16/16 CI checks successful. No installer code was changed.
 
 **Status update discipline:** update this board with evidence (SHA + CI + field output) when each milestone changes. Never report an unrun field test as PASS.
