@@ -93,6 +93,7 @@ class PairingHTTPTest(unittest.TestCase):
         self.assertEqual(disabled.headers["cache-control"], "no-store")
         self.assertEqual(disabled.json(), {
             "pairing_preview_enabled": False,
+            "node_registration_mode": "legacy",
             "legacy_node_auth_enforced": False,
         })
 
@@ -103,6 +104,13 @@ class PairingHTTPTest(unittest.TestCase):
         self.assertEqual(ok.status_code, 200)
         self.assertTrue(ok.json()["pairing_preview_enabled"])
         self.assertFalse(ok.json()["legacy_node_auth_enforced"])
+        self.assertEqual(ok.json()["node_registration_mode"], "legacy")
+        settings.smite_node_registration_mode = "signed"
+        try:
+            signed = self.client.get("/api/node-pairing/capabilities")
+            self.assertEqual(signed.json()["node_registration_mode"], "signed")
+        finally:
+            settings.smite_node_registration_mode = "legacy"
 
         with sqlite3.connect(self.db) as conn:
             conn.execute("DROP TABLE smite_node_identities")
