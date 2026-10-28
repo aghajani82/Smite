@@ -68,10 +68,13 @@ class FrpServerManager:
   method: token
   token: "{token}"
 """
-            with open(config_file, 'w') as f:
+            with os.fdopen(os.open(config_file, os.O_WRONLY | os.O_CREAT | os.O_TRUNC
+                                   | os.O_NOFOLLOW, 0o600), 'w') as f:
+                os.fchmod(f.fileno(), 0o600)
                 f.write(config_content)
             
-            logger.info(f"FRP server config file {config_file} content:\n{config_content}")
+            logger.info("FRP server configuration prepared (port=%s, token=%s)",
+                        bind_port, "set" if token else "none")
             
             binary_path = self._resolve_binary_path()
             cmd = [
@@ -86,7 +89,9 @@ class FrpServerManager:
             }
             
             log_file = self.config_dir / f"frps_{tunnel_id}.log"
-            log_f = open(log_file, 'w', buffering=1)
+            log_f = os.fdopen(os.open(log_file, os.O_WRONLY | os.O_CREAT | os.O_TRUNC
+                                     | os.O_NOFOLLOW, 0o600), 'w', buffering=1)
+            os.fchmod(log_f.fileno(), 0o600)
             try:
                 log_f.write(f"Starting FRP server for tunnel {tunnel_id}\n")
                 log_f.write(f"Config: bind_port={bind_port}, token={'set' if token else 'none'}\n")
@@ -116,15 +121,9 @@ class FrpServerManager:
             time.sleep(1.0)
             if proc.poll() is not None:
                 try:
-                    if log_file.exists():
-                        with open(log_file, 'r') as f:
-                            error_output = f.read()
-                    else:
-                        error_output = "Log file not found"
-                    error_msg = f"FRP server failed to start (exit code: {proc.poll()}): {error_output[-500:] if len(error_output) > 500 else error_output}"
-                    logger.error(error_msg)
-                except Exception as e:
-                    error_msg = f"FRP server failed to start (exit code: {proc.poll()}), could not read log: {e}"
+                    # FRP parser output may echo secret-bearing configuration.
+                    # Keep diagnostics in the private host log, never API logs.
+                    error_msg = f"FRP server failed to start (exit code: {proc.poll()}); inspect private FRP log"
                     logger.error(error_msg)
                 finally:
                     del self.active_servers[tunnel_id]
