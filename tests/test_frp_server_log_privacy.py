@@ -10,7 +10,9 @@ from unittest.mock import patch
 ROOT = Path(__file__).resolve().parents[1]
 spec = importlib.util.spec_from_file_location('frp_server_privacy', ROOT / 'panel/app/frp_server.py')
 module = importlib.util.module_from_spec(spec)
-spec.loader.exec_module(module)
+# Import-time singleton must not create the production /app directory.
+with patch.object(Path, "mkdir"):
+    spec.loader.exec_module(module)
 
 class FrpLogPrivacy(unittest.TestCase):
     def test_failed_start_never_logs_config_or_child_output_and_files_are_private(self):
