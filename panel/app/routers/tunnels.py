@@ -13,6 +13,7 @@ from app.models import Tunnel, Node, FrpProxyLease
 from app.node_client import NodeClient
 from app.config import settings
 from app.engine_admission import engine_pair_readiness, require_engine_ready_pair, ENGINES
+from app.frp_wss_panel import owner_spec as frp_wss_owner_spec, server_address as frp_server_address
 from app.frp_server_admission import require_exclusive_frps_server_admission, FrpsServerAdmissionDenied
 from app.frp_shared_lifecycle import is_shared_child, create_shared_child, reapply_shared_child, remove_shared_child, verify_shared_child_listener, require_no_shared_frps_owner_dependents
 
@@ -284,6 +285,12 @@ async def create_tunnel(tunnel: TunnelCreate, request: Request, db: AsyncSession
                 raise HTTPException(status_code=400, detail="Select a valid foreign Node for GOST")
             iran_node = node
 
+    if tunnel.core == "frp":
+        try:
+            tunnel.spec = frp_wss_owner_spec(tunnel.spec, tunnel.type)
+        except ValueError as exc:
+            raise HTTPException(409, str(exc)) from exc
+
     if settings.smite_engine_management_mode == "managed":
         # Signed HTTPS/443 preflight BEFORE writing any Tunnel DB state.
         # Bundled binaries are NOT individually installed engines.
@@ -478,7 +485,7 @@ async def create_tunnel(tunnel: TunnelCreate, request: Request, db: AsyncSession
                 server_spec["bind_port"] = bind_port
                 server_spec["token"] = token
                 
-                iran_node_ip = iran_node.node_metadata.get("ip_address")
+                iran_node_ip = frp_server_address(iran_node)
                 if not iran_node_ip:
                     db_tunnel.status = "error"
                     db_tunnel.error_message = "Iran node has no IP address"
@@ -492,7 +499,7 @@ async def create_tunnel(tunnel: TunnelCreate, request: Request, db: AsyncSession
                 if tunnel_type not in ["tcp", "udp"]:
                     tunnel_type = "tcp"  # Default to tcp if invalid
                 client_spec["type"] = tunnel_type
-                local_ip = client_spec.get("local_ip") or iran_node_ip
+                local_ip = client_spec.get("local_ip") or "127.0.0.1"
                 
                 ports = parse_ports_from_spec(db_tunnel.spec)
                 if ports:
@@ -1639,6 +1646,7 @@ async def apply_tunnel(tunnel_id: str, request: Request, db: AsyncSession = Depe
                         client_spec["token"] = token
                 
                 if tunnel.core == "frp":
+                    spec = frp_wss_owner_spec(spec, tunnel.type)
                     bind_port = spec.get("bind_port")
                     if not bind_port:
                         import hashlib
@@ -1656,7 +1664,7 @@ async def apply_tunnel(tunnel_id: str, request: Request, db: AsyncSession = Depe
                         await db.commit()
                         await db.refresh(tunnel)
                     
-                    iran_node_ip = iran_node.node_metadata.get("ip_address")
+                    iran_node_ip = frp_server_address(iran_node)
                     if not iran_node_ip:
                         tunnel.status = "error"
                         tunnel.error_message = "Iran node has no IP address"

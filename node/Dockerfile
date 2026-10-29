@@ -20,7 +20,7 @@ RUN set -eux; \
     case "$ARCH_RAW" in \
         x86_64) ARCH="amd64"; RATHOLE_ARCH="x86_64" ;; \
         aarch64) ARCH="arm64"; RATHOLE_ARCH="aarch64" ;; \
-        *) ARCH="amd64"; RATHOLE_ARCH="x86_64" ;; \
+        *) echo "Unsupported architecture: $ARCH_RAW" >&2; exit 1 ;; \
     esac; \
     RATHOLE_URL="https://github.com/rapiz1/rathole/releases/download/v0.5.0/rathole-$RATHOLE_ARCH-unknown-linux-gnu.zip"; \
     TMP_DIR="$(mktemp -d)"; \
@@ -44,20 +44,22 @@ RUN set -eux; \
     install -Dm755 "$CHISEL_TMP/chisel" /usr/local/bin/chisel; \
     rm -rf "$CHISEL_TMP"; \
     echo "Fetching FRP release"; \
-    FRP_VERSION="v0.65.0"; \
+    FRP_VERSION="v0.71.0"; \
     FRP_VERSION_NO_V="${FRP_VERSION#v}"; \
     FRP_URL="https://github.com/fatedier/frp/releases/download/${FRP_VERSION}/frp_${FRP_VERSION_NO_V}_linux_${ARCH}.tar.gz"; \
     FRP_TMP="$(mktemp -d)"; \
     curl -fsSL "$FRP_URL" -o "$FRP_TMP/frp.tar.gz"; \
+    case "$ARCH" in \
+        amd64) FRP_SHA256="84f27e39f11169f7adcef8e8b70c9329de17747b1f14dad9fb95eef5682ea716" ;; \
+        arm64) FRP_SHA256="f33c293c275d8fc68c654b6fba8f10b2551d6463d09a9fc9cffb7227eae82266" ;; \
+        *) exit 1 ;; \
+    esac; \
+    echo "$FRP_SHA256  $FRP_TMP/frp.tar.gz" | sha256sum -c -; \
     tar -xzf "$FRP_TMP/frp.tar.gz" -C "$FRP_TMP"; \
-    FRPC_BIN="$(find "$FRP_TMP" -type f -name 'frpc' | head -n1)"; \
-    if [ -n "$FRPC_BIN" ]; then \
-        install -Dm755 "$FRPC_BIN" /usr/local/bin/frpc; \
-    fi; \
-    FRPS_BIN="$(find "$FRP_TMP" -type f -name 'frps' | head -n1)"; \
-    if [ -n "$FRPS_BIN" ]; then \
-        install -Dm755 "$FRPS_BIN" /usr/local/bin/frps; \
-    fi; \
+    install -Dm755 "$FRP_TMP/frp_${FRP_VERSION_NO_V}_linux_${ARCH}/frpc" /usr/local/bin/frpc; \
+    test "$(/usr/local/bin/frpc --version)" = "$FRP_VERSION_NO_V"; \
+    install -Dm755 "$FRP_TMP/frp_${FRP_VERSION_NO_V}_linux_${ARCH}/frps" /usr/local/bin/frps; \
+    test "$(/usr/local/bin/frps --version)" = "$FRP_VERSION_NO_V"; \
     rm -rf "$FRP_TMP"; \
     /usr/local/bin/rathole --version || true; \
     /usr/local/bin/gost -V || true; \
