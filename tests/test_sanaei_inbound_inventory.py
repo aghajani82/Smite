@@ -76,7 +76,7 @@ class SanaeiInboundInventoryTests(unittest.TestCase):
             {"listen": "0.0.0.0"},
             {"path": "/49328/../sso"},
             {"path": "/49328/sso?token=sensitive"},
-            {"path": "/45121/sso"},
+            {"path": "/api/sso"},
             {"path": "/49328/sso/"},
             {"port": 70000},
         ):

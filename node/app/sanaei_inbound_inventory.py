@@ -88,8 +88,8 @@ def list_approved_xhttp_inbounds(db_path: str) -> list[dict[str, object]]:
         exact_path = settings.get("path") if isinstance(settings, dict) else None
         if (not isinstance(exact_path, str) or len(exact_path) > 128
                 or not _PATH.fullmatch(exact_path)
-                or not exact_path.startswith(f"/{port}/")
-                or exact_path in used_paths or port in used_ports):
+            or exact_path.split("/")[1].lower() in {"api", "docs", "redoc", "openapi", "assets", "static", "auth", "login", "admin", "health", "metrics", "sub", "ws"}
+                or any(exact_path == p or exact_path.startswith(p + "/") or p.startswith(exact_path + "/") for p in used_paths) or port in used_ports):
             raise SanaeiInventoryUnavailable("Unapproved or conflicting XHTTP path")
         used_ports.add(port)
         used_paths.add(exact_path)

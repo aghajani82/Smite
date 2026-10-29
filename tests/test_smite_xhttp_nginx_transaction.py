@@ -156,6 +156,31 @@ class LocalNginxTransactionTests(unittest.TestCase):
         with self.assertRaises(tx.RouteAdmissionDenied):
             self.helper.check(7000, "/7000/control")
 
+    def test_custom_path_and_rollback_keep_frps(self):
+        self.helper.apply(49328,"/custom/connect")
+        self.helper.rollback(49328,"/custom/connect")
+        self.assertFalse((self.routes/"49328.conf").exists())
+        import json
+        self.assertEqual(json.loads((self.routes/".49328.transaction.json").read_text())["state"],"ROLLED_BACK")
+        self.assertEqual(self.frps_pid,512)
+
+    def test_half_transaction_recovery_and_external_drift(self):
+        self.helper.apply(49328,"/custom/connect")
+        import json
+        journal=self.routes/".49328.transaction.json"
+        doc=json.loads(journal.read_text());doc["state"]="PREPARED";journal.write_text(json.dumps(doc))
+        self.helper.rollback(49328,"/custom/connect")
+        self.assertFalse((self.routes/"49328.conf").exists())
+        (self.routes/"49328.conf").write_text("external")
+        with self.assertRaises(tx.RouteTransactionHold):self.helper.rollback(49328,"/custom/connect")
+        self.assertEqual((self.routes/"49328.conf").read_text(),"external")
+
+    def test_custom_path_collision_and_regex_hold(self):
+        for location in ("location /custom {", "location = /custom/connect/a {", "location ~ ^/custom {", 'location "/custom" {'):
+            with self.subTest(location=location):
+                with self.assertRaises(tx.RouteTransactionHold):tx.check_locations(location,"/custom/connect")
+        tx.check_locations("location / {", "/custom/connect")
+
 
 if __name__ == "__main__":
     unittest.main()

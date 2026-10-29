@@ -73,7 +73,7 @@ class RouteIntentIssuerTests(unittest.TestCase):
             {"lease": "short"},
             {"port": 7000, "path": "/7000/control"},
             {"port": True},
-            {"port": 60000, "path": "/49328/sso"},
+            {"port": 60000, "path": "/admin/sso"},
             {"path": "/49328/../sso"},
             {"path": "/49328/sso/"},
             {"path": "/49328/sso?x=1"},
