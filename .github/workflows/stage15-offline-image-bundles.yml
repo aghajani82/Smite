@@ -12,6 +12,8 @@ on:
       - 'tests/stage16_isolated_firstboot.sh'
       - 'tests/stage23_node_identity_rollback.sh'
       - 'tests/stage15_offline_bundle.py'
+      - 'tests/stage15_frp_image_gate.py'
+      - 'tests/test_stage15_frp_image_gate.py'
       - 'tests/test_stage15_offline_bundle.py'
       - 'tests/stage15_image_revision_gate.py'
       - 'tests/test_stage15_image_revision_gate.py'
@@ -37,6 +39,7 @@ jobs:
       - name: Verify manifest tamper detection and no-deployment
         run: |
           python -m py_compile tests/stage15_offline_bundle.py tests/test_stage15_offline_bundle.py tests/stage15_image_revision_gate.py tests/test_stage15_image_revision_gate.py
+          python -B tests/test_stage15_frp_image_gate.py -v
           python -B tests/test_stage15_offline_bundle.py -v
           python -B tests/test_stage15_image_revision_gate.py -v
           python -B tests/test_registry_image_signature.py -v
@@ -72,6 +75,8 @@ jobs:
           set -euo pipefail
           docker build -f panel/Dockerfile -t smite-panel:stage15-local --build-arg SMITE_VERSION=2.0.0-rc.0 --build-arg SMITE_SOURCE_SHA="$SMITE_BUILD_SOURCE_SHA" .
           docker build -f node/Dockerfile -t smite-node:stage15-local --build-arg SMITE_VERSION=2.0.0-rc.0 --build-arg SMITE_SOURCE_SHA="$SMITE_BUILD_SOURCE_SHA" node
+      - name: Verify actual image FRP bytes against official v0.71.0 archives
+        run: python3 -B tests/stage15_frp_image_gate.py
       - name: Verify exact paired OCI revision labels before bundle or first boot
         shell: bash
         run: |
@@ -93,7 +98,6 @@ jobs:
         shell: bash
         run: bash tests/stage16_isolated_firstboot.sh
       - name: Gate archives on immutable Node identity and signed/paused rollback
-        if: github.event_name == 'pull_request'
         shell: bash
         run: bash tests/stage23_node_identity_rollback.sh
 
