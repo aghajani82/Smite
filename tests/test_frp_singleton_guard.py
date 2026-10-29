@@ -106,7 +106,7 @@ class FrpsSingletonSlotTests(unittest.TestCase):
             self.assertIsNone(gateway.require_shared_frps_wss(shared))
             self.assertEqual(gateway.frp_client_server_addr("untrusted.example"),"ir.example.test")
             self.assertEqual(gateway.frp_client_server_port(shared,7000),443)
-            self.assertEqual(gateway.frp_tls_transport_yaml(shared),"transport:\\n  protocol: wss\\n".replace("\\n","\n"))
+            self.assertIn('trustedCaFile: "/etc/ssl/certs/ca-certificates.crt"', gateway.frp_tls_transport_yaml(shared))
             for bad in (
                 dict(shared, mode="server"),
                 dict(shared, server_port=7001),
@@ -149,7 +149,7 @@ class FrpsSingletonSlotTests(unittest.TestCase):
         apply = segment.split("    def apply(", 1)[1].split("    def remove(", 1)[0]
         guard_pos = apply.index("assert_frps_control_port_available(")
         remove_pos = apply.index("self.remove(tunnel_id)")
-        config_pos = apply.index("with open(config_file, 'w')")
+        config_pos = apply.index("with os.fdopen(os.open(config_file,")
         self.assertLess(guard_pos, remove_pos)
         self.assertLess(guard_pos, config_pos)
         self.assertLess(apply.index("require_shared_frps_wss(spec)"), remove_pos)

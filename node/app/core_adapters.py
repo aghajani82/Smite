@@ -875,7 +875,8 @@ class FrpAdapter:
   token: "{token}"
 """
             
-            with open(config_file, 'w') as f:
+            with os.fdopen(os.open(config_file, os.O_WRONLY | os.O_CREAT | os.O_TRUNC | os.O_NOFOLLOW, 0o600), 'w') as f:
+                os.fchmod(f.fileno(), 0o600)
                 f.write(config_content)
             
             logger.info(f"FRP server tunnel {tunnel_id}: bind_port={bind_port}, token={'set' if token else 'none'}")
@@ -907,7 +908,8 @@ class FrpAdapter:
             ]
             
             log_file = self.config_dir / f"{tunnel_id}.log"
-            log_f = open(log_file, 'w', buffering=1)
+            log_f = os.fdopen(os.open(log_file, os.O_WRONLY | os.O_CREAT | os.O_TRUNC | os.O_NOFOLLOW, 0o600), 'w', buffering=1)
+            os.fchmod(log_f.fileno(), 0o600)
             try:
                 log_f.write(f"Starting FRP server for tunnel {tunnel_id}\n")
                 log_f.write(f"Command: {' '.join(cmd)}\n")
@@ -992,7 +994,8 @@ serverPort: {server_port}
     remotePort: {remote_port}
 """
             
-            with open(config_file, 'w') as f:
+            with os.fdopen(os.open(config_file, os.O_WRONLY | os.O_CREAT | os.O_TRUNC | os.O_NOFOLLOW, 0o600), 'w') as f:
+                os.fchmod(f.fileno(), 0o600)
                 f.write(config_content)
             
             logger.info(f"FRP tunnel {tunnel_id}: type={tunnel_type}, local={local_ip}:{local_port}, remote={remote_port}, server={server_addr}:{server_port}")
@@ -1006,7 +1009,8 @@ serverPort: {server_port}
             ]
             
             log_file = self.config_dir / f"{tunnel_id}.log"
-            log_f = open(log_file, 'w', buffering=1)
+            log_f = os.fdopen(os.open(log_file, os.O_WRONLY | os.O_CREAT | os.O_TRUNC | os.O_NOFOLLOW, 0o600), 'w', buffering=1)
+            os.fchmod(log_f.fileno(), 0o600)
             try:
                 log_f.write(f"Starting FRP client for tunnel {tunnel_id}\n")
                 log_f.write(f"Command: {' '.join(cmd)}\n")
@@ -1028,17 +1032,13 @@ serverPort: {server_port}
         self.processes[tunnel_id] = proc
         time.sleep(1.0)
         if proc.poll() is not None:
-            stderr = ""
-            if log_file.exists():
-                with open(log_file, 'r') as f:
-                    stderr = f.read()
             if tunnel_id in self.log_handles:
                 try:
                     self.log_handles[tunnel_id].close()
                 except:
                     pass
                 del self.log_handles[tunnel_id]
-            raise RuntimeError(f"FRP failed to start: {stderr[-500:] if len(stderr) > 500 else stderr}")
+            raise RuntimeError(f"FRP failed to start (exit code: {proc.returncode})")
     
     def remove(self, tunnel_id: str):
         """Remove FRP tunnel"""

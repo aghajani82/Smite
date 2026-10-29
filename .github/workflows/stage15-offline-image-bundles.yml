@@ -14,6 +14,9 @@ on:
       - 'tests/stage15_offline_bundle.py'
       - 'tests/stage15_frp_image_gate.py'
       - 'tests/test_stage15_frp_image_gate.py'
+      - 'tests/stage15_wss_transport.py'
+      - 'tests/test_frp_wss_tls.py'
+      - 'tests/test_frp_wss_panel.py'
       - 'tests/test_stage15_offline_bundle.py'
       - 'tests/stage15_image_revision_gate.py'
       - 'tests/test_stage15_image_revision_gate.py'
@@ -40,6 +43,7 @@ jobs:
         run: |
           python -m py_compile tests/stage15_offline_bundle.py tests/test_stage15_offline_bundle.py tests/stage15_image_revision_gate.py tests/test_stage15_image_revision_gate.py
           python -B tests/test_stage15_frp_image_gate.py -v
+          python -B tests/test_frp_wss_tls.py -v
           python -B tests/test_stage15_offline_bundle.py -v
           python -B tests/test_stage15_image_revision_gate.py -v
           python -B tests/test_registry_image_signature.py -v
@@ -101,6 +105,18 @@ jobs:
         shell: bash
         run: bash tests/stage23_node_identity_rollback.sh
 
+      - name: Verify signed owner child and private FRPS contracts in built Panel
+        shell: bash
+        run: |
+          set -euo pipefail
+          for test in test_frp_wss_panel.py test_frp_server_log_privacy.py test_frp_shared_lifecycle.py test_frp_shared_server_planner.py test_signed_frp_boot_reapply_guard.py; do
+            docker run --rm --network none -v "$PWD/tests:/src/tests:ro" -v "$PWD/panel:/src/panel:ro" --entrypoint python smite-panel:stage15-local "/src/tests/$test" -v
+          done
+      - name: Real WSS TLS and token rejection without host ports
+        shell: bash
+        run: |
+          docker pull nginx:1.28-alpine
+          python3 -B tests/stage15_wss_transport.py
       - name: Save offline images with source and SHA256 manifest
         shell: bash
         run: |

@@ -81,7 +81,12 @@ def frp_tls_transport_yaml(spec):
         extra = spec.get("frp_tls_server_name")
         if extra not in (None, "", host):
             raise ValueError("WSS uses the existing Panel hostname, not a custom SNI")
-        return "transport:\n  protocol: wss\n"
+        # FRP defaults to InsecureSkipVerify without trustedCaFile, even for
+        # WSS. Use the image's OS CA bundle and the configured Panel DNS.
+        return ("transport:\n  protocol: wss\n  tls:\n"
+                "    enable: true\n"
+                '    trustedCaFile: "/etc/ssl/certs/ca-certificates.crt"\n'
+                f'    serverName: "{host}"\n')
     value = spec.get("frp_tls_server_name")
     if value is None or value == "":
         if spec.get("frp_gateway_port") not in (None, ""):
