@@ -16,6 +16,7 @@ on:
       - 'tests/test_stage15_frp_image_gate.py'
       - 'tests/stage15_wss_transport.py'
       - 'tests/test_frp_wss_tls.py'
+      - 'tests/test_frp_node_log_privacy.py'
       - 'tests/test_frp_wss_panel.py'
       - 'tests/test_stage15_offline_bundle.py'
       - 'tests/stage15_image_revision_gate.py'
@@ -112,6 +113,8 @@ jobs:
           for test in test_frp_wss_panel.py test_frp_server_log_privacy.py test_frp_shared_lifecycle.py test_frp_shared_server_planner.py test_signed_frp_boot_reapply_guard.py; do
             docker run --rm --network none -v "$PWD/tests:/src/tests:ro" -v "$PWD/panel:/src/panel:ro" --entrypoint python smite-panel:stage15-local "/src/tests/$test" -v
           done
+      - name: Verify Node FRP failure privacy in built image
+        run: docker run --rm --network none -v "$PWD/tests:/src/tests:ro" -v "$PWD/node:/src/node:ro" --entrypoint python smite-node:stage15-local /src/tests/test_frp_node_log_privacy.py -v
       - name: Real WSS TLS and token rejection without host ports
         shell: bash
         run: |
