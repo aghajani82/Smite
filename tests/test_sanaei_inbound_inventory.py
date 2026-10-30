@@ -93,6 +93,37 @@ class SanaeiInboundInventoryTests(unittest.TestCase):
         with self.assertRaises(SanaeiInventoryUnavailable):
             list_approved_xhttp_inbounds(str(self.path))
 
+    def test_live_wal_read_only_view_sees_uncheckpointed_45121(self):
+        # A writer holds real WAL/SHM files open; no checkpoint, write or copy.
+        writer = sqlite3.connect(self.path)
+        self.addCleanup(writer.close)
+        writer.execute("PRAGMA journal_mode=WAL")
+        writer.commit()
+        self.inbound(45121, path="/45121/www")
+        before = [(p, p.stat().st_size, p.stat().st_mtime_ns)
+                  for p in (self.path, self.path.with_name("x-ui.db-wal"),
+                            self.path.with_name("x-ui.db-shm"))]
+        found = list_approved_xhttp_inbounds(str(self.path))
+        self.assertEqual([(i["port"], i["path"]) for i in found],
+                         [(45121, "/45121/www")])
+        after = [(p, p.stat().st_size, p.stat().st_mtime_ns) for p, _, _ in before]
+        self.assertEqual(before, after)
+
+    def test_untrusted_wal_symlink_and_incomplete_pair_hold_closed(self):
+        wal = self.path.with_name("x-ui.db-wal")
+        shm = self.path.with_name("x-ui.db-shm")
+        wal.symlink_to(self.path)
+        shm.write_bytes(b"not sqlite")
+        with self.assertRaises(SanaeiInventoryUnavailable):
+            list_approved_xhttp_inbounds(str(self.path))
+        wal.unlink()
+        with self.assertRaises(SanaeiInventoryUnavailable):
+            list_approved_xhttp_inbounds(str(self.path))
+        shm.unlink()
+        # A normal rollback-journal DB remains readable with no WAL files.
+        self.inbound(45121, path="/45121/www")
+        self.assertEqual(list_approved_xhttp_inbounds(str(self.path))[0]["port"], 45121)
+
     def test_compose_mount_is_opt_in_by_path_and_read_only(self):
         compose = (ROOT / "node/docker-compose.yml").read_text()
         expected_mount = "${SMITE_SANAEI_DB_HOST_PATH:-/var/lib/u-opti/smite-sanaei-empty}:/run/smite-sanaei-ro:ro"
