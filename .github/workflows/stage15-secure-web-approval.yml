@@ -31,3 +31,16 @@ jobs:
           grep -q 'event.origin !== routeApprovalOrigin' frontend/src/pages/Tunnels.tsx
           grep -q "ROOT_OPERATOR_GRANT_REQUIRED" frontend/src/pages/Tunnels.tsx
           ! grep -q 'APPROVE <SHA256>' frontend/src/pages/Tunnels.tsx
+
+  node-attestation:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - run: python3 -m pip install 'cryptography==46.0.4'
+      - run: |
+          python3 -m py_compile node/app/approval_attestation.py
+          python3 -B tests/test_approval_attestation.py -v
