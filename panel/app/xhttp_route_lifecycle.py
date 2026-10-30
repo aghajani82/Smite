@@ -14,8 +14,9 @@ from pathlib import Path
 import re
 import stat
 
-from fastapi import HTTPException
 from sqlalchemy import select
+from types import SimpleNamespace
+from app.frp_shared_server import _child_pair, SharedFrpAdmissionDenied
 
 from app.config import settings
 from app.frp_shared_lifecycle import is_shared_child
@@ -62,6 +63,44 @@ def _broker_key() -> bytes:
         raise XhttpRouteHold("BROKER_KEY_UNAVAILABLE") from exc
 
 
+async def owner_proxy_binding(db, owner):
+    """Read-only binding for the owner's existing single loopback proxy.
+
+    Never create a child, allocate a new port, or call an FRP mutation. The
+    owner ID is also the route subject and binding ID for this direct role.
+    Every other row/lease for this IR port is rejected, including error rows.
+    """
+    if (owner.type != "tcp" or owner.spec.get("bind_port") != 7000
+            or owner.spec.get("local_ip", "127.0.0.1") != "127.0.0.1"
+            or not owner.foreign_node_id):
+        raise XhttpRouteHold("DIRECT_OWNER_SPEC_UNAPPROVED")
+    try:
+        local, remote = _child_pair(owner.spec)
+    except (SharedFrpAdmissionDenied, TypeError, ValueError):
+        raise XhttpRouteHold("DIRECT_OWNER_SPEC_UNAPPROVED")
+    if local != remote or remote == 7000:
+        raise XhttpRouteHold("DIRECT_OWNER_PORT_MISMATCH")
+    ir = owner.iran_node_id or owner.node_id
+    rows = (await db.execute(select(Tunnel).where(Tunnel.core == "frp"))).scalars().all()
+    for row in rows:
+        if row.id == owner.id or (row.iran_node_id or row.node_id) != ir:
+            continue
+        try:
+            _, occupied = _child_pair(row.spec or {})
+        except (SharedFrpAdmissionDenied, TypeError, ValueError):
+            raise XhttpRouteHold("UNRECONCILED_FRP_PROXY_ROW")
+        if occupied == remote:
+            raise XhttpRouteHold("DIRECT_OWNER_PORT_COLLISION")
+    leases = (await db.execute(select(FrpProxyLease).where(
+        FrpProxyLease.iran_node_id == ir, FrpProxyLease.remote_port == remote
+    ))).scalars().all()
+    if leases:
+        raise XhttpRouteHold("DIRECT_OWNER_LEASE_COLLISION")
+    return SimpleNamespace(tunnel_id=owner.id, owner_tunnel_id=owner.id,
+                           iran_node_id=ir, foreign_node_id=owner.foreign_node_id,
+                           remote_port=remote)
+
+
 async def register_xhttp_route(*, db, tunnel_id: str, inbound_port: int,
                                client, now: int) -> dict[str, str]:
     """Verify current lease + signed IR/KH evidence, then send one intent.
@@ -77,28 +116,34 @@ async def register_xhttp_route(*, db, tunnel_id: str, inbound_port: int,
     result = await db.execute(select(Tunnel).where(Tunnel.id == tunnel_id))
     child = result.scalar_one_or_none()
     if (child is None or child.core != "frp" or child.status != "active"
-            or not is_shared_child(child.spec or {})):
+            or not isinstance(child.spec, dict)):
         raise XhttpRouteHold("ACTIVE_SHARED_FRP_CHILD_REQUIRED")
 
-    lease_result = await db.execute(select(FrpProxyLease).where(
-        FrpProxyLease.tunnel_id == child.id
-    ))
-    lease = lease_result.scalar_one_or_none()
-    if (lease is None or lease.tunnel_id != child.id
-            or lease.iran_node_id != (child.iran_node_id or child.node_id)
-            or lease.foreign_node_id != child.foreign_node_id
-            or lease.owner_tunnel_id != child.spec.get("shared_frps_owner")
-            or lease.remote_port != inbound_port):
-        raise XhttpRouteHold("ACTIVE_UNIQUE_LEASE_MISMATCH")
+    if not is_shared_child(child.spec):
+        owner = child
+        lease = await owner_proxy_binding(db, owner)
+        if lease.remote_port != inbound_port:
+            raise XhttpRouteHold("DIRECT_OWNER_PORT_MISMATCH")
+    else:
+        lease_result = await db.execute(select(FrpProxyLease).where(
+            FrpProxyLease.tunnel_id == child.id
+        ))
+        lease = lease_result.scalar_one_or_none()
+        if (lease is None or lease.tunnel_id != child.id
+                or lease.iran_node_id != (child.iran_node_id or child.node_id)
+                or lease.foreign_node_id != child.foreign_node_id
+                or lease.owner_tunnel_id != child.spec.get("shared_frps_owner")
+                or lease.remote_port != inbound_port):
+            raise XhttpRouteHold("ACTIVE_UNIQUE_LEASE_MISMATCH")
 
-    owner_result = await db.execute(select(Tunnel).where(
-        Tunnel.id == lease.owner_tunnel_id
-    ))
-    owner = owner_result.scalar_one_or_none()
-    if (owner is None or owner.core != "frp" or owner.status != "active"
-            or (owner.iran_node_id or owner.node_id) != lease.iran_node_id
-            or owner.foreign_node_id != lease.foreign_node_id):
-        raise XhttpRouteHold("FRPS_OWNER_PAIR_MISMATCH")
+        owner_result = await db.execute(select(Tunnel).where(
+            Tunnel.id == lease.owner_tunnel_id
+        ))
+        owner = owner_result.scalar_one_or_none()
+        if (owner is None or owner.core != "frp" or owner.status != "active"
+                or (owner.iran_node_id or owner.node_id) != lease.iran_node_id
+                or owner.foreign_node_id != lease.foreign_node_id):
+            raise XhttpRouteHold("FRPS_OWNER_PAIR_MISMATCH")
 
     ir_result = await db.execute(select(Node).where(Node.id == lease.iran_node_id))
     ir = ir_result.scalar_one_or_none()
@@ -118,6 +163,7 @@ async def register_xhttp_route(*, db, tunnel_id: str, inbound_port: int,
             or owners[0].get("control_port") != 7000
             or not isinstance(owners[0].get("proxy_ports"), list)
             or any(type(port) is not int for port in owners[0]["proxy_ports"])
+            or len(set(owners[0]["proxy_ports"])) != len(owners[0]["proxy_ports"])
             or lease.remote_port not in owners[0]["proxy_ports"]):
         raise XhttpRouteHold("SIGNED_FRPS_OWNER_PROOF_MISMATCH")
 
@@ -180,16 +226,19 @@ async def list_child_xhttp_inbounds(*, db, tunnel_id: str, client) -> list[dict]
     result = await db.execute(select(Tunnel).where(Tunnel.id == tunnel_id))
     child = result.scalar_one_or_none()
     if (child is None or child.core != "frp" or child.status != "active"
-            or not is_shared_child(child.spec or {})):
+            or not isinstance(child.spec, dict)):
         raise XhttpRouteHold("ACTIVE_SHARED_FRP_CHILD_REQUIRED")
-    lease_result = await db.execute(select(FrpProxyLease).where(
-        FrpProxyLease.tunnel_id == child.id
-    ))
-    lease = lease_result.scalar_one_or_none()
-    if (lease is None or lease.iran_node_id != (child.iran_node_id or child.node_id)
-            or lease.foreign_node_id != child.foreign_node_id
-            or lease.owner_tunnel_id != child.spec.get("shared_frps_owner")):
-        raise XhttpRouteHold("ACTIVE_UNIQUE_LEASE_MISMATCH")
+    if not is_shared_child(child.spec):
+        lease = await owner_proxy_binding(db, child)
+    else:
+        lease_result = await db.execute(select(FrpProxyLease).where(
+            FrpProxyLease.tunnel_id == child.id
+        ))
+        lease = lease_result.scalar_one_or_none()
+        if (lease is None or lease.iran_node_id != (child.iran_node_id or child.node_id)
+                or lease.foreign_node_id != child.foreign_node_id
+                or lease.owner_tunnel_id != child.spec.get("shared_frps_owner")):
+            raise XhttpRouteHold("ACTIVE_UNIQUE_LEASE_MISMATCH")
     response = await client.get_signed_sanaei_xhttp_inbounds(lease.foreign_node_id)
     inbounds = (response.get("inbounds") if isinstance(response, dict)
                 and response.get("status") == "success"

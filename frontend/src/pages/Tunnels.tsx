@@ -245,53 +245,37 @@ const Tunnels = () => {
     }
   }
 
+  const [routePicker, setRoutePicker] = useState<{tunnel: Tunnel, choices: {port: number, path: string}[]} | null>(null)
+  const [routePort, setRoutePort] = useState<number>(0)
+  const [routeBusy, setRouteBusy] = useState(false)
   const registerXhttpRoute = async (tunnel: Tunnel) => {
-    let grantContext: Record<string, string | number> | null = null
     try {
       const inventory = await api.get(`/tunnels/${tunnel.id}/uopti-xhttp-inbounds`)
       const choices = inventory.data?.inbounds
       if (!Array.isArray(choices) || choices.length === 0) {
-        alert(dir === 'rtl' ? 'هیچ ورودی فعال VLESS/XHTTP روی KH پیدا نشد.' : 'No enabled VLESS/XHTTP inbound was found on KH.')
+        alert(dir === 'rtl' ? 'ورودی VLESS/XHTTP معتبر برای پورت این تونل پیدا نشد.' : 'No verified VLESS/XHTTP inbound matches this tunnel port.')
         return
       }
-      const labels = choices.map((item: any) => `${item.port}  ${item.path}`).join('\n')
-      const answer = prompt(
-        (dir === 'rtl'
-          ? `پورت ورودی KH را از فهرست انتخاب کن:\n${labels}\n\nپورت:`
-          : `Choose a KH inbound from this signed inventory:\n${labels}\n\nPort:`),
-        String(choices[0].port),
-      )
-      if (answer === null) return
-      const port = Number(answer.trim())
-      if (!Number.isInteger(port) || !choices.some((item: any) => item.port === port)) {
-        alert(dir === 'rtl' ? 'پورت انتخاب‌شده در فهرست معتبر نیست.' : 'The selected port is not in the verified inventory.')
-        return
-      }
-      const selectedInbound = choices.find((item: any) => item.port === port)
-      grantContext = {
-        ir_node: tunnel.iran_node_id || tunnel.node_id || '',
-        kh_node: tunnel.foreign_node_id || '',
-        owner: tunnel.spec?.shared_frps_owner || '',
-        child: tunnel.id,
-        lease: tunnel.id,
-        port,
-        path: selectedInbound.path,
-      }
-      const result = await api.post(`/tunnels/${tunnel.id}/uopti-xhttp-route`, { inbound_port: port })
-      alert(result.data?.status === 'success'
-        ? (dir === 'rtl' ? 'مسیر XHTTP ثبت شد.' : 'XHTTP route registered.')
-        : (dir === 'rtl' ? 'ثبت مسیر تأیید نشد؛ وضعیت را بررسی کن.' : 'Route registration was not confirmed; verify current state.'))
+      setRoutePort(choices[0].port)
+      setRoutePicker({tunnel, choices})
     } catch (error: any) {
-      if (error.response?.data?.detail === 'ROOT_OPERATOR_GRANT_REQUIRED' && grantContext) {
-        const command = 'sudo python3 -B /usr/local/lib/u-opti/modules/smite-rc5-xhttp-broker-provision.py --approve-grant --confirm-local-root'
-        const facts = Object.entries(grantContext).map(([key, value]) => `${key}: ${value}`).join('\n')
-        alert(dir === 'rtl'
-          ? `این درخواست هنوز هیچ مسیری نساخته و Nonce مصرف نشده است. روی ترمینال IR، شواهد Signed فعلی Owner، Inbound سنایی KH و Lease را با این مقادیر تطبیق بده؛ سپس دستور را اجرا و اطلاعات را وارد کن. بعد از PASS، همین عملیات را دوباره از پنل انجام بده.\n\n${command}\n\n${facts}`
-          : `No route was changed and no nonce was consumed. On IR, compare the current signed Owner proof, KH Sanaei inbound and active lease with these values, then run the command and enter them. After PASS, repeat this action in the Panel.\n\n${command}\n\n${facts}`)
-      } else {
-        alert(error.response?.data?.detail || (dir === 'rtl' ? 'ثبت مسیر XHTTP انجام نشد.' : 'XHTTP route registration failed.'))
-      }
+      alert(error.response?.data?.detail || 'Signed inbound inventory unavailable')
     }
+  }
+  const publishSelectedRoute = async () => {
+    if (!routePicker || routeBusy || !routePicker.choices.some(x => x.port === routePort)) return
+    setRouteBusy(true)
+    try {
+      await api.post(`/tunnels/${routePicker.tunnel.id}/uopti-xhttp-route`, {inbound_port: routePort})
+      setRoutePicker(null)
+      alert(dir === 'rtl' ? 'مسیر ثبت شد؛ اتصال واقعی کلاینت را آزمایش کن.' : 'Route registered. Verify actual client traffic.')
+    } catch (error: any) {
+      if (error.response?.data?.detail === 'ROOT_OPERATOR_GRANT_REQUIRED') {
+        alert(dir === 'rtl'
+          ? 'درخواست امضاشده آمادهٔ بررسی مستقل Root است. در کنسول احرازهویت‌شده IR ابزار smite-stage15-root-review.py را اجرا کن؛ مشخصات را بررسی و تأیید کن. سپس دوباره ثبت مسیر را بزن. درخواست کوتاه‌عمر است؛ در صورت انقضا دوباره درخواست بده.'
+          : 'Signed proposal awaits independent root approval. On the authenticated IR console run smite-stage15-root-review.py, review and approve the displayed facts, then publish again. If the short-lived proposal expires, submit it again.')
+      } else alert(error.response?.data?.detail || 'Publication unconfirmed. Inspect state before retrying.')
+    } finally { setRouteBusy(false) }
   }
 
   const reapplyTunnel = async (tunnel: Tunnel) => {
@@ -535,15 +519,15 @@ const Tunnels = () => {
 
                 {/* Action Buttons */}
                 <div className="flex gap-2 shrink-0">
-                  {tunnel.core === 'frp' && Boolean(tunnel.spec?.shared_frps_owner) && (
+                  {tunnel.core === 'frp' && (
                     <>
-                      <button
+                      {Boolean(tunnel.spec?.shared_frps_owner) && <button
                         onClick={() => verifySharedFrpProxy(tunnel)}
                         className="px-2.5 py-2 text-sm font-semibold text-blue-700 dark:text-blue-300 hover:bg-blue-50 dark:hover:bg-blue-900/20 rounded-lg"
                         title="Signed read-only FRPS proxy verification; no reapply"
                       >
                         Verify
-                      </button>
+                      </button>}
                       {tunnel.status === 'active' && (
                         <button
                           onClick={() => registerXhttpRoute(tunnel)}
@@ -582,6 +566,22 @@ const Tunnels = () => {
           )
         })}
       </div>
+
+      {routePicker && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50" role="dialog" aria-modal="true" aria-label="XHTTP route">
+          <div className="bg-white dark:bg-gray-800 rounded-xl p-6 max-w-lg w-full space-y-4">
+            <h2 className="text-xl font-bold">XHTTP — {routePicker.tunnel.name}</h2>
+            <p>{dir === 'rtl' ? 'پورت و مسیر از ورودی معتبر سنایی KH خوانده می‌شوند. برای تغییر آن‌ها ابتدا ورودی را در سنایی تنظیم کن. وضعیت Active تونل به معنی تأیید اتصال XHTTP نیست.' : 'Port and path come from verified KH Sanaei inbounds. Configure the inbound in Sanaei before selecting it. Active FRP status does not verify XHTTP traffic.'}</p>
+            <label className="block">{dir === 'rtl' ? 'ورودی KH' : 'KH inbound'}
+              <select className="block w-full p-2 text-black" value={routePort} disabled={routeBusy} onChange={e => setRoutePort(Number(e.target.value))}>
+                {routePicker.choices.map(x => <option key={x.port} value={x.port}>{x.port} — {x.path}</option>)}
+              </select>
+            </label>
+            <button disabled={routeBusy} className="bg-indigo-600 text-white px-4 py-2 rounded" onClick={publishSelectedRoute}>{dir === 'rtl' ? 'درخواست ثبت مسیر' : 'Request route publication'}</button>
+            <button disabled={routeBusy} className="px-4 py-2" onClick={() => setRoutePicker(null)}>{dir === 'rtl' ? 'بستن' : 'Close'}</button>
+          </div>
+        </div>
+      )}
 
       {showAddModal && (
         <AddTunnelModal

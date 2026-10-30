@@ -1,0 +1,29 @@
+name: Stage15 XHTTP Owner Security
+on:
+  pull_request:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  owner-route:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - run: pip install -r panel/requirements.txt
+      - run: |
+          python -B tests/test_panel_xhttp_route_lifecycle.py
+          python -B tests/test_panel_xhttp_route_intent.py
+          python -B tests/test_sanaei_inbound_inventory.py
+          python -B tests/test_frp_shared_lifecycle.py
+          python -B tests/test_frp_singleton_guard.py
+          python -B tests/test_smite_xhttp_nginx_plan.py
+          sudo -n python3 -B tests/test_smite_xhttp_nginx_transaction.py
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - run: npm ci --ignore-scripts && npm run build
+        working-directory: frontend

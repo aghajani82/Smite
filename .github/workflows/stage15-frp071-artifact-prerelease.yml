@@ -1,0 +1,77 @@
+name: Stage15 FRP071 reviewed image prerelease (one-shot)
+on:
+  push:
+    branches:
+      - feature/stage15-frp071-assets-20261029
+    paths:
+      - .github/workflows/stage15-frp071-artifact-prerelease.yml
+permissions:
+  actions: read
+  contents: write
+concurrency:
+  group: stage15-frp071-pinned-assets
+  cancel-in-progress: false
+jobs:
+  publish:
+    if: github.repository == 'aghajani82/Smite'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - name: Check exact source commit and artifact provenance
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          data="$(gh api repos/aghajani82/Smite/actions/artifacts/12878322384)"
+          jq -e --arg src "6981bd91b43811fad8847da9abd81ef99a921003" \
+                --arg digest "sha256:3978ba93716e52771798e5ad02488de62b3fcea204c532b66cb8e792cc49cbff" \
+                '.expired == false and .workflow_run.head_sha == $src and .digest == $digest and .id == 12878322384' <<< "$data"
+      - name: Download exact successful GitHub Actions image artifact
+        uses: actions/download-artifact@v4
+        with:
+          run-id: 40830661751
+          repository: aghajani82/Smite
+          github-token: ${{ github.token }}
+          name: smite-stage15-offline-images-6981bd91b43811fad8847da9abd81ef99a921003
+          path: images
+      - name: Validate exact immutable image archives and manifest
+        run: |
+          set -euo pipefail
+          cd images
+          printf '%s  %s\n' \
+            '87627cd74ecb4e6d062eb45fd16ef128f10a4cc11f6a94c7e46b01fb4f595488' 'smite-panel-stage15.docker.tar.gz' \
+            'e62717ac06e08d11730fd25a20a58b2f5470ff29b86cad02b310984b24fe96c7' 'smite-node-stage15.docker.tar.gz' \
+            '0b34ee3fbd9174e6bf7ef6ddf145f7ebcd606c9bbeae176bb3d6a38b8a2a7840' 'stage15-images.json' | sha256sum -c -
+          python3 - <<'PY_VALID'
+          import json, pathlib
+          p=pathlib.Path('stage15-images.json')
+          x=json.loads(p.read_text())
+          assert set(x['images'])=={'panel','node'}
+          assert x['source_commit']=='6981bd91b43811fad8847da9abd81ef99a921003'
+          assert x['activation_allowed'] is False and x['signed'] is False
+          assert x['registry_digest_verified'] is False
+          assert x['images']['panel']['local_image_id']=='sha256:e2345c7a4bf17cd9507ecf065cc736f4c2abfbe276a8c334805f4e52bb3808b5'
+          assert x['images']['node']['local_image_id']=='sha256:cf0f3b12fc2c31cb0847fd5206304837661019d8f604853a8e956448c2576265'
+          assert {p.name for p in pathlib.Path('.').iterdir()}=={
+             'smite-panel-stage15.docker.tar.gz','smite-node-stage15.docker.tar.gz','stage15-images.json'}
+          PY_VALID
+      - name: Publish separate reviewed assets as explicit non-production prerelease
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          tag='stage15-frp071-6981bd91'
+          if gh release view "$tag" --repo aghajani82/Smite >/dev/null 2>&1; then
+            echo 'HOLD: The immutable prerelease tag already exists; no assets overwritten.' >&2
+            exit 2
+          fi
+          gh release create "$tag" \
+            images/stage15-images.json \
+            images/smite-panel-stage15.docker.tar.gz \
+            images/smite-node-stage15.docker.tar.gz \
+            --repo aghajani82/Smite \
+            --target 6981bd91b43811fad8847da9abd81ef99a921003 \
+            --prerelease \
+            --title 'Stage15 reviewed FRP 0.71.0 images — NOT PRODUCTION' \
+            --notes 'Staged only. Source 6981bd91b43811fad8847da9abd81ef99a921003; artifact 12878322384; manifest SHA256 0b34ee3fbd9174e6bf7ef6ddf145f7ebcd606c9bbeae176bb3d6a38b8a2a7840. No production approval or IR/KH deployment.'
+          gh release view "$tag" --repo aghajani82/Smite --json assets --jq '.assets | map(.name) | sort | join(",")' | grep -Fx 'smite-node-stage15.docker.tar.gz,smite-panel-stage15.docker.tar.gz,stage15-images.json'

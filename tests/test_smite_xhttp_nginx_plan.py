@@ -60,7 +60,7 @@ class XhttpNginxPlannerTests(unittest.TestCase):
             {"path": "/49328/sso;return 200"},
             {"path": "/49328/sso?malicious=1"},
             {"path": "/49328/sso/"},
-            {"path": "/45121/sso"},
+            {"path": "/api/sso"},
             {"listen": "0.0.0.0"},
             {"network": "ws"},
             {"protocol": "trojan"},
@@ -74,6 +74,12 @@ class XhttpNginxPlannerTests(unittest.TestCase):
         self.listeners = {45121, 49328}
         with self.assertRaises(RouteAdmissionDenied):
             self.plan()
+
+    def test_custom_canonical_paths_and_reserved_names(self):
+        for path in ("/connect", "/custom/connect", "/45121/sso"):
+            self.assertEqual(self.plan(path=path).path,path)
+        for path in ("/api/foo","/admin","/login","/assets/v1", "/a%2fb", "/a//b", "/a/../b", "/a\\b", "/a#b", "/a;b", "/a b", "/a/", "/"):
+            with self.subTest(path=path),self.assertRaises(RouteAdmissionDenied): self.plan(path=path)
 
 
 if __name__ == "__main__":
