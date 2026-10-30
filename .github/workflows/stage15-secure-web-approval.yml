@@ -43,5 +43,6 @@ jobs:
           python-version: '3.11'
       - run: python3 -m pip install 'cryptography==46.0.4'
       - run: |
-          python3 -m py_compile node/app/approval_attestation.py
+          python3 -m py_compile node/app/approval_attestation.py node/app/approval_runtime_evidence.py node/app/routers/agent.py
           python3 -B tests/test_approval_attestation.py -v
+          python3 -B tests/test_approval_runtime_evidence.py -v
