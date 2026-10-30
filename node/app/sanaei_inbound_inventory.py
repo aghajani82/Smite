@@ -36,11 +36,30 @@ def _checked_db(path: str) -> Path:
         info = p.lstat()
     except OSError as exc:
         raise SanaeiInventoryUnavailable("Sanaei inventory file unavailable") from exc
-    if (not stat.S_ISREG(info.st_mode)
+    if (not stat.S_ISREG(info.st_mode) or info.st_nlink != 1
             or info.st_uid != os.geteuid()
             or bool(info.st_mode & 0o022)
             or not 0 < info.st_size <= MAX_DB_BYTES):
         raise SanaeiInventoryUnavailable("Sanaei inventory file untrusted")
+    # WAL readers need the sidecars in the SAME directory mount. Reject links,
+    # unexpected owners and writable-to-others artifacts, never repair them.
+    companions = []
+    for suffix, maximum in (("-wal", MAX_DB_BYTES), ("-shm", 4 * 1024 * 1024)):
+        side = p.with_name(p.name + suffix)
+        try:
+            meta = side.lstat()
+        except FileNotFoundError:
+            companions.append(False)
+            continue
+        except OSError as exc:
+            raise SanaeiInventoryUnavailable("Sanaei WAL sidecar unavailable") from exc
+        if (not stat.S_ISREG(meta.st_mode) or meta.st_nlink != 1
+                or meta.st_uid != info.st_uid or meta.st_mode & 0o022
+                or not 0 <= meta.st_size <= maximum):
+            raise SanaeiInventoryUnavailable("Untrusted Sanaei WAL sidecar")
+        companions.append(True)
+    if companions[0] != companions[1]:
+        raise SanaeiInventoryUnavailable("Incomplete Sanaei WAL view")
     return p
 
 
