@@ -248,6 +248,17 @@ const Tunnels = () => {
   const [routePicker, setRoutePicker] = useState<{tunnel: Tunnel, choices: {port: number, path: string}[]} | null>(null)
   const [routePort, setRoutePort] = useState<number>(0)
   const [routeBusy, setRouteBusy] = useState(false)
+  const [routeStatus, setRouteStatus] = useState('Awaiting Approval')
+  const [routeApprovalRequired, setRouteApprovalRequired] = useState(false)
+  // Explicit build-time opt-in; no implicit Panel-origin root approval.
+  const routeApprovalOrigin = (() => {
+    try {
+      const u = new URL(String(import.meta.env.VITE_STAGE15_APPROVAL_ORIGIN || ''))
+      return u.protocol === 'https:' && u.origin !== window.location.origin &&
+        !u.username && !u.password && u.pathname === '/' && !u.search && !u.hash
+        ? u.origin : null
+    } catch { return null }
+  })()
   const registerXhttpRoute = async (tunnel: Tunnel) => {
     try {
       const inventory = await api.get(`/tunnels/${tunnel.id}/uopti-xhttp-inbounds`)
@@ -257,6 +268,8 @@ const Tunnels = () => {
         return
       }
       setRoutePort(choices[0].port)
+      setRouteStatus('Awaiting Approval')
+      setRouteApprovalRequired(false)
       setRoutePicker({tunnel, choices})
     } catch (error: any) {
       alert(error.response?.data?.detail || 'Signed inbound inventory unavailable')
@@ -265,17 +278,71 @@ const Tunnels = () => {
   const publishSelectedRoute = async () => {
     if (!routePicker || routeBusy || !routePicker.choices.some(x => x.port === routePort)) return
     setRouteBusy(true)
+    setRouteStatus('Publishing')
     try {
       await api.post(`/tunnels/${routePicker.tunnel.id}/uopti-xhttp-route`, {inbound_port: routePort})
-      setRoutePicker(null)
-      alert(dir === 'rtl' ? 'مسیر ثبت شد؛ اتصال واقعی کلاینت را آزمایش کن.' : 'Route registered. Verify actual client traffic.')
+      setRouteApprovalRequired(false)
+      setRouteStatus('Published')
     } catch (error: any) {
       if (error.response?.data?.detail === 'ROOT_OPERATOR_GRANT_REQUIRED') {
-        alert(dir === 'rtl'
-          ? 'درخواست امضاشده آمادهٔ بررسی مستقل Root است. در کنسول احرازهویت‌شده IR ابزار smite-stage15-root-review.py را اجرا کن؛ مشخصات را بررسی و تأیید کن. سپس دوباره ثبت مسیر را بزن. درخواست کوتاه‌عمر است؛ در صورت انقضا دوباره درخواست بده.'
-          : 'Signed proposal awaits independent root approval. On the authenticated IR console run smite-stage15-root-review.py, review and approve the displayed facts, then publish again. If the short-lived proposal expires, submit it again.')
-      } else alert(error.response?.data?.detail || 'Publication unconfirmed. Inspect state before retrying.')
+        setRouteApprovalRequired(true)
+        setRouteStatus('Approval Required')
+        if (!routeApprovalOrigin) alert(dir === 'rtl'
+          ? 'تأیید مستقل Root لازم است؛ سرویس مرورگری هنوز فعال نشده و مسیر کنسول قبلی محفوظ است.'
+          : 'Independent Root approval required. The web approval origin is not configured; the existing console flow remains available.')
+      } else {
+        setRouteStatus('HOLD / Requires Review')
+        alert(error.response?.data?.detail || 'Publication unconfirmed. Inspect state before retrying.')
+      }
     } finally { setRouteBusy(false) }
+  }
+
+  const openIndependentRouteApproval = () => {
+    // A popup message is NOT proof of approval. Only the existing signed
+    // root-broker path can authorize the ONE new 30-second Panel intent.
+    const selected = routePicker
+    if (!routeApprovalOrigin || !selected || !routeApprovalRequired || routeBusy) return
+    const child = selected.tunnel.id, port = routePort
+    const path = selected.choices.find(x => x.port === port)?.path
+    if (!path) return
+    const popup = window.open(`${routeApprovalOrigin}/review?child=${encodeURIComponent(child)}`,
+      'stage15-root-review', 'popup,width=540,height=740')
+    if (!popup) { setRouteStatus('HOLD / Requires Review'); return }
+    setRouteStatus('Awaiting Approval')
+    let settled = false
+    const cleanup = () => {
+      window.removeEventListener('message', onMessage)
+      window.clearInterval(watch)
+      window.clearTimeout(expiry)
+    }
+    const onMessage = async (event: MessageEvent) => {
+      if (settled || event.source !== popup || event.origin !== routeApprovalOrigin ||
+          event.data?.type !== 'u-opti:stage15:root-review:v1' ||
+          event.data?.status !== 'approved' || event.data?.child !== child ||
+          event.data?.port !== port || event.data?.path !== path) return
+      settled = true
+      cleanup()
+      setRouteStatus('Approved')
+      setRouteBusy(true)
+      setRouteStatus('Publishing')
+      try {
+        await api.post(`/tunnels/${child}/uopti-xhttp-route`, {inbound_port: port})
+        setRouteApprovalRequired(false)
+        setRouteStatus('Published')
+      } catch {
+        // Ambiguous Broker or Node result is NEVER automatically retried.
+        setRouteStatus('HOLD / Requires Review')
+      } finally { setRouteBusy(false); popup.close() }
+    }
+    const watch = window.setInterval(() => {
+      if (!settled && popup.closed) {
+        settled = true; cleanup(); setRouteStatus('HOLD / Requires Review')
+      }
+    }, 1000)
+    const expiry = window.setTimeout(() => {
+      if (!settled) { settled = true; cleanup(); setRouteStatus('HOLD / Requires Review') }
+    }, 5 * 60 * 1000)
+    window.addEventListener('message', onMessage)
   }
 
   const reapplyTunnel = async (tunnel: Tunnel) => {
@@ -577,7 +644,11 @@ const Tunnels = () => {
                 {routePicker.choices.map(x => <option key={x.port} value={x.port}>{x.port} — {x.path}</option>)}
               </select>
             </label>
-            <button disabled={routeBusy} className="bg-indigo-600 text-white px-4 py-2 rounded" onClick={publishSelectedRoute}>{dir === 'rtl' ? 'درخواست ثبت مسیر' : 'Request route publication'}</button>
+            <p role="status" aria-live="polite" className="text-sm">{routeStatus}</p>
+            {!routeApprovalRequired && routeStatus !== 'Published' &&
+              <button disabled={routeBusy} className="bg-indigo-600 text-white px-4 py-2 rounded" onClick={publishSelectedRoute}>{dir === 'rtl' ? 'درخواست ثبت مسیر' : 'Request route publication'}</button>}
+            {routeApprovalRequired && routeApprovalOrigin &&
+              <button disabled={routeBusy} className="bg-indigo-600 text-white px-4 py-2 rounded" onClick={openIndependentRouteApproval}>{dir === 'rtl' ? 'تأیید مستقل با Passkey' : 'Review & Approve with Passkey'}</button>}
             <button disabled={routeBusy} className="px-4 py-2" onClick={() => setRoutePicker(null)}>{dir === 'rtl' ? 'بستن' : 'Close'}</button>
           </div>
         </div>
