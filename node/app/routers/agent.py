@@ -123,6 +123,32 @@ async def get_signed_xhttp_inbounds():
     return {"status": "success", "schema_version": 1, "inbounds": items}
 
 
+class ApprovalEvidenceQuery(BaseModel):
+    kind: str
+    port: int
+
+
+@router.post("/approval/evidence")
+async def signed_independent_approval_evidence(data: ApprovalEvidenceQuery, request: Request):
+    """Opt-in, strictly signed, READ ONLY Node evidence for independent Root.
+
+    The Panel may request facts but cannot forge the independently signed
+    response without the Node's dedicated root-owned Ed25519 private key.
+    No FRPS/FRPC/config mutation, route grant or database write occurs.
+    """
+    from app.config import settings
+    from app.approval_runtime_evidence import collect, RuntimeAttestationHold
+    if settings.smite_agent_auth_mode != "strict":
+        raise HTTPException(409, detail="Independent attestation unavailable")
+    try:
+        return {"status":"success","attestation":await run_in_threadpool(
+            collect, kind=data.kind, port=data.port, settings=settings,
+            adapter_manager=request.app.state.adapter_manager,
+        )}
+    except RuntimeAttestationHold as exc:
+        raise HTTPException(409, detail="Independent runtime evidence HOLD") from exc
+
+
 @router.post("/uopti/xhttp-route")
 async def forward_uopti_xhttp_route(data: UoptiRouteIntent):
     """Forward one Panel-signed intent to the local root broker over UDS."""
