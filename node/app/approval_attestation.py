@@ -61,7 +61,8 @@ def _checked_facts(kind: str, facts: dict) -> None:
                 or not IDENT.fullmatch(facts["tunnel_id"])
                 or type(facts["control_port"]) is not int or facts["control_port"] != 7000
                 or type(facts["proxy_port"]) is not int
-                or not 1024 <= facts["proxy_port"] <= 65535):
+                or not 1024 <= facts["proxy_port"] <= 65535
+                or facts["proxy_port"] == 7000):
             raise AttestationHold("INVALID_OWNER_FACTS")
     elif kind == "xhttp_inbound":
         if (set(facts) != {"port", "listen", "protocol", "network", "path", "enabled"}
