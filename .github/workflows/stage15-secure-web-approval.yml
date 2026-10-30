@@ -23,6 +23,7 @@ jobs:
           set -euo pipefail
           cd frontend
           npm ci
+          npx tsc --noEmit -p tsconfig.json
           npm run build
       - name: Check opt-in isolation and no Web Root credentials in Panel
         run: |
