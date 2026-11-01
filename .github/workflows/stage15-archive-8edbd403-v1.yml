@@ -1,0 +1,104 @@
+name: Archive exact reviewed Stage15 8edbd403 bytes
+on:
+  push:
+    branches: [archive/stage15-reviewed-8edbd403-v1]
+    paths: [.github/workflows/stage15-archive-8edbd403-v1.yml]
+permissions:
+  contents: write
+  actions: read
+concurrency:
+  group: archive-stage15-reviewed-8edbd403-v1
+  cancel-in-progress: false
+jobs:
+  archive:
+    if: github.repository == 'aghajani82/Smite'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    env:
+      GH_TOKEN: ${{ github.token }}
+      REPO: aghajani82/Smite
+      TAG: archive-stage15-reviewed-8edbd403-v1
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: aec8a5f7e7a91a9e59fd968ef0f7570fdd995d57
+          persist-credentials: false
+      - name: Validate successful preservation and original build
+        run: |
+          set -euo pipefail
+          mkdir archive
+          gh api "repos/$REPO/actions/artifacts/12960674420" > archive/artifact-origin.json
+          gh api "repos/$REPO/actions/runs/41020816370" > archive/preservation-run.json
+          gh api "repos/$REPO/actions/runs/40921424209" > archive/original-run.json
+          python3 - <<'PY'
+          import json,pathlib
+          p=pathlib.Path('archive')
+          a=json.loads((p/'artifact-origin.json').read_text())
+          r=json.loads((p/'preservation-run.json').read_text())
+          o=json.loads((p/'original-run.json').read_text())
+          assert a['id']==12960674420 and a['expired'] is False
+          assert a['name']=='stage15-reviewed-8edbd403-preserved'
+          assert a['workflow_run']['id']==41020816370
+          assert a['digest']=='sha256:55a4f55ebe6f14929c65fb05da96b60ea49f58480b3db9a46bf23c1395273575'
+          for run in (r,o):
+              assert run['repository']['full_name']=='aghajani82/Smite' and run['conclusion']=='success'
+          assert r['head_sha']==a['workflow_run']['head_sha']=='6f95d4e8d7190e0eec7ed768dd9b814133548d90'
+          assert o['head_sha']=='8edbd4032ae657fe2bb38cd9b3290de5f1e07a54'
+          PY
+      - name: Download and verify original ZIP without rebuilding
+        run: |
+          set -euo pipefail
+          gh api "repos/$REPO/actions/artifacts/12960674420/zip" > archive/stage15-reviewed-8edbd403-preserved.zip
+          python3 - <<'PY'
+          import sys,hashlib,json,pathlib,zipfile
+          sys.path.insert(0,'tests')
+          import stage15_preserve_artifact as old
+          p=pathlib.Path('archive');outer=p/'stage15-reviewed-8edbd403-preserved.zip'
+          with outer.open('rb') as f: assert old.digest(f)=='55a4f55ebe6f14929c65fb05da96b60ea49f58480b3db9a46bf23c1395273575'
+          with zipfile.ZipFile(outer) as z:
+              assert len(z.infolist())==2 and set(z.namelist())=={'stage15-reviewed-8edbd403.zip','preservation.json'}
+              for i in z.infolist():
+                  assert not i.is_dir() and i.file_size<500_000_000 and i.external_attr>>16&0o170000!=0o120000
+              (p/'stage15-reviewed-8edbd403.zip').write_bytes(z.read('stage15-reviewed-8edbd403.zip'))
+              original_proof=json.loads(z.read('preservation.json'))
+          proof=old.verify(p/'stage15-reviewed-8edbd403.zip')
+          assert original_proof==proof
+          with zipfile.ZipFile(p/'stage15-reviewed-8edbd403.zip') as z:
+              (p/'stage15-images.json').write_bytes(z.read('stage15-images.json'))
+          proof.update(archive_schema=1,archive_tag='archive-stage15-reviewed-8edbd403-v1',
+              preserved_artifact_id=12960674420,preservation_run=41020816370,
+              outer_zip_sha256='55a4f55ebe6f14929c65fb05da96b60ea49f58480b3db9a46bf23c1395273575',
+              members=old.FILES,purpose='historical recovery only; not current images or stable release')
+          (p/'archive-manifest.json').write_text(json.dumps(proof,sort_keys=True,indent=2)+'\n')
+          names=['stage15-reviewed-8edbd403-preserved.zip','stage15-reviewed-8edbd403.zip','stage15-images.json','archive-manifest.json']
+          lines=[]
+          for n in names:
+              with (p/n).open('rb') as f: lines.append(old.digest(f)+'  '+n+'\n')
+          (p/'SHA256SUMS').write_text(''.join(lines))
+          PY
+      - name: Publish separate historical prerelease; never overwrite
+        run: |
+          set -euo pipefail
+          if gh release view "$TAG" --repo "$REPO" >/dev/null 2>&1; then
+            echo 'HOLD: Archive exists; no overwrite permitted.'; exit 2
+          fi
+          if gh api "repos/$REPO/git/ref/tags/$TAG" >/dev/null 2>&1; then
+            echo 'HOLD: Tag exists; inspect before proceeding.'; exit 2
+          fi
+          gh release create "$TAG" --repo "$REPO" --target 8edbd4032ae657fe2bb38cd9b3290de5f1e07a54 \
+            --draft --prerelease --title 'Historical Stage15 8edbd403 archive v1 — NOT CURRENT / NOT PRODUCTION' \
+            --notes 'Exact original artifact bytes retained without rebuilding. Historical migration/recovery archive only. Never replace current images with these assets. Outer ZIP SHA-256: 55a4f55ebe6f14929c65fb05da96b60ea49f58480b3db9a46bf23c1395273575. Inner ZIP SHA-256: d250b0fd27ae362bc4008b9e62208f94ae92fb71273d66bee83c9bcdcd1f75d9. See archive-manifest.json and SHA256SUMS. No live deployment or main merge.' \
+            archive/stage15-reviewed-8edbd403-preserved.zip archive/stage15-reviewed-8edbd403.zip \
+            archive/stage15-images.json archive/archive-manifest.json archive/SHA256SUMS
+          gh api "repos/$REPO/releases/tags/$TAG" > archive/uploaded.json
+          python3 - <<'PY'
+          import json,pathlib
+          p=pathlib.Path('archive')
+          assets=json.loads((p/'uploaded.json').read_text())['assets']
+          expected={line.split()[1]:'sha256:'+line.split()[0] for line in (p/'SHA256SUMS').read_text().splitlines()}
+          import hashlib
+          expected['SHA256SUMS']='sha256:'+hashlib.sha256((p/'SHA256SUMS').read_bytes()).hexdigest()
+          assert len(assets)==len(expected) and {a['name'] for a in assets}==set(expected)
+          assert all(a['digest']==expected[a['name']] for a in assets)
+          PY
+          gh release edit "$TAG" --repo "$REPO" --draft=false --prerelease --latest=false
