@@ -237,17 +237,21 @@ const Tunnels = () => {
     try {
       const response = await api.post(`/tunnels/${tunnel.id}/verify-proxy`)
       fetchData()
-      if (response.data?.status !== 'active') {
-        alert('Shared FRPS proxy is not listening on IR yet. No restart or reapply was performed.')
+      if (response.data?.status === 'active') {
+        alert('تأیید FRP موفق بود: پورت این تانل روی سرور IR توسط بررسی امضاشده شناسایی شد. برای تأیید اتصال VLESS/XHTTP باید کلاینت را جداگانه آزمایش کنید. هیچ Reapply یا ری‌استارتی انجام نشد.')
+      } else {
+        alert('تأیید FRP کامل نشد: شنونده پورت تانل در IR تأیید نشده است. هیچ Reapply یا ری‌استارتی انجام نشد.')
       }
     } catch (error: any) {
-      alert(error.response?.data?.detail || 'Unable to verify the shared FRPS proxy')
+      alert(error.response?.data?.detail || 'بررسی FRP ناموفق بود. وضعیت تانل را بررسی کنید؛ Reapply خودکار انجام نشد.')
     }
   }
 
   const [routePicker, setRoutePicker] = useState<{tunnel: Tunnel, choices: {port: number, path: string}[]} | null>(null)
   const [routePort, setRoutePort] = useState<number>(0)
   const [routeBusy, setRouteBusy] = useState(false)
+  const [routeStatus, setRouteStatus] = useState('Awaiting Approval')
+  const [routeApprovalRequired, setRouteApprovalRequired] = useState(false)
   const registerXhttpRoute = async (tunnel: Tunnel) => {
     try {
       const inventory = await api.get(`/tunnels/${tunnel.id}/uopti-xhttp-inbounds`)
@@ -257,6 +261,8 @@ const Tunnels = () => {
         return
       }
       setRoutePort(choices[0].port)
+      setRouteStatus('Awaiting Approval')
+      setRouteApprovalRequired(false)
       setRoutePicker({tunnel, choices})
     } catch (error: any) {
       alert(error.response?.data?.detail || 'Signed inbound inventory unavailable')
@@ -265,16 +271,21 @@ const Tunnels = () => {
   const publishSelectedRoute = async () => {
     if (!routePicker || routeBusy || !routePicker.choices.some(x => x.port === routePort)) return
     setRouteBusy(true)
+    setRouteStatus('Publishing')
     try {
       await api.post(`/tunnels/${routePicker.tunnel.id}/uopti-xhttp-route`, {inbound_port: routePort})
-      setRoutePicker(null)
-      alert(dir === 'rtl' ? 'مسیر ثبت شد؛ اتصال واقعی کلاینت را آزمایش کن.' : 'Route registered. Verify actual client traffic.')
+      setRouteApprovalRequired(false)
+      setRouteStatus('Published')
     } catch (error: any) {
       if (error.response?.data?.detail === 'ROOT_OPERATOR_GRANT_REQUIRED') {
-        alert(dir === 'rtl'
-          ? 'درخواست امضاشده آمادهٔ بررسی مستقل Root است. در کنسول احرازهویت‌شده IR ابزار smite-stage15-root-review.py را اجرا کن؛ مشخصات را بررسی و تأیید کن. سپس دوباره ثبت مسیر را بزن. درخواست کوتاه‌عمر است؛ در صورت انقضا دوباره درخواست بده.'
-          : 'Signed proposal awaits independent root approval. On the authenticated IR console run smite-stage15-root-review.py, review and approve the displayed facts, then publish again. If the short-lived proposal expires, submit it again.')
-      } else alert(error.response?.data?.detail || 'Publication unconfirmed. Inspect state before retrying.')
+        setRouteApprovalRequired(true)
+        setRouteStatus('Approval Required')
+        // The localized console guide remains visible in the route dialog.
+        // No browser approval service is needed, and no automatic retry occurs.
+      } else {
+        setRouteStatus('HOLD / Requires Review')
+        alert(error.response?.data?.detail || 'Publication unconfirmed. Inspect state before retrying.')
+      }
     } finally { setRouteBusy(false) }
   }
 
@@ -568,17 +579,57 @@ const Tunnels = () => {
       </div>
 
       {routePicker && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50" role="dialog" aria-modal="true" aria-label="XHTTP route">
-          <div className="bg-white dark:bg-gray-800 rounded-xl p-6 max-w-lg w-full space-y-4">
-            <h2 className="text-xl font-bold">XHTTP — {routePicker.tunnel.name}</h2>
-            <p>{dir === 'rtl' ? 'پورت و مسیر از ورودی معتبر سنایی KH خوانده می‌شوند. برای تغییر آن‌ها ابتدا ورودی را در سنایی تنظیم کن. وضعیت Active تونل به معنی تأیید اتصال XHTTP نیست.' : 'Port and path come from verified KH Sanaei inbounds. Configure the inbound in Sanaei before selecting it. Active FRP status does not verify XHTTP traffic.'}</p>
-            <label className="block">{dir === 'rtl' ? 'ورودی KH' : 'KH inbound'}
-              <select className="block w-full p-2 text-black" value={routePort} disabled={routeBusy} onChange={e => setRoutePort(Number(e.target.value))}>
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50" role="dialog" aria-modal="true" aria-label="انتشار مسیر XHTTP">
+          <div dir="rtl" className="bg-white dark:bg-gray-800 rounded-xl p-6 max-w-lg w-full max-h-[90vh] overflow-y-auto space-y-4">
+            <h2 className="text-xl font-bold">
+              انتشار مسیر XHTTP — <bdi dir="ltr">{routePicker.tunnel.name}</bdi>
+            </h2>
+            <p className="text-sm">
+              پورت و مسیر از ورودی معتبر سنایی KH خوانده شده‌اند. فعال بودن تانل FRP به‌تنهایی به معنی اتصال موفق VLESS/XHTTP نیست.
+            </p>
+            <div className="rounded-lg bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 p-3 space-y-2 text-sm" aria-label="راهنمای تأیید مسیر">
+              <p className="font-semibold">مراحل انتشار مسیر:</p>
+              <p>۱. روی «درخواست انتشار مسیر» کلیک کنید.</p>
+              <p>
+                ۲. اگر «نیاز به تأیید» نمایش داده شد، در ترمینال <bdi dir="ltr">IR</bdi> دستور <code dir="ltr">u-opti</code> را اجرا کنید؛
+                از منوی <bdi dir="ltr">Smite Management</bdi> گزینه <bdi dir="ltr">G</bdi> را انتخاب کنید.
+                شناسه تانل، نودها، پورت و مسیر را بررسی و فقط در صورت تطبیق با درخواست خودتان، عدد <bdi dir="ltr">1</bdi> را برای تأیید وارد کنید.
+              </p>
+              <p>
+                ۳. پس از نمایش <code dir="ltr">ROOT_GRANT_APPROVED</code> در ترمینال، به همین پنجره برگردید و روی
+                «ثبت نهایی مسیر» فقط یک بار کلیک کنید. این مرحله درخواست جدید و امضاشده‌ای به پنل ارسال می‌کند؛ مجوز کنسولی به‌تنهایی مسیر را منتشر نمی‌کند.
+              </p>
+              <p className="text-amber-800 dark:text-amber-200">
+                اگر درخواست منقضی شد یا وضعیت نامشخص / HOLD بود، بدون بررسی وضعیت، درخواست را تکرار نکنید.
+              </p>
+            </div>
+            <label className="block text-sm font-medium">
+              ورودی XHTTP سرور KH
+              <select dir="ltr" className="block w-full p-2 mt-2 text-black text-left" value={routePort} disabled={routeBusy} onChange={e => setRoutePort(Number(e.target.value))}>
                 {routePicker.choices.map(x => <option key={x.port} value={x.port}>{x.port} — {x.path}</option>)}
               </select>
             </label>
-            <button disabled={routeBusy} className="bg-indigo-600 text-white px-4 py-2 rounded" onClick={publishSelectedRoute}>{dir === 'rtl' ? 'درخواست ثبت مسیر' : 'Request route publication'}</button>
-            <button disabled={routeBusy} className="px-4 py-2" onClick={() => setRoutePicker(null)}>{dir === 'rtl' ? 'بستن' : 'Close'}</button>
+            <p role="status" aria-live="polite" className="text-sm font-semibold">
+              {({
+                'Awaiting Approval': 'آماده ارسال درخواست',
+                'Publishing': 'در حال ثبت مسیر...',
+                'Approval Required': 'نیاز به تأیید کنسولی گزینه G',
+                'Published': 'مسیر منتشر شد؛ حالا اتصال واقعی کلاینت را آزمایش کنید',
+                'HOLD / Requires Review': 'توقف ایمن: نتیجه نامشخص است؛ قبل از درخواست مجدد وضعیت را بررسی کنید',
+              } as Record<string, string>)[routeStatus] || routeStatus}
+            </p>
+            {routeApprovalRequired && (
+              <p className="text-sm text-indigo-700 dark:text-indigo-200">
+                پس از دریافت پیام <code dir="ltr">ROOT_GRANT_APPROVED</code> در IR، دکمه «ثبت نهایی مسیر» را بزنید. تأیید دوباره G لازم نیست.
+              </p>
+            )}
+            <div className="flex gap-3 flex-wrap">
+              {routeStatus !== 'Published' && routeStatus !== 'HOLD / Requires Review' &&
+                <button disabled={routeBusy} className="bg-indigo-600 text-white px-4 py-2 rounded" onClick={publishSelectedRoute}>
+                  {routeApprovalRequired ? 'ثبت نهایی مسیر (پس از تأیید G)' : 'درخواست انتشار مسیر'}
+                </button>}
+              <button disabled={routeBusy} className="px-4 py-2" onClick={() => setRoutePicker(null)}>بستن</button>
+            </div>
           </div>
         </div>
       )}

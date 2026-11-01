@@ -3,8 +3,6 @@ import { Link, useLocation, useNavigate } from 'react-router-dom'
 import { LayoutDashboard, Network, FileText, Activity, Moon, Sun, Github, Menu, X, LogOut, Settings, Heart, Globe, Languages } from 'lucide-react'
 import { useAuth } from '../contexts/AuthContext'
 import { useLanguage } from '../contexts/LanguageContext'
-import SmiteLogoDark from '../assets/SmiteD.png'
-import SmiteLogoLight from '../assets/SmiteL.png'
 
 interface LayoutProps {
   children: ReactNode
@@ -102,37 +100,20 @@ const Layout = ({ children }: LayoutProps) => {
             sidebarOpen ? 'translate-x-0' : '-translate-x-full lg:translate-x-0'
           }`}
         >
-          {/* Sidebar Header */}
-          <div className="p-6 border-b border-gray-200 dark:border-gray-700">
-            <div className="flex items-center justify-between mb-6">
-              <button
-                onClick={() => setSidebarOpen(false)}
-                className="lg:hidden p-2 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700 text-gray-600 dark:text-gray-300"
-              >
-                <X size={20} />
-              </button>
-            </div>
-            <div className="flex flex-col items-center gap-4">
-              <div className="relative">
-                <div className="absolute inset-0 bg-blue-500/20 dark:bg-blue-400/20 rounded-full blur-xl"></div>
-                <img 
-                  src={darkMode ? SmiteLogoDark : SmiteLogoLight} 
-                  alt="Smite Logo" 
-                  className="relative h-24 w-24"
-                />
-              </div>
-              <div className="text-center">
-                <h1 className="text-xl font-bold bg-gradient-to-r from-blue-600 to-indigo-600 dark:from-blue-400 dark:to-indigo-400 bg-clip-text text-transparent">Smite</h1>
-                <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">Control Panel</p>
-                {username && (
-                  <p className="text-xs text-gray-400 dark:text-gray-500 mt-2 px-2 py-1 bg-gray-100 dark:bg-gray-700 rounded">{username}</p>
-                )}
-              </div>
-            </div>
+          {/* Mobile sidebar close control; desktop menu starts at the top. */}
+          <div className="lg:hidden flex justify-end px-3 pt-3">
+            <button
+              type="button"
+              onClick={() => setSidebarOpen(false)}
+              aria-label={language === 'fa' ? 'بستن منو' : 'Close menu'}
+              className="p-2 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700 text-gray-600 dark:text-gray-300"
+            >
+              <X size={20} />
+            </button>
           </div>
-          
-          {/* Navigation */}
-          <nav className="flex-1 p-4 space-y-1 overflow-y-auto">
+
+          {/* Navigation: scroll only when the viewport is too short. */}
+          <nav className="flex-1 min-h-0 p-3 space-y-1 overflow-y-auto">
             {navItems.map((item) => {
               const Icon = item.icon
               const isActive = location.pathname === item.path

@@ -15,6 +15,7 @@ jobs:
           python-version: '3.11'
       - run: pip install -r panel/requirements.txt
       - run: |
+          python -B tests/test_console_only_release.py
           python -B tests/test_panel_xhttp_route_lifecycle.py
           python -B tests/test_panel_xhttp_route_intent.py
           python -B tests/test_sanaei_inbound_inventory.py
