@@ -44,3 +44,16 @@ test('XHTTP console approval requires explicit fresh manual publication and bloc
   assert.match(source, /routeApprovalRequired && routeApprovalOrigin/)
   assert.match(source, /routeStatus !== 'Published'/)
 })
+
+test('Verify shows signed FRPS listener success without claiming XHTTP or reapplying', () => {
+  const source = readFileSync(join(__dirname, '../src/pages/Tunnels.tsx'), 'utf8')
+  const start = source.indexOf('const verifySharedFrpProxy = async')
+  const end = source.indexOf('const [routePicker', start)
+  assert.ok(start !== -1 && end > start)
+  const verifyHandler = source.slice(start, end)
+  assert.match(verifyHandler, /response\.data\?\.status === 'active'/)
+  assert.match(verifyHandler, /تأیید FRP موفق بود/)
+  assert.match(verifyHandler, /VLESS\/XHTTP/)
+  assert.match(verifyHandler, /هیچ Reapply یا ری‌استارتی انجام نشد/)
+  assert.doesNotMatch(verifyHandler, /reapplyTunnel\(|reapply-all|\/tunnels\/apply/)
+})
