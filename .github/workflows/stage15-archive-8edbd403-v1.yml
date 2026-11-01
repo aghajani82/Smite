@@ -79,26 +79,20 @@ jobs:
       - name: Publish separate historical prerelease; never overwrite
         run: |
           set -euo pipefail
-          if gh release view "$TAG" --repo "$REPO" >/dev/null 2>&1; then
-            echo 'HOLD: Archive exists; no overwrite permitted.'; exit 2
-          fi
-          if gh api "repos/$REPO/git/ref/tags/$TAG" >/dev/null 2>&1; then
-            echo 'HOLD: Tag exists; inspect before proceeding.'; exit 2
-          fi
-          gh release create "$TAG" --repo "$REPO" --target 8edbd4032ae657fe2bb38cd9b3290de5f1e07a54 \
-            --draft --prerelease --title 'Historical Stage15 8edbd403 archive v1 — NOT CURRENT / NOT PRODUCTION' \
-            --notes 'Exact original artifact bytes retained without rebuilding. Historical migration/recovery archive only. Never replace current images with these assets. Outer ZIP SHA-256: 55a4f55ebe6f14929c65fb05da96b60ea49f58480b3db9a46bf23c1395273575. Inner ZIP SHA-256: d250b0fd27ae362bc4008b9e62208f94ae92fb71273d66bee83c9bcdcd1f75d9. See archive-manifest.json and SHA256SUMS. No live deployment or main merge.' \
-            archive/stage15-reviewed-8edbd403-preserved.zip archive/stage15-reviewed-8edbd403.zip \
-            archive/stage15-images.json archive/archive-manifest.json archive/SHA256SUMS
-          gh api "repos/$REPO/releases/tags/$TAG" > archive/uploaded.json
+          # Resume only the already uploaded draft; never recreate or replace assets.
+          gh api "repos/$REPO/releases/430378761" > archive/uploaded.json
           python3 - <<'PY'
           import json,pathlib
           p=pathlib.Path('archive')
-          assets=json.loads((p/'uploaded.json').read_text())['assets']
+          release=json.loads((p/'uploaded.json').read_text())
+          assert release['id']==430378761 and release['draft'] is True and release['prerelease'] is True
+          assert release['tag_name']=='archive-stage15-reviewed-8edbd403-v1'
+          assert release['target_commitish']=='8edbd4032ae657fe2bb38cd9b3290de5f1e07a54'
+          assets=release['assets']
           expected={line.split()[1]:'sha256:'+line.split()[0] for line in (p/'SHA256SUMS').read_text().splitlines()}
           import hashlib
           expected['SHA256SUMS']='sha256:'+hashlib.sha256((p/'SHA256SUMS').read_bytes()).hexdigest()
           assert len(assets)==len(expected) and {a['name'] for a in assets}==set(expected)
           assert all(a['digest']==expected[a['name']] for a in assets)
           PY
-          gh release edit "$TAG" --repo "$REPO" --draft=false --prerelease --latest=false
+          gh api --method PATCH "repos/$REPO/releases/430378761" -F draft=false -F prerelease=true -f make_latest=false >/dev/null
