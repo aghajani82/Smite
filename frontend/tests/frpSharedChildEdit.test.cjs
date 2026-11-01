@@ -28,3 +28,19 @@ test('live edit form uses name-only shortcut and hides owner controls for childr
   assert.match(source, /frp_token: isSharedFrpsChild \? ''/)
   assert.match(source, /type="password"[\s\S]*?value=\{formData\.frp_token\}/)
 })
+
+test('XHTTP console approval requires explicit fresh manual publication and blocks ambiguous retries', () => {
+  const source = readFileSync(join(__dirname, '../src/pages/Tunnels.tsx'), 'utf8')
+  assert.match(source, /انتشار مسیر XHTTP/)
+  assert.match(source, /راهنمای تأیید مسیر/)
+  assert.match(source, /درخواست انتشار مسیر/)
+  assert.match(source, /ROOT_GRANT_APPROVED/)
+  assert.match(source, /ثبت نهایی مسیر \(پس از تأیید G\)/)
+  assert.match(source, /routeApprovalRequired && !routeApprovalOrigin/)
+  assert.match(source, /routeStatus !== 'HOLD \/ Requires Review'/)
+  assert.match(source, /routeApprovalRequired \? 'ثبت نهایی مسیر/)
+  assert.match(source, /error\.response\?\.data\?\.detail === 'ROOT_OPERATOR_GRANT_REQUIRED'/)
+  // Original independent browser opt-in remains available only when configured.
+  assert.match(source, /routeApprovalRequired && routeApprovalOrigin/)
+  assert.match(source, /routeStatus !== 'Published'/)
+})
