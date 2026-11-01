@@ -237,11 +237,13 @@ const Tunnels = () => {
     try {
       const response = await api.post(`/tunnels/${tunnel.id}/verify-proxy`)
       fetchData()
-      if (response.data?.status !== 'active') {
-        alert('Shared FRPS proxy is not listening on IR yet. No restart or reapply was performed.')
+      if (response.data?.status === 'active') {
+        alert('تأیید FRP موفق بود: پورت این تانل روی سرور IR توسط بررسی امضاشده شناسایی شد. برای تأیید اتصال VLESS/XHTTP باید کلاینت را جداگانه آزمایش کنید. هیچ Reapply یا ری‌استارتی انجام نشد.')
+      } else {
+        alert('تأیید FRP کامل نشد: شنونده پورت تانل در IR تأیید نشده است. هیچ Reapply یا ری‌استارتی انجام نشد.')
       }
     } catch (error: any) {
-      alert(error.response?.data?.detail || 'Unable to verify the shared FRPS proxy')
+      alert(error.response?.data?.detail || 'بررسی FRP ناموفق بود. وضعیت تانل را بررسی کنید؛ Reapply خودکار انجام نشد.')
     }
   }
 
