@@ -72,3 +72,51 @@ jobs:
         with:
           name: compact-ui-browser-evidence
           path: frontend/compact-evidence/
+      - name: Package reviewed UI-only static assets (no deploy)
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY_UI_PACKAGE'
+          import hashlib, json, os, pathlib, tarfile
+
+          dist = pathlib.Path('frontend/dist')
+          if not (dist / 'index.html').is_file() or not (dist / 'assets').is_dir():
+              raise SystemExit('HOLD: compiled UI assets are missing')
+          files = sorted(p for p in dist.rglob('*') if p.is_file())
+          if any(p.is_symlink() for p in dist.rglob('*')):
+              raise SystemExit('HOLD: symlinks in compiled UI are not permitted')
+          if not files:
+              raise SystemExit('HOLD: no compiled UI assets')
+          output = pathlib.Path('ui-only-artifact')
+          output.mkdir(exist_ok=True)
+          manifest = {
+              'kind': 'smite-rc7-static-ui-only-preview',
+              'source_sha': os.environ['GITHUB_SHA'],
+              'base_runtime': 'smite-panel v2.0.0-rc.7; backend/node images unchanged',
+              'activation_allowed': False,
+              'files': [
+                  {'path': str(p.relative_to(dist)), 'sha256': hashlib.sha256(p.read_bytes()).hexdigest(), 'bytes': p.stat().st_size}
+                  for p in files
+              ],
+          }
+          manifest_path = output / 'manifest.json'
+          manifest_path.write_text(json.dumps(manifest, sort_keys=True, indent=2) + '\n')
+          name = 'smite-rc7-ui-only-' + os.environ['GITHUB_SHA'][:12] + '.tar.gz'
+          archive = output / name
+          with tarfile.open(archive, 'w:gz') as tar:
+              for f in files:
+                  tar.add(f, arcname='static/' + f.relative_to(dist).as_posix(), recursive=False)
+          digest = hashlib.sha256(archive.read_bytes()).hexdigest()
+          (output / 'SHA256SUMS').write_text(digest + '  ' + name + '\n')
+          print('UI_ONLY_ARTIFACT=' + name)
+          print('UI_ONLY_SHA256=' + digest)
+          print('UI_ONLY_FILE_COUNT=' + str(len(files)))
+          print('UI_ONLY_DEPLOYED=NO')
+          PY_UI_PACKAGE
+      - name: Upload UI-only preview payload (download-only)
+        uses: actions/upload-artifact@v4
+        with:
+          name: smite-rc7-ui-only-static-preview
+          path: ui-only-artifact/
+          if-no-files-found: error
+          retention-days: 7
