@@ -3,7 +3,11 @@ name: Simple Operator UI Regression
 on:
   push:
     branches:
+      - main
       - feature/smite-simple-operator-ui-20261018
+    paths:
+      - 'frontend/**'
+      - '.github/workflows/simple-operator-ui.yml'
   pull_request:
     paths:
       - 'frontend/**'
