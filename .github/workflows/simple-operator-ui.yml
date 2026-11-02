@@ -14,7 +14,7 @@ permissions:
 
 jobs:
   frontend:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
@@ -58,3 +58,17 @@ jobs:
       - name: Production frontend build
         working-directory: frontend
         run: npm run build
+      - name: Browser layout, login and responsive UI regression (fixture APIs only)
+        working-directory: frontend
+        run: |
+          npm install --prefix /tmp/smite-ui-browser --no-audit --no-fund playwright@1.51.1
+          /tmp/smite-ui-browser/node_modules/.bin/playwright install --with-deps chromium
+          npm run preview -- --host 127.0.0.1 --port 3100 &
+          PREVIEW_PID=$!
+          trap 'kill "$PREVIEW_PID"' EXIT
+          for attempt in $(seq 1 30); do curl -fsS http://127.0.0.1:3100/ >/dev/null && break; sleep 1; done
+          PLAYWRIGHT_MODULE=/tmp/smite-ui-browser/node_modules/playwright node tests/compact-browser.cjs
+      - uses: actions/upload-artifact@v4
+        with:
+          name: compact-ui-browser-evidence
+          path: frontend/compact-evidence/
