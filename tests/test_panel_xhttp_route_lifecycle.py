@@ -23,6 +23,12 @@ class Result:
     def __init__(self, value):
         self.value = value
 
+    def scalars(self):
+        return self
+
+    def all(self):
+        return self.value
+
     def scalar_one_or_none(self):
         return self.value
 
@@ -162,6 +168,53 @@ class RouteLifecycleTests(unittest.IsolatedAsyncioTestCase):
             )
         self.assertEqual(client.node_id, "node-kh-0001")
         self.assertEqual(choices, [{"port": 45121, "path": "/45121/www"}])
+
+
+class OwnerRouteTests(unittest.IsolatedAsyncioTestCase):
+    def owner(self):
+        _, _, owner, ir, kh = objects()
+        owner.type = "tcp"
+        owner.spec = {"bind_port": 7000, "ports": [45121], "local_ip": "127.0.0.1"}
+        return owner, ir, kh
+
+    async def test_owner_route_no_child_or_frp_mutation(self):
+        owner, ir, kh = self.owner()
+        client = Client()
+        # FakeDb deliberately has no add/commit/flush; Client has no apply API.
+        db = FakeDb(owner, [owner], [], ir, kh)
+        with patch.object(lifecycle, "_broker_key", return_value=b"k" * 32):
+            result = await lifecycle.register_xhttp_route(db=db,tunnel_id=owner.id,
+                inbound_port=45121,client=client,now=123456)
+        self.assertEqual(result["result"], "route_registered")
+        import json
+        wire = json.loads(client.forwarded[1])
+        self.assertEqual(wire["owner"],owner.id)
+        self.assertEqual(wire["child"],owner.id)
+        self.assertEqual(wire["lease"],owner.id)
+
+    async def test_owner_conflicting_lease_rejected(self):
+        owner, ir, kh = self.owner()
+        with self.assertRaisesRegex(lifecycle.XhttpRouteHold,"LEASE_COLLISION"):
+            await lifecycle.owner_proxy_binding(FakeDb([owner],[object()]),owner)
+
+    async def test_owner_conflicting_child_row_rejected(self):
+        owner, ir, kh = self.owner()
+        child, *_ = objects(); child.spec.update(ports=[45121])
+        with self.assertRaisesRegex(lifecycle.XhttpRouteHold,"PORT_COLLISION"):
+            await lifecycle.owner_proxy_binding(FakeDb([owner,child]),owner)
+
+    async def test_owner_wrong_port_never_forwarded(self):
+        owner, ir, kh = self.owner(); client=Client()
+        with self.assertRaisesRegex(lifecycle.XhttpRouteHold,"PORT_MISMATCH"):
+            await lifecycle.register_xhttp_route(db=FakeDb(owner,[owner],[]),
+                tunnel_id=owner.id,inbound_port=49328,client=client,now=123456)
+        self.assertIsNone(client.forwarded)
+
+    async def test_owner_picker_returns_existing_port_only(self):
+        owner, ir, kh = self.owner()
+        result=await lifecycle.list_child_xhttp_inbounds(db=FakeDb(owner,[owner],[]),
+            tunnel_id=owner.id,client=Client())
+        self.assertEqual(result,[{"port":45121,"path":"/45121/www"}])
 
 
 if __name__ == "__main__":

@@ -1,0 +1,46 @@
+name: Preserve reviewed Stage15 image bytes
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/stage15-preserve-reviewed-artifact.yml'
+      - 'tests/stage15_preserve_artifact.py'
+  workflow_dispatch:
+permissions:
+  contents: read
+  actions: read
+jobs:
+  preserve:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - name: Verify original successful build and artifact origin
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          gh api repos/aghajani82/Smite/actions/runs/40921424209 > "$RUNNER_TEMP/origin.json"
+          gh api repos/aghajani82/Smite/actions/artifacts/12919495217 > "$RUNNER_TEMP/artifact.json"
+          python3 - <<'PY'
+          import json,os,pathlib
+          folder=pathlib.Path(os.environ['RUNNER_TEMP'])
+          run=json.loads((folder/'origin.json').read_text())
+          artifact=json.loads((folder/'artifact.json').read_text())
+          assert run['head_sha']=='8edbd4032ae657fe2bb38cd9b3290de5f1e07a54'
+          assert run['conclusion']=='success' and run['repository']['full_name']=='aghajani82/Smite'
+          assert artifact['id']==12919495217 and not artifact['expired']
+          assert artifact['workflow_run']['id']==40921424209
+          assert artifact['name']=='smite-stage15-offline-images-8edbd4032ae657fe2bb38cd9b3290de5f1e07a54'
+          PY
+          gh api repos/aghajani82/Smite/actions/artifacts/12919495217/zip > "$RUNNER_TEMP/original.zip"
+      - name: Verify all original hashes and preserve without rebuilding
+        run: python3 -B tests/stage15_preserve_artifact.py "$RUNNER_TEMP/original.zip" "$RUNNER_TEMP/preserved"
+      - name: Retain identical reviewed ZIP for 90 days
+        uses: actions/upload-artifact@v4
+        with:
+          name: stage15-reviewed-8edbd403-preserved
+          path: ${{ runner.temp }}/preserved/
+          if-no-files-found: error
+          retention-days: 90
+          compression-level: 0

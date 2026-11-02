@@ -47,7 +47,8 @@ def plan_xhttp_nginx_route(
     path = inbound.get("path")
     if (type(port) is not int or port == 7000 or not 1024 <= port <= 65535
             or not isinstance(path, str) or len(path) > 128
-            or not PATH.fullmatch(path) or not path.startswith(f"/{port}/")
+            or not PATH.fullmatch(path)
+            or path.split("/")[1].lower() in {"api", "docs", "redoc", "openapi", "assets", "static", "auth", "login", "admin", "health", "metrics", "sub", "ws"}
             or inbound.get("listen") != "127.0.0.1"
             or inbound.get("network") != "xhttp"
             or inbound.get("protocol") != "vless"

@@ -36,11 +36,30 @@ def _checked_db(path: str) -> Path:
         info = p.lstat()
     except OSError as exc:
         raise SanaeiInventoryUnavailable("Sanaei inventory file unavailable") from exc
-    if (not stat.S_ISREG(info.st_mode)
+    if (not stat.S_ISREG(info.st_mode) or info.st_nlink != 1
             or info.st_uid != os.geteuid()
             or bool(info.st_mode & 0o022)
             or not 0 < info.st_size <= MAX_DB_BYTES):
         raise SanaeiInventoryUnavailable("Sanaei inventory file untrusted")
+    # WAL readers need the sidecars in the SAME directory mount. Reject links,
+    # unexpected owners and writable-to-others artifacts, never repair them.
+    companions = []
+    for suffix, maximum in (("-wal", MAX_DB_BYTES), ("-shm", 4 * 1024 * 1024)):
+        side = p.with_name(p.name + suffix)
+        try:
+            meta = side.lstat()
+        except FileNotFoundError:
+            companions.append(False)
+            continue
+        except OSError as exc:
+            raise SanaeiInventoryUnavailable("Sanaei WAL sidecar unavailable") from exc
+        if (not stat.S_ISREG(meta.st_mode) or meta.st_nlink != 1
+                or meta.st_uid != info.st_uid or meta.st_mode & 0o022
+                or not 0 <= meta.st_size <= maximum):
+            raise SanaeiInventoryUnavailable("Untrusted Sanaei WAL sidecar")
+        companions.append(True)
+    if companions[0] != companions[1]:
+        raise SanaeiInventoryUnavailable("Incomplete Sanaei WAL view")
     return p
 
 
@@ -88,8 +107,8 @@ def list_approved_xhttp_inbounds(db_path: str) -> list[dict[str, object]]:
         exact_path = settings.get("path") if isinstance(settings, dict) else None
         if (not isinstance(exact_path, str) or len(exact_path) > 128
                 or not _PATH.fullmatch(exact_path)
-                or not exact_path.startswith(f"/{port}/")
-                or exact_path in used_paths or port in used_ports):
+            or exact_path.split("/")[1].lower() in {"api", "docs", "redoc", "openapi", "assets", "static", "auth", "login", "admin", "health", "metrics", "sub", "ws"}
+                or any(exact_path == p or exact_path.startswith(p + "/") or p.startswith(exact_path + "/") for p in used_paths) or port in used_ports):
             raise SanaeiInventoryUnavailable("Unapproved or conflicting XHTTP path")
         used_ports.add(port)
         used_paths.add(exact_path)

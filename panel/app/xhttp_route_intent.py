@@ -70,7 +70,7 @@ def sign_route_intent(
         raise RouteIntentHold("UNAPPROVED_PROXY_PORT")
     if (type(binding.path) is not str or len(binding.path) > 128
             or not PATH.fullmatch(binding.path)
-            or not binding.path.startswith(f"/{binding.port}/")):
+            or binding.path.split("/")[1].lower() in {"api", "docs", "redoc", "openapi", "assets", "static", "auth", "login", "admin", "health", "metrics", "sub", "ws"}):
         raise RouteIntentHold("UNAPPROVED_XHTTP_PATH")
     if any(type(getattr(binding, f)) is not str
            or not HEX64.fullmatch(getattr(binding, f))
