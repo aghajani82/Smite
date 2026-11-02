@@ -50,6 +50,11 @@ jobs:
       - name: Verify charcoal-teal theme only reuses existing product capabilities
         working-directory: frontend
         run: node --test tests/charcoalThemeContract.test.cjs
+      - name: Reject incomplete dashboard data and stale setup progress
+        working-directory: frontend
+        run: |
+          ./node_modules/.bin/esbuild src/utils/dashboardData.ts --bundle --format=cjs --platform=node --outfile=tests/dashboardData.generated.cjs
+          node --test tests/dashboardData.test.cjs
       - name: Production frontend build
         working-directory: frontend
         run: npm run build

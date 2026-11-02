@@ -4,16 +4,7 @@ import { Activity, ArrowRight, AlertCircle, CheckCircle2, Cpu, FileText, HeartPu
 import { useLanguage } from '../contexts/LanguageContext'
 import api from '../api/client'
 
-interface Status {
-  system: {
-    cpu_percent: number
-    memory_percent: number
-    memory_total_gb: number
-    memory_used_gb: number
-  }
-  tunnels: { total: number; active: number }
-  nodes: { total: number; active: number }
-}
+import { Status, validStatus, registeredRoles, setupCount } from '../utils/dashboardData'
 
 interface LogEntry {
   timestamp?: string
@@ -46,6 +37,7 @@ const Dashboard = () => {
       try {
         const response = await api.get<Status>('/status')
         if (!mounted) return
+        if (!validStatus(response.data)) throw new Error('Invalid status data')
         setStatus(response.data)
         setError(false)
         setLastUpdated(new Date())
@@ -61,24 +53,14 @@ const Dashboard = () => {
       try {
         const response = await api.get<RegisteredNode[]>('/nodes')
         if (!mounted) return
-        const nodes = Array.isArray(response.data) ? response.data : []
-        if (nodes.some(node => !node.metadata?.role)) {
-          // An older, untyped registration cannot establish a server role.
-          // Show "unverified" instead of guessing IR/KH readiness.
-          setRegistered(null)
-        } else {
-          setRegistered({
-            iran: nodes.some(node => node.metadata?.role === 'iran'),
-            foreign: nodes.some(node => node.metadata?.role === 'foreign'),
-          })
-        }
+        setRegistered(registeredRoles(response.data))
       } catch {
         if (mounted) setRegistered(null)
       }
       // Reuse the existing Logs endpoint; no new audit or monitoring API.
       try {
         const response = await api.get<{ logs: LogEntry[] }>('/logs?limit=5')
-        if (mounted) setRecentLogs(Array.isArray(response.data?.logs) ? response.data.logs : [])
+        if (mounted) setRecentLogs(Array.isArray(response.data?.logs) ? response.data.logs : null)
       } catch {
         if (mounted) setRecentLogs(null)
       }
@@ -104,10 +86,10 @@ const Dashboard = () => {
   const steps = [
     { number: 1, label: t.dashboard.stepIran, done: hasIran, path: '/nodes' },
     { number: 2, label: t.dashboard.stepForeign, done: hasForeign, path: '/servers' },
-    { number: 3, label: t.dashboard.stepTunnel, done: Boolean(status && status.tunnels.total > 0), path: '/tunnels' },
+    { number: 3, label: t.dashboard.stepTunnel, done: Boolean(status && !error && status.tunnels.total > 0), path: '/tunnels' },
   ]
 
-  const completeCount = registered === null ? null : steps.filter(s => s.done).length
+  const completeCount = setupCount(registered, status, error)
   const textStatus = (value: boolean | null) => value === null ? t.dashboard.statusUnknown : value ? t.dashboard.added : t.dashboard.notAdded
 
   return (
@@ -201,7 +183,7 @@ const Dashboard = () => {
                           : 'bg-slate-100 text-slate-600 dark:bg-slate-700 dark:text-slate-200'
                       )}>{step.number}</span>
                       <span className="flex-1 font-medium text-slate-800 dark:text-slate-100">{step.label}</span>
-                      <span className="text-xs text-slate-500 dark:text-slate-400">{registered === null ? t.dashboard.statusUnknown : step.done ? t.dashboard.added : t.dashboard.notAdded}</span>
+                      <span className="text-xs text-slate-500 dark:text-slate-400">{registered === null || (step.number === 3 && (!status || error)) ? t.dashboard.statusUnknown : step.done ? t.dashboard.added : t.dashboard.notAdded}</span>
                       <ArrowRight size={16} className={'text-teal-500 ' + (dir === 'rtl' ? 'rotate-180' : '')} aria-hidden="true" />
                     </Link>
                   </li>
