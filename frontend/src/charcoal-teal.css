@@ -1,0 +1,78 @@
+/* Visual-only charcoal / teal skin for the existing Smite operator UI.
+   No additional endpoints, routes, permissions or status claims. */
+:root { --smite-teal: #19d8c6; --smite-dark: #10171d; --smite-panel: #1b262d; }
+.dark .smite-shell, .dark .smite-shell main {
+  background: #0f161b !important;
+  color: #e8f3f5;
+}
+.dark .smite-shell aside {
+  background: linear-gradient(180deg, #101b21 0%, #0d141a 100%) !important;
+  border-color: #293840 !important;
+}
+.dark .smite-shell nav { scrollbar-color: #354b52 transparent; }
+.smite-brand { display: flex; align-items: center; gap: .7rem; padding: 1.4rem 1.15rem 1rem; }
+.smite-brand-mark { display: grid; place-items: center; width: 2rem; height: 2rem;
+  color: #0f171c; background: linear-gradient(140deg,#38f5df,#0ba8a7);
+  border-radius: .55rem; font-weight: 900; font-size: 1.3rem; transform: skew(-9deg); }
+.dark .smite-shell .smite-brand-name { color: #f3ffff; }
+.dark .smite-shell .smite-nav-active { color: #37f1df !important; background: linear-gradient(90deg,#064a49,#0c383a) !important; box-shadow: inset 0 0 0 1px #237f79; }
+.dark .smite-shell .smite-nav-idle { color: #b4c7cd !important; }
+.dark .smite-shell .smite-nav-idle:hover { background: #202f36 !important; color: white !important; }
+.dark .smite-shell .smite-shell-footer { border-color: #2a3a40 !important; }
+.dark .smite-shell .smite-shell-footer button:hover { color: #36f3df !important; }
+.dark .smite-shell .smite-shell-header { background: #142027 !important; border-color: #2b4149 !important; }
+.dark .smite-dashboard { color: #f2f8fa; }
+.dark .smite-dashboard .smite-dashboard-heading {
+  background: linear-gradient(145deg, #1b292f 0%, #131e24 100%) !important;
+  border: 1px solid #344b53; box-shadow: 0 15px 35px #060c1059;
+}
+.dark .smite-dashboard .smite-metric, .dark .smite-dashboard .smite-panel {
+  background: linear-gradient(155deg, #233039, #1a252c) !important;
+  border: 1px solid #344851 !important;
+  box-shadow: 0 12px 24px #070d1230 !important;
+}
+.dark .smite-dashboard .smite-metric .smite-metric-icon {
+  color: #20dfce !important; background: #143b40 !important;
+}
+.dark .smite-dashboard .smite-panel a:hover { border-color: #238e86; }
+.dark .smite-dashboard .smite-primary-button {
+  background: linear-gradient(120deg, #00b7ae, #12d3bf) !important;
+  color: #061b20 !important;
+}
+.dark .smite-dashboard .smite-step-done { background: #0a6962 !important; color: #b2fff5 !important; }
+.dark .smite-dashboard .smite-ring-inner { background: #1d2931; color: #e5fbf8; }
+.smite-resource-gauges { display: flex; flex-wrap: wrap; justify-content: center; gap: 1.5rem; margin: .5rem 0 1.5rem; }
+.smite-ring { width: 112px; height: 112px; border-radius: 50%; display: grid; place-items: center;
+  box-shadow: 0 0 0 1px #48636a33, 0 0 30px #0ad4c51c; }
+.smite-ring-inner { width: 88px; height: 88px; border-radius: 50%; display: flex; flex-direction: column;
+  align-items: center; justify-content: center; background: #f3f8f9; color: #12272d; font-weight: 700; }
+.smite-ring-caption { font-size: .72rem; color: #9aabb3; font-weight: 400; }
+.smite-ambient-panel { background-image: radial-gradient(ellipse at 96% 5%, #0bbdb218, transparent 45%); }
+.smite-login { isolation: isolate; position: relative; overflow: hidden; }
+.dark .smite-login { background: radial-gradient(circle at 18% 12%,#16303a,#0d151a 53%,#091217) !important; }
+.dark .smite-login::before {
+  content:""; position:absolute; inset:0; pointer-events:none; z-index:-1; opacity:.55;
+  background-image: linear-gradient(35deg, transparent 48%, #16a79e35 49%, transparent 51%),
+    linear-gradient(145deg, transparent 48%, #16a79e26 49%, transparent 51%);
+  background-size: 74px 74px; mask-image: linear-gradient(90deg, black, transparent 65%);
+}
+.dark .smite-login-card {
+  background: linear-gradient(145deg,#202d34ed,#182329f2) !important;
+  border: 1px solid #40515b !important; box-shadow: 0 25px 70px #020a0d80 !important;
+}
+.dark .smite-login .smite-login-input {
+  background: #2a3941 !important; border-color: #49616b !important; color: #f8fcff !important;
+}
+.dark .smite-login .smite-login-input:focus { outline: 2px solid #13d7c4; border-color: #13d7c4 !important; }
+.dark .smite-login .smite-login-button {
+  color: #06272a !important; background: linear-gradient(90deg,#13cfb9,#27eddf) !important;
+  box-shadow: 0 7px 24px #14d6c02d !important;
+}
+.dark .smite-login .smite-login-brand-title {
+  color: #f2ffff !important; background: none !important; -webkit-text-fill-color: currentColor;
+}
+.dark .smite-login .smite-login-glow { background: #20e9ce20 !important; }
+.dark .smite-login .smite-login-code-hint { color: #73e5d4 !important; }
+@media (prefers-reduced-motion: reduce) {
+  .smite-shell *, .smite-dashboard *, .smite-login * { animation-duration: 0.01ms !important; transition-duration: 0.01ms !important; }
+}

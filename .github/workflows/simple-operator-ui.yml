@@ -47,6 +47,9 @@ jobs:
       - name: Test compact responsive sidebar layout
         working-directory: frontend
         run: node --test tests/sidebarLayout.test.cjs
+      - name: Verify charcoal-teal theme only reuses existing product capabilities
+        working-directory: frontend
+        run: node --test tests/charcoalThemeContract.test.cjs
       - name: Production frontend build
         working-directory: frontend
         run: npm run build
