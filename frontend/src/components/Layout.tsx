@@ -15,11 +15,10 @@ const Layout = ({ children }: LayoutProps) => {
   const { language, setLanguage, dir, t } = useLanguage()
   const [darkMode, setDarkMode] = useState(() => {
     const saved = localStorage.getItem('darkMode')
-    return saved ? JSON.parse(saved) : false
+    return saved ? JSON.parse(saved) : true
   })
   const [sidebarOpen, setSidebarOpen] = useState(false)
-  const [showMoreTools, setShowMoreTools] = useState(() =>
-    ['/core-health', '/logs', '/settings'].includes(window.location.pathname)
+  const [showMoreTools, setShowMoreTools] = useState(true
   )
   const [version, setVersion] = useState('v0.1.0')
   const [loggingOut, setLoggingOut] = useState(false)
@@ -83,7 +82,7 @@ const Layout = ({ children }: LayoutProps) => {
   ]
 
   return (
-    <div className="min-h-screen bg-gray-50 dark:bg-gray-900" dir="ltr">
+    <div className="smite-shell min-h-screen bg-gray-50 dark:bg-gray-900" dir="ltr">
       <div className="flex h-screen">
         {/* Mobile Sidebar Overlay */}
         {sidebarOpen && (
@@ -96,10 +95,15 @@ const Layout = ({ children }: LayoutProps) => {
         {/* Sidebar - Always LTR regardless of language */}
         <aside
           dir="ltr"
-          className={`fixed lg:static inset-y-0 left-0 w-64 bg-white dark:bg-gray-800 border-r border-gray-200 dark:border-gray-700 flex flex-col z-50 transform transition-transform duration-300 ease-in-out ${
+          className={`fixed lg:static inset-y-0 left-0 w-60 bg-white dark:bg-gray-800 border-r border-gray-200 dark:border-gray-700 flex flex-col z-50 transform transition-transform duration-300 ease-in-out ${
             sidebarOpen ? 'translate-x-0' : '-translate-x-full lg:translate-x-0'
           }`}
         >
+          {/* Existing navigation and routes remain unchanged. */}
+          <div className="smite-brand">
+            <span className="smite-brand-mark" aria-hidden="true">S</span>
+            <span className="smite-brand-name text-lg font-bold text-slate-900 dark:text-white">Smite</span>
+          </div>
           {/* Mobile sidebar close control; desktop menu starts at the top. */}
           <div className="lg:hidden flex justify-end px-3 pt-3">
             <button
@@ -123,11 +127,11 @@ const Layout = ({ children }: LayoutProps) => {
                   to={item.path}
                   className={`flex items-center space-x-3 px-4 py-3 rounded-lg transition-all ${
                     isActive
-                      ? 'bg-gradient-to-r from-blue-50 to-indigo-50 dark:from-blue-900/30 dark:to-indigo-900/30 text-blue-600 dark:text-blue-400 shadow-sm'
-                      : 'text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700/50'
+                      ? 'smite-nav-active bg-teal-50 text-teal-700 dark:text-teal-300 shadow-sm'
+                      : 'smite-nav-idle text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700/50'
                   }`}
                 >
-                  <Icon size={20} className={isActive ? 'text-blue-600 dark:text-blue-400' : ''} />
+                  <Icon size={20} className={isActive ? 'text-teal-600 dark:text-teal-300' : ''} />
                   <span className="font-medium">{item.label}</span>
                 </Link>
               )
@@ -148,8 +152,8 @@ const Layout = ({ children }: LayoutProps) => {
                       <Link key={item.path} to={item.path}
                         aria-current={active ? 'page' : undefined}
                         className={`flex items-center gap-3 px-4 py-2.5 rounded-xl text-sm transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-blue-500 ${
-                          active ? 'bg-blue-50 text-blue-700 dark:bg-blue-900/30 dark:text-blue-300'
-                            : 'text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-gray-700'
+                          active ? 'smite-nav-active bg-teal-50 text-teal-700 dark:text-teal-300'
+                            : 'smite-nav-idle text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-gray-700'
                         }`}>
                         <Icon size={18} aria-hidden="true" />
                         <span dir={dir}>{item.label}</span>
@@ -162,7 +166,7 @@ const Layout = ({ children }: LayoutProps) => {
           </nav>
           
           {/* Sidebar Footer */}
-          <div className="p-4 border-t border-gray-200 dark:border-gray-700 space-y-2">
+          <div className="smite-shell-footer p-4 border-t border-gray-200 dark:border-gray-700 space-y-2">
             <div className="space-y-2">
               <div className="flex items-center justify-between px-4 py-2">
                 <button
@@ -234,9 +238,9 @@ const Layout = ({ children }: LayoutProps) => {
         </aside>
 
         {/* Main Content */}
-        <main className="flex-1 overflow-auto bg-gray-50 dark:bg-gray-900" dir={dir}>
+        <main className="smite-ambient-panel flex-1 overflow-auto bg-gray-50 dark:bg-gray-900" dir={dir}>
           {/* Mobile Header */}
-          <div className="lg:hidden sticky top-0 z-30 bg-white dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700 px-4 py-3 flex items-center justify-between shadow-sm">
+          <div className="smite-shell-header lg:hidden sticky top-0 z-30 bg-white dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700 px-4 py-3 flex items-center justify-between shadow-sm">
             <button
               onClick={() => setSidebarOpen(true)}
               className="p-2 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700 text-gray-600 dark:text-gray-300"
@@ -247,6 +251,10 @@ const Layout = ({ children }: LayoutProps) => {
             <div className="w-10" />
           </div>
           
+          <div className="hidden lg:flex items-center justify-between border-b border-gray-200 dark:border-slate-700/70 px-6 py-4 text-sm">
+            <span className="font-semibold text-slate-700 dark:text-slate-200">Smite Web Panel</span>
+            <span className="text-slate-500 dark:text-slate-400">{username || 'Smite'}</span>
+          </div>
           <div className="p-4 sm:p-6 lg:p-8">
             {children}
           </div>
