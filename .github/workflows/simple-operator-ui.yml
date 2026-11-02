@@ -62,7 +62,7 @@ jobs:
       - name: Production frontend build
         working-directory: frontend
         run: npm run build
-      - name: Browser layout, login and responsive UI regression (fixture APIs only)
+      - name: Original-size Login branding regression (fixture APIs only)
         working-directory: frontend
         run: |
           npm install --prefix /tmp/smite-ui-browser --no-audit --no-fund playwright@1.51.1
@@ -71,11 +71,11 @@ jobs:
           PREVIEW_PID=$!
           trap 'kill "$PREVIEW_PID"' EXIT
           for attempt in $(seq 1 30); do curl -fsS http://127.0.0.1:3100/ >/dev/null && break; sleep 1; done
-          PLAYWRIGHT_MODULE=/tmp/smite-ui-browser/node_modules/playwright node tests/compact-browser.cjs
+          PLAYWRIGHT_MODULE=/tmp/smite-ui-browser/node_modules/playwright node tests/login-brand-browser.cjs
       - uses: actions/upload-artifact@v4
         with:
-          name: compact-ui-browser-evidence
-          path: frontend/compact-evidence/
+          name: login-brand-browser-evidence
+          path: frontend/login-brand-evidence/
       - name: Package reviewed UI-only static assets (no deploy)
         shell: bash
         run: |

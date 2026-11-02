@@ -126,12 +126,12 @@ const Nodes = () => {
 
   return (
     <div className="w-full max-w-7xl mx-auto">
-      <div className="smite-page-heading flex justify-between items-center mb-8">
+      <div className="flex justify-between items-center mb-8">
         <div>
           <h1 className="text-3xl font-bold text-gray-900 dark:text-white mb-2">{t.nodes.title}</h1>
           <p className="text-gray-500 dark:text-gray-400">{t.nodes.subtitle}</p>
         </div>
-        <div className="smite-page-actions flex gap-3">
+        <div className="flex gap-3">
           <button
             onClick={showCA}
             className="px-4 py-2.5 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-all duration-200 font-medium shadow-sm hover:shadow-md flex items-center gap-2"
@@ -156,7 +156,7 @@ const Nodes = () => {
         </div>
       </div>
 
-      <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 overflow-x-auto shadow-sm">
+      <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 overflow-hidden shadow-sm">
         <table className="w-full">
           <thead className="bg-gray-50 dark:bg-gray-700/50 border-b border-gray-200 dark:border-gray-600">
             <tr>
@@ -331,7 +331,7 @@ const AddNodeModal = ({ onClose, onSuccess, registrationMode, securePreview }: A
   }
 
   return (
-    <div className="smite-modal fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
       <div className="bg-white dark:bg-gray-800 rounded-lg p-6 w-full max-w-md">
         <h2 className="text-xl font-bold text-gray-900 dark:text-white mb-4">{registrationMode === 'signed' ? 'Prepare secure Iran Node' : t.nodes.addNode}</h2>
         {registrationMode === 'signed' && <p className="text-sm text-gray-600 dark:text-gray-300 mb-4">{securePreview ? 'Reserve by name, then complete one-time HTTPS/443 pairing.' : 'Secure pairing is not ready. No legacy IP/port registration will be attempted.'}</p>}
@@ -411,7 +411,7 @@ interface CertModalProps {
 
 const CertModal = ({ certContent, loading, onClose, onCopy, copied }: CertModalProps) => {
   return (
-    <div className="smite-modal fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
       <div className="bg-white dark:bg-gray-800 rounded-lg p-6 w-full max-w-2xl max-h-[90vh] flex flex-col">
         <div className="flex justify-between items-center mb-4">
           <h2 className="text-xl font-bold text-gray-900 dark:text-white">CA Certificate</h2>

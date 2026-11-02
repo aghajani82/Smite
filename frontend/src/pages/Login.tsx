@@ -75,9 +75,17 @@ const Login = () => {
   }
 
   return (
-    <div className="smite-login min-h-screen bg-gradient-to-br from-slate-50 via-blue-50 to-indigo-50 dark:from-gray-900 dark:via-gray-800 dark:to-gray-900" dir={dir}>
+    <div className="smite-login min-h-screen bg-gradient-to-br from-slate-50 via-blue-50 to-indigo-50 dark:from-gray-900 dark:via-gray-800 dark:to-gray-900 flex items-center justify-center p-4" dir={dir}>
+      <div className="w-full max-w-md">
+        {/* Login title */}
+        <div className="text-center mb-8">
+          <h1 className="smite-login-brand-title text-4xl sm:text-5xl font-bold text-slate-900 dark:text-white mb-2">
+            {t.login.title}
+          </h1>
+        </div>
+
         {/* Login Card */}
-        <div className="smite-login-card w-full max-w-md bg-white/90 dark:bg-slate-800/90 backdrop-blur-sm rounded-2xl shadow-xl border border-gray-200/50 dark:border-gray-700/50 p-8 sm:p-10">
+        <div className="smite-login-card bg-white/90 dark:bg-slate-800/90 backdrop-blur-sm rounded-2xl shadow-xl border border-gray-200/50 dark:border-gray-700/50 p-8 sm:p-10">
           <div className="flex items-center justify-between mb-8">
             <div className="flex items-center gap-3">
               <div className="p-2 bg-teal-100 dark:bg-teal-900/30 rounded-lg">
@@ -183,7 +191,7 @@ const Login = () => {
         </div>
 
         {/* Footer */}
-        <div className="smite-login-footer text-center text-sm text-gray-500 dark:text-gray-400">
+        <div className="mt-8 text-center text-sm text-gray-500 dark:text-gray-400">
           <p>
             Made with <span className="text-red-500">❤️</span> by{' '}
             <a
@@ -197,6 +205,7 @@ const Login = () => {
           </p>
           <p className="mt-1">{version}</p>
         </div>
+      </div>
     </div>
   )
 }

@@ -338,12 +338,12 @@ const Tunnels = () => {
 
   return (
     <div className="w-full max-w-7xl mx-auto">
-      <div className="smite-page-heading flex justify-between items-center mb-8">
+      <div className="flex justify-between items-center mb-8">
         <div>
           <h1 className="text-3xl font-bold text-gray-900 dark:text-white mb-2">{t.tunnels.title}</h1>
           <p className="text-gray-500 dark:text-gray-400">{t.tunnels.subtitle}</p>
         </div>
-        <div className="smite-page-actions flex gap-3">
+        <div className="flex gap-3">
           <button
             onClick={handleReapplyAll}
             disabled={reapplyingAll}
@@ -579,7 +579,7 @@ const Tunnels = () => {
       </div>
 
       {routePicker && (
-        <div className="smite-modal fixed inset-0 bg-black/50 flex items-center justify-center z-50" role="dialog" aria-modal="true" aria-label="انتشار مسیر XHTTP">
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50" role="dialog" aria-modal="true" aria-label="انتشار مسیر XHTTP">
           <div dir="rtl" className="bg-white dark:bg-gray-800 rounded-xl p-6 max-w-lg w-full max-h-[90vh] overflow-y-auto space-y-4">
             <h2 className="text-xl font-bold">
               انتشار مسیر XHTTP — <bdi dir="ltr">{routePicker.tunnel.name}</bdi>
@@ -837,7 +837,7 @@ const EditTunnelModal = ({ tunnel, onClose, onSuccess }: EditTunnelModalProps) =
   }
 
   return (
-    <div className="smite-modal fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-[100]">
+    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-[100]">
       <div className="bg-white dark:bg-gray-800 rounded-lg p-6 w-full max-w-md">
         <h2 className="text-xl font-bold text-gray-900 dark:text-white mb-4">Edit Tunnel</h2>
         <form onSubmit={handleSubmit} className="space-y-4">
@@ -1455,7 +1455,7 @@ const AddTunnelModal = ({ nodes, servers, tunnels, onClose, onSuccess, onCreated
   }
 
   return (
-    <div className="smite-modal fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-[100] overflow-auto p-3 sm:p-5" dir={dir}>
+    <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-[100] overflow-auto p-3 sm:p-5" dir={dir}>
       <div className="bg-white dark:bg-gray-800 rounded-2xl border border-gray-200 dark:border-gray-700 shadow-2xl p-5 sm:p-6 w-full max-w-xl my-4 max-h-[90vh] overflow-y-auto">
         <h2 className="text-xl font-bold text-gray-900 dark:text-white mb-2">{t.tunnels.createTunnel}</h2>
         <p className="text-sm text-gray-500 dark:text-gray-400 mb-5">{t.tunnels.basicSetupHint}</p>

@@ -1,0 +1,33 @@
+// Original RC7 layout with only the login image and subtitle removed.
+// API fixtures only; no live panel is contacted.
+const {chromium}=require(process.env.PLAYWRIGHT_MODULE || 'playwright')
+const assert=require('node:assert/strict')
+const fs=require('node:fs')
+;(async()=>{
+ const browser=await chromium.launch({headless:true,...(process.env.CHROMIUM_PATH?{executablePath:process.env.CHROMIUM_PATH,args:['--no-sandbox','--disable-gpu']}:{})})
+ fs.mkdirSync('login-brand-evidence',{recursive:true})
+ for(const [width,height] of [[1366,768],[1920,1080],[390,844]]) for(const language of ['en','fa']) for(const dark of [true,false]) {
+  const context=await browser.newContext({viewport:{width,height},deviceScaleFactor:1})
+  await context.addInitScript(({language,dark})=>{localStorage.setItem('language',language);localStorage.setItem('darkMode',JSON.stringify(dark))},{language,dark})
+  const p=await context.newPage()
+  await p.route(/^https:\/\//,r=>r.abort())
+  await p.route('**/api/**',r=>r.fulfill({json:{version:'2.0.0-rc.7'}}))
+  await p.goto('http://127.0.0.1:3100/login')
+  await p.locator('.smite-login-card').waitFor()
+  assert.equal(await p.locator('img,.smite-login-glow').count(),0)
+  assert.equal(await p.locator('.smite-login-brand-title').innerText(),language==='fa'?'اسمیت':'Smite')
+  assert.equal(await p.getByText('Tunnel Management Platform',{exact:true}).count(),0)
+  assert.equal(await p.locator('.smite-login > div > div:first-child p').count(),0)
+  assert.equal(await p.locator('#username,#password,#mfa-code').count(),3)
+  assert.equal(await p.locator('html').evaluate(e=>getComputedStyle(e).fontSize),'16px')
+  if(width>640) assert.equal((await p.locator('.smite-login-card').boundingBox()).width,448)
+  assert.ok(await p.evaluate(()=>document.documentElement.scrollWidth<=innerWidth))
+  await p.locator('button[title]').click()
+  assert.equal(await p.locator('html').evaluate(e=>e.classList.contains('dark')),!dark)
+  await p.locator('button[title]').click()
+  if(width===1366 && language==='en' && dark) await p.screenshot({path:'login-brand-evidence/login-original-size.png',fullPage:true})
+  await context.close()
+ }
+ await browser.close()
+ console.log('PASS: 12 original-size Login combinations; Smite title retained, image/subtitle absent, fields/theme/footer preserved.')
+})().catch(e=>{console.error(e);process.exit(1)})
