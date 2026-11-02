@@ -17,7 +17,7 @@ const Login = () => {
   const [loading, setLoading] = useState(false)
   const [darkMode, setDarkMode] = useState(() => {
     const saved = localStorage.getItem('darkMode')
-    return saved ? JSON.parse(saved) : false
+    return saved ? JSON.parse(saved) : true
   })
   const navigate = useNavigate()
   const { login, isAuthenticated } = useAuth()
@@ -77,32 +77,32 @@ const Login = () => {
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-50 via-blue-50 to-indigo-50 dark:from-gray-900 dark:via-gray-800 dark:to-gray-900 flex items-center justify-center p-4" dir={dir}>
+    <div className="smite-login min-h-screen bg-gradient-to-br from-slate-50 via-blue-50 to-indigo-50 dark:from-gray-900 dark:via-gray-800 dark:to-gray-900 flex items-center justify-center p-4" dir={dir}>
       <div className="w-full max-w-md">
         {/* Logo and Title */}
         <div className="text-center mb-8">
           <div className="flex justify-center mb-6">
             <div className="relative">
-              <div className="absolute inset-0 bg-blue-500/20 dark:bg-blue-400/20 rounded-full blur-2xl"></div>
+              <div className="smite-login-glow absolute inset-0 bg-teal-500/20 rounded-full blur-2xl"></div>
               <img
                 src={darkMode ? SmiteLogoDark : SmiteLogoLight}
                 alt="Smite Logo"
-                className="relative h-32 w-32 sm:h-40 sm:w-40"
+                className="relative h-24 w-24 sm:h-28 sm:w-28 object-contain"
               />
             </div>
           </div>
-          <h1 className="text-4xl sm:text-5xl font-bold bg-gradient-to-r from-blue-600 to-indigo-600 dark:from-blue-400 dark:to-indigo-400 bg-clip-text text-transparent mb-2">
+          <h1 className="smite-login-brand-title text-4xl sm:text-5xl font-bold text-slate-900 dark:text-white mb-2">
             {t.login.title}
           </h1>
           <p className="text-gray-600 dark:text-gray-400 text-lg">{t.login.subtitle}</p>
         </div>
 
         {/* Login Card */}
-        <div className="bg-white/80 dark:bg-gray-800/80 backdrop-blur-sm rounded-2xl shadow-xl border border-gray-200/50 dark:border-gray-700/50 p-8 sm:p-10">
+        <div className="smite-login-card bg-white/90 dark:bg-slate-800/90 backdrop-blur-sm rounded-2xl shadow-xl border border-gray-200/50 dark:border-gray-700/50 p-8 sm:p-10">
           <div className="flex items-center justify-between mb-8">
             <div className="flex items-center gap-3">
-              <div className="p-2 bg-blue-100 dark:bg-blue-900/30 rounded-lg">
-                <Shield className="w-5 h-5 text-blue-600 dark:text-blue-400" />
+              <div className="p-2 bg-teal-100 dark:bg-teal-900/30 rounded-lg">
+                <Shield className="w-5 h-5 text-teal-600 dark:text-teal-400" />
               </div>
               <h2 className="text-2xl font-bold text-gray-900 dark:text-white">
                 {t.login.signIn}
@@ -140,7 +140,7 @@ const Login = () => {
                 value={username}
                 onChange={(e) => setUsername(e.target.value)}
                 required
-                className="w-full px-4 py-3 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white placeholder-gray-400 dark:placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all"
+                className="smite-login-input w-full px-4 py-3 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white placeholder-gray-400 dark:placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-teal-500 focus:border-transparent transition-all"
                 placeholder={t.login.usernamePlaceholder}
                 autoComplete="username"
               />
@@ -159,7 +159,7 @@ const Login = () => {
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
                 required
-                className="w-full px-4 py-3 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white placeholder-gray-400 dark:placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all"
+                className="smite-login-input w-full px-4 py-3 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white placeholder-gray-400 dark:placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-teal-500 focus:border-transparent transition-all"
                 placeholder={t.login.passwordPlaceholder}
                 autoComplete="current-password"
               />
@@ -176,9 +176,9 @@ const Login = () => {
                 value={mfaCode} onChange={e => setMfaCode(e.target.value)}
                 required={mfaRequired} aria-required={mfaRequired}
                 placeholder={t.login.twoFactorHint}
-                className="w-full px-4 py-3 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500" />
+                className="smite-login-input w-full px-4 py-3 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-teal-500" />
               {mfaRequired && (
-                <p className="mt-2 text-sm text-blue-700 dark:text-blue-300" role="status">
+                <p className="smite-login-code-hint mt-2 text-sm text-teal-700 dark:text-teal-300" role="status">
                   {t.login.twoFactorHint}
                 </p>
               )}
@@ -186,7 +186,7 @@ const Login = () => {
             <button
               type="submit"
               disabled={loading}
-              className="w-full mt-6 px-4 py-3.5 bg-gradient-to-r from-blue-600 to-indigo-600 text-white rounded-lg hover:from-blue-700 hover:to-indigo-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed transition-all duration-200 font-semibold shadow-lg hover:shadow-xl flex items-center justify-center gap-2"
+              className="smite-login-button w-full mt-6 px-4 py-3.5 bg-gradient-to-r from-teal-500 to-cyan-400 text-slate-950 rounded-lg hover:from-teal-400 hover:to-cyan-300 focus:outline-none focus:ring-2 focus:ring-teal-500 focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed transition-all duration-200 font-semibold shadow-lg hover:shadow-xl flex items-center justify-center gap-2"
             >
               {loading ? (
                 <>
