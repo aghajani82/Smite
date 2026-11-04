@@ -1,0 +1,77 @@
+name: FRP 0.71.1 isolated Panel Node candidate (no publish)
+
+on:
+  pull_request:
+    paths:
+      - 'node/Dockerfile'
+      - 'panel/Dockerfile'
+      - 'tests/stage15_frp_image_gate.py'
+      - 'tests/test_stage15_frp_image_gate.py'
+      - '.github/workflows/frp0711-candidate.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  exact-archive-and-negative-tests:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Validate pinned source, archive, ELF and tamper rejection
+        run: |
+          set -euo pipefail
+          python3 -m py_compile tests/stage15_frp_image_gate.py tests/test_stage15_frp_image_gate.py
+          python3 -B tests/test_stage15_frp_image_gate.py -v
+          python3 -B tests/test_frp_wss_tls.py -v
+          echo 'LIVE_SERVERS_ACCESSED=NO'
+
+  verify-actual-candidate-images:
+    needs: exact-archive-and-negative-tests
+    runs-on: ubuntu-24.04
+    timeout-minutes: 75
+    env:
+      SOURCE_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+      SMITE_FRP_VERIFY_VERSION: '0.71.1'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
+      - name: Assert exact source before any builds
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$SOURCE_SHA"
+          test -n "$SOURCE_SHA"
+      - name: Build v0.71.1 Panel and Node as local unpublished images
+        run: |
+          set -euo pipefail
+          docker build -f panel/Dockerfile -t smite-panel:stage15-local \
+            --build-arg SMITE_FRP_CANDIDATE_VERSION=v0.71.1 \
+            --build-arg SMITE_VERSION=2.0.0-rc.0 \
+            --build-arg SMITE_SOURCE_SHA="$SOURCE_SHA" .
+          docker build -f node/Dockerfile -t smite-node:stage15-local \
+            --build-arg SMITE_FRP_CANDIDATE_VERSION=v0.71.1 \
+            --build-arg SMITE_VERSION=2.0.0-rc.0 \
+            --build-arg SMITE_SOURCE_SHA="$SOURCE_SHA" node
+      - name: Compare every runtime FRP executable with immutable official 0.71.1 bytes
+        run: |
+          set -euo pipefail
+          python3 -B tests/stage15_frp_image_gate.py
+      - name: Verify both image source-revision labels
+        run: |
+          set -euo pipefail
+          docker image inspect smite-panel:stage15-local smite-node:stage15-local > "$RUNNER_TEMP/frp0711-image-inspect.json"
+          python3 -B tests/stage15_image_revision_gate.py \
+            --inspect-json "$RUNNER_TEMP/frp0711-image-inspect.json" \
+            --expected-commit "$SOURCE_SHA"
+          echo 'IMAGE_PUSH=NO'
+          echo 'SIGNED_PUBLISH=NO'
+          echo 'HOST_DEPLOYMENT=NO'
+          echo 'RC7_PRODUCTION_PINS_CHANGED=NO'
