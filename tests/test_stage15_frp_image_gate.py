@@ -46,15 +46,18 @@ class ImageFrpGate(unittest.TestCase):
             for arch in ('amd64', 'arm64'):
                 with self.subTest(version=version, arch=arch):
                     raw = self.archive(version, arch, machine=arch)
-                    self.assertEqual(set(self.verified(raw, version, arch)), {'frpc', 'frps'})
-                    with self.assertRaises(ValueError):
-                        self.verified(raw+b'tampered', version, arch)
-                    with self.assertRaises(ValueError):
-                        gate.checked_archive(raw, arch, '9.9.9')
-                    with self.assertRaises(ValueError):
-                        gate.checked_archive(raw, 'unknown', version)
-                    with self.assertRaises(ValueError):
-                        gate.checked_archive(raw, arch, '0.71.1' if version == '0.71.0' else '0.71.0')
+                    # Pin the hash of the original clean fixture, then mutate
+                    # the candidate WITHOUT updating that trusted expected hash.
+                    with patch.dict(gate.RELEASES[version], {arch: hashlib.sha256(raw).hexdigest()}):
+                        self.assertEqual(set(gate.checked_archive(raw, arch, version)), {'frpc', 'frps'})
+                        with self.assertRaises(ValueError):
+                            gate.checked_archive(raw+b'tampered', arch, version)
+                        with self.assertRaises(ValueError):
+                            gate.checked_archive(raw, arch, '9.9.9')
+                        with self.assertRaises(ValueError):
+                            gate.checked_archive(raw, 'unknown', version)
+                        with self.assertRaises(ValueError):
+                            gate.checked_archive(raw, arch, '0.71.1' if version == '0.71.0' else '0.71.0')
 
     def test_reject_symlink_duplicate_wrong_root_and_wrong_elf(self):
         for kwargs in (
