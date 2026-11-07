@@ -317,7 +317,12 @@ class BackhaulAdapter:
     def apply(self, tunnel_id: str, spec: Dict[str, Any]):
         """Apply Backhaul tunnel - supports both server and client modes"""
         # Validate before stopping a healthy tunnel or touching its config.
-        if spec.get("uopti_standard_backhaul") is True:
+        # A READY engine is not authorization to start an old wildcard
+        # Backhaul config. Managed RC7 accepts only explicit Standard,
+        # loopback-bound specifications even through direct adapter calls.
+        from app.config import settings as node_settings
+        if (node_settings.smite_engine_inventory_mode == "managed"
+                or spec.get("uopti_standard_backhaul") is True):
             from app.uopti_backhaul_standard import normalize_node_spec
             spec = normalize_node_spec(spec)
         if tunnel_id in self.processes:
@@ -1418,6 +1423,21 @@ class AdapterManager:
                         failed += 1
                         continue
 
+                if (settings.smite_engine_inventory_mode == "managed"
+                        and tunnel_core == "backhaul"):
+                    from app.uopti_backhaul_standard import (
+                        normalize_node_spec, StandardBackhaulSpecError,
+                    )
+                    try:
+                        spec = normalize_node_spec(spec)
+                    except StandardBackhaulSpecError:
+                        logger.warning(
+                            "Skipping saved managed Backhaul tunnel %s: "
+                            "approved loopback specification missing", tunnel_id
+                        )
+                        failed += 1
+                        continue
+
                 adapter = self.get_adapter(tunnel_core)
                 if not adapter:
                     logger.warning(f"Tunnel {tunnel_id}: Unknown core {tunnel_core}, skipping")
@@ -1457,6 +1477,11 @@ class AdapterManager:
         if settings.smite_engine_inventory_mode == "managed":
             from app.engine_inventory import require_engine_ready
             require_engine_ready(tunnel_core)
+
+        if (settings.smite_engine_inventory_mode == "managed"
+                and tunnel_core == "backhaul"):
+            from app.uopti_backhaul_standard import normalize_node_spec
+            spec = normalize_node_spec(spec)
 
         if tunnel_core == "frp":
             # The manager removes an existing tunnel before delegating to
