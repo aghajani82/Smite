@@ -108,6 +108,42 @@ class ManagedRestartTest(unittest.IsolatedAsyncioTestCase):
         self.adapter.remove.assert_not_called()
         self.adapter.apply.assert_not_called()
 
+    async def test_direct_backhaul_adapter_rejects_unsafe_without_stopping_process(self):
+        from app.core_adapters import BackhaulAdapter
+        adapter = object.__new__(BackhaulAdapter)
+        adapter.config_dir = self.manager.config_dir
+        running = Mock()
+        adapter.processes = {"saved-tunnel": running}
+        adapter.log_handles = {}
+        with self.assertRaises(StandardBackhaulSpecError):
+            adapter.apply(
+                "saved-tunnel", {"mode": "server", "bind_addr": "0.0.0.0:3080"},
+            )
+        running.terminate.assert_not_called()
+        running.kill.assert_not_called()
+        self.assertFalse((self.manager.config_dir / "saved-tunnel.toml").exists())
+
+    async def test_signed_node_agent_rejects_invalid_before_adapter(self):
+        from app.routers.agent import apply_tunnel as agent_apply, TunnelApply
+        from fastapi import HTTPException
+        from types import SimpleNamespace
+        manager = Mock()
+        request = SimpleNamespace(
+            app=SimpleNamespace(state=SimpleNamespace(adapter_manager=manager))
+        )
+        with patch("app.routers.agent.require_engine_ready") as ready:
+            with self.assertRaises(HTTPException) as blocked:
+                await agent_apply(
+                    TunnelApply(
+                        tunnel_id="saved-tunnel", core="backhaul", type="ws",
+                        spec={"mode": "server", "bind_addr": "0.0.0.0:3080"},
+                    ),
+                    request,
+                )
+        self.assertEqual(blocked.exception.status_code, 409)
+        ready.assert_called_once_with("backhaul")
+        manager.apply_tunnel.assert_not_called()
+
     async def test_graceful_shutdown_preserves_frp_persistence_for_next_boot(self):
         """Regression: RC3 shutdown erased KH FRPC tunnels.json on recreate."""
         import json
