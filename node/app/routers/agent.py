@@ -43,6 +43,20 @@ async def apply_tunnel(data: TunnelApply, request: Request):
             require_engine_ready(data.core)
         except EngineInventoryUnavailable:
             raise HTTPException(409, detail="Selected tunnel engine is not ready")
+        # Signed ready inventory is engine enrollment, not approval to
+        # start a legacy/wildcard listener. Deny before any adapter mutation.
+        from app.config import settings as node_settings
+        if (data.core == "backhaul"
+                and node_settings.smite_engine_inventory_mode == "managed"):
+            from app.uopti_backhaul_standard import (
+                normalize_node_spec, StandardBackhaulSpecError,
+            )
+            try:
+                data.spec = normalize_node_spec(data.spec)
+            except StandardBackhaulSpecError:
+                raise HTTPException(
+                    409, detail="Managed Backhaul requires approved Standard spec"
+                ) from None
         await adapter_manager.apply_tunnel(
             tunnel_id=data.tunnel_id,
             tunnel_core=data.core,
