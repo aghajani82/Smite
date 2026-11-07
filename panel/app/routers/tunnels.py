@@ -13,6 +13,8 @@ from app.models import Tunnel, Node, FrpProxyLease
 from app.node_client import NodeClient
 from app.config import settings
 from app.engine_admission import engine_pair_readiness, require_engine_ready_pair, ENGINES
+from app.uopti_backhaul_lifecycle import require_managed_backhaul_activation
+from app.uopti_backhaul_standard import StandardBackhaulSpecError
 from app.frp_wss_panel import owner_spec as frp_wss_owner_spec, server_address as frp_server_address
 from app.frp_server_admission import require_exclusive_frps_server_admission, FrpsServerAdmissionDenied
 from app.frp_shared_lifecycle import is_shared_child, create_shared_child, reapply_shared_child, remove_shared_child, verify_shared_child_listener, require_no_shared_frps_owner_dependents
@@ -199,6 +201,16 @@ async def create_tunnel(tunnel: TunnelCreate, request: Request, db: AsyncSession
     
     logger.info(f"Creating tunnel: name={tunnel.name}, type={tunnel.type}, core={tunnel.core}, node_id={tunnel.node_id}")
     
+    # Engine READY is not approval to start an old public-facing Backhaul.
+    # Refuse in managed mode before creating a DB row or reaching any Node.
+    try:
+        require_managed_backhaul_activation(
+            core=tunnel.core, spec=tunnel.spec,
+            management_mode=settings.smite_engine_management_mode,
+        )
+    except StandardBackhaulSpecError:
+        raise HTTPException(409, "Managed Backhaul requires approved loopback spec") from None
+
     if tunnel.spec and tunnel.core == "backhaul":
         ports_received = tunnel.spec.get("ports", [])
         logger.info(f"Backhaul tunnel creation: received ports from frontend: {ports_received} (type: {type(ports_received)}, length: {len(ports_received) if isinstance(ports_received, list) else 'N/A'})")
@@ -1213,6 +1225,14 @@ async def update_tunnel(
         raise HTTPException(400, "Unsafe Standard Backhaul update") from exc
 
     spec_changed = tunnel_update.spec is not None and tunnel_update.spec != tunnel.spec
+    if spec_changed:
+        try:
+            require_managed_backhaul_activation(
+                core=tunnel.core, spec=tunnel_update.spec,
+                management_mode=settings.smite_engine_management_mode,
+            )
+        except StandardBackhaulSpecError:
+            raise HTTPException(409, "Managed Backhaul requires approved loopback spec") from None
     if spec_changed and tunnel.core == "frp" and settings.smite_engine_management_mode == "managed":
         if is_shared_child(tunnel.spec) or is_shared_child(tunnel_update.spec):
             raise HTTPException(409, "Shared FRP proxy specs are immutable; use explicit remove and create")
@@ -1505,6 +1525,15 @@ async def apply_tunnel(tunnel_id: str, request: Request, db: AsyncSession = Depe
     if not tunnel:
         raise HTTPException(status_code=404, detail="Tunnel not found")
     
+    # Also covers single Apply and Reapply All, before remote/DB changes.
+    try:
+        require_managed_backhaul_activation(
+            core=tunnel.core, spec=tunnel.spec,
+            management_mode=settings.smite_engine_management_mode,
+        )
+    except StandardBackhaulSpecError:
+        raise HTTPException(409, "Managed Backhaul requires approved loopback spec") from None
+
     client = NodeClient()
     # Also covers single Apply and Reapply All; refuse before side effects.
     await require_managed_tunnel_pair(tunnel, client)

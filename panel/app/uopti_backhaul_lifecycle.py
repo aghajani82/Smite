@@ -11,6 +11,28 @@ from app.uopti_backhaul_standard import (
 )
 
 
+def require_managed_backhaul_activation(
+    *, core: str, spec: dict | None, management_mode: str,
+) -> None:
+    """Managed creation/reapply must not activate unapproved legacy listeners.
+
+    This check is purely local and precedes DB writes and Node commands.
+    It does not grant real-host Backhaul activation or prove TLS/443.
+    """
+    if core != "backhaul" or management_mode != "managed":
+        return
+    if not isinstance(spec, dict) or spec.get("uopti_standard_backhaul") is not True:
+        raise StandardBackhaulSpecError(
+            "Managed Backhaul requires an explicitly approved Standard spec"
+        )
+    compile_standard_specs(
+        spec,
+        data_port=spec.get("data_port", 56053),
+        control_port=spec.get("control_port", 3080),
+        bridge_port=spec.get("bridge_port", 13080),
+    )
+
+
 def review_backhaul_edit(
     *, core: str, old_spec: dict | None, proposed_spec: dict | None,
 ) -> bool:

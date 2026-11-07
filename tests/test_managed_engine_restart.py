@@ -14,6 +14,20 @@ sys.path.insert(0, str(ROOT / "node"))
 from app.config import settings
 from app.engine_inventory import EngineInventoryUnavailable
 from app.core_adapters import AdapterManager
+from app.uopti_backhaul_standard import StandardBackhaulSpecError
+
+SAFE_SPEC = {
+    "uopti_standard_backhaul": True,
+    "mode": "client",
+    "token": "TEST-SAFE-ONLY-TOKEN-0123456789ABCDEF",
+    "transport": "ws",
+    "type": "ws",
+    "ports": ["127.0.0.1:56053=127.0.0.1:56053"],
+    "data_port": 56053,
+    "control_port": 3080,
+    "bridge_port": 13080,
+    "remote_addr": "127.0.0.1:13080",
+}
 
 
 class ManagedRestartTest(unittest.IsolatedAsyncioTestCase):
@@ -50,12 +64,36 @@ class ManagedRestartTest(unittest.IsolatedAsyncioTestCase):
         # Persisted configuration is not deleted: operator can repair engine.
         self.assertIn("saved-tunnel", self.manager.tunnel_configs)
 
-    async def test_ready_enrollment_restores_one_saved_tunnel(self):
+    async def test_ready_enrollment_does_not_autostart_unapproved_saved_tunnel(self):
+        # Both hosts being READY must not revive legacy public listeners.
         with patch("app.engine_inventory.require_engine_ready") as gate:
             await self.manager.restore_tunnels()
         gate.assert_called_once_with("backhaul")
-        self.adapter.apply.assert_called_once_with("saved-tunnel", {"mode": "client"})
+        self.adapter.apply.assert_not_called()
+        self.manager.get_adapter.assert_not_called()
+        self.assertEqual(self.manager.active_tunnels, {})
+        self.assertIn("saved-tunnel", self.manager.tunnel_configs)
+
+    async def test_ready_enrollment_restores_approved_loopback_tunnel(self):
+        from app.uopti_backhaul_standard import normalize_node_spec
+        self.manager.tunnel_configs["saved-tunnel"]["spec"] = SAFE_SPEC.copy()
+        with patch("app.engine_inventory.require_engine_ready") as gate:
+            await self.manager.restore_tunnels()
+        gate.assert_called_once_with("backhaul")
+        self.adapter.apply.assert_called_once_with(
+            "saved-tunnel", normalize_node_spec(SAFE_SPEC))
         self.assertIn("saved-tunnel", self.manager.active_tunnels)
+
+    async def test_ready_engine_rejects_unapproved_direct_apply_before_removal(self):
+        self.manager.active_tunnels = {"saved-tunnel": self.adapter}
+        self.manager.remove_tunnel = Mock()
+        with patch("app.engine_inventory.require_engine_ready") as gate:
+            with self.assertRaises(StandardBackhaulSpecError):
+                await self.manager.apply_tunnel(
+                    "saved-tunnel", "backhaul", {"mode": "server", "bind_addr": "0.0.0.0:3080"})
+        gate.assert_called_once_with("backhaul")
+        self.manager.remove_tunnel.assert_not_called()
+        self.adapter.apply.assert_not_called()
 
     async def test_direct_adapter_apply_denies_before_existing_removal(self):
         self.manager.active_tunnels = {"saved-tunnel": self.adapter}
@@ -69,6 +107,42 @@ class ManagedRestartTest(unittest.IsolatedAsyncioTestCase):
         self.manager.remove_tunnel.assert_not_called()
         self.adapter.remove.assert_not_called()
         self.adapter.apply.assert_not_called()
+
+    async def test_direct_backhaul_adapter_rejects_unsafe_without_stopping_process(self):
+        from app.core_adapters import BackhaulAdapter
+        adapter = object.__new__(BackhaulAdapter)
+        adapter.config_dir = self.manager.config_dir
+        running = Mock()
+        adapter.processes = {"saved-tunnel": running}
+        adapter.log_handles = {}
+        with self.assertRaises(StandardBackhaulSpecError):
+            adapter.apply(
+                "saved-tunnel", {"mode": "server", "bind_addr": "0.0.0.0:3080"},
+            )
+        running.terminate.assert_not_called()
+        running.kill.assert_not_called()
+        self.assertFalse((self.manager.config_dir / "saved-tunnel.toml").exists())
+
+    async def test_signed_node_agent_rejects_invalid_before_adapter(self):
+        from app.routers.agent import apply_tunnel as agent_apply, TunnelApply
+        from fastapi import HTTPException
+        from types import SimpleNamespace
+        manager = Mock()
+        request = SimpleNamespace(
+            app=SimpleNamespace(state=SimpleNamespace(adapter_manager=manager))
+        )
+        with patch("app.routers.agent.require_engine_ready") as ready:
+            with self.assertRaises(HTTPException) as blocked:
+                await agent_apply(
+                    TunnelApply(
+                        tunnel_id="saved-tunnel", core="backhaul", type="ws",
+                        spec={"mode": "server", "bind_addr": "0.0.0.0:3080"},
+                    ),
+                    request,
+                )
+        self.assertEqual(blocked.exception.status_code, 409)
+        ready.assert_called_once_with("backhaul")
+        manager.apply_tunnel.assert_not_called()
 
     async def test_graceful_shutdown_preserves_frp_persistence_for_next_boot(self):
         """Regression: RC3 shutdown erased KH FRPC tunnels.json on recreate."""

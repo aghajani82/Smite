@@ -98,3 +98,23 @@ throwaway-runner test, NOT a public 443 route or production deployment.
 
 Never deploy the managed mode to a real VPS until those remaining
 gates and two-host acceptance pass.
+
+## RC7 managed Backhaul startup safety after retained host enrollment
+
+U-OPTI's signed `READY_SIGNED_INVENTORY` proves official Backhaul v0.7.2
+engine metadata, **not** that a user tunnel is configured or its remote
+peer/data-plane has been proven. In a managed Node the Backhaul Apply and
+restart-restore paths now reject every old/non-Standard or unapproved
+configuration *before* they stop a previous process or start a new
+listener. The Panel rejects create, spec-changing update, and individual
+or bulk reapply of such configurations before DB or Node side effects;
+signed Node dispatch independently refuses their activation.
+
+The only eligible payload is the already existing explicit persisted
+`uopti_standard_backhaul=true` contract with strict token, loopback
+control/data mapping, and local TLS bridge. Neither the engine enrollment
+nor this safety repair creates a tunnel, opens 443, changes Nginx/FRP/Sanaei,
+or approves the production Backhaul 443 route. These remain separate
+two-host release/recovery and signed peer/data-plane gates. Existing saved
+legacy specifications remain on disk for operator review, not deletion.
+The historical `legacy` mode and FRP tunnel paths are unchanged.

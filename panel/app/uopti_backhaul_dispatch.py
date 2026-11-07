@@ -12,6 +12,7 @@ from __future__ import annotations
 
 from sqlalchemy import select
 from app.database import AsyncSessionLocal
+from app.config import settings
 from app.models import Node, Tunnel
 from app.uopti_backhaul_standard import (
     StandardBackhaulSpecError, compile_standard_specs,
@@ -20,7 +21,7 @@ from app.uopti_backhaul_standard import (
 
 def compile_dispatch_payload(
     *, node_role: str | None, stored_spec: dict | None,
-    endpoint: str, incoming: dict,
+    endpoint: str, incoming: dict, management_mode: str = "legacy",
 ) -> dict:
     if endpoint != "/api/agent/tunnels/apply" or incoming.get("core") != "backhaul":
         return incoming
@@ -33,6 +34,10 @@ def compile_dispatch_payload(
         and incoming["spec"].get("uopti_standard_backhaul") is True
     )
     if not opted:
+        if management_mode == "managed":
+            raise StandardBackhaulSpecError(
+                "Managed Backhaul requires a persisted approved Standard spec"
+            )
         if requested:
             raise StandardBackhaulSpecError(
                 "Standard Backhaul requires a persisted opted-in tunnel"
@@ -76,4 +81,5 @@ async def prepare_node_command(node_id: str, endpoint: str, incoming: dict) -> d
         return compile_dispatch_payload(
             node_role=(node.node_metadata or {}).get("role"),
             stored_spec=tunnel.spec, endpoint=endpoint, incoming=incoming,
+            management_mode=settings.smite_engine_management_mode,
         )
