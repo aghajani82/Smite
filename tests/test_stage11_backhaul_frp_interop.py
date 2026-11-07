@@ -14,6 +14,7 @@ from unittest.mock import AsyncMock, patch
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "panel"))
 from app.uopti_backhaul_dispatch import compile_dispatch_payload
+from app.uopti_backhaul_lifecycle import require_managed_backhaul_activation
 from app.uopti_backhaul_standard import (
     compile_standard_specs, normalize_node_spec, StandardBackhaulSpecError,
 )
@@ -100,6 +101,52 @@ class BackhaulSignedDispatchTest(unittest.IsolatedAsyncioTestCase):
                 node_role="iran", stored_spec=bad,
                 endpoint="/api/agent/tunnels/apply", incoming=request,
             )
+
+    def test_managed_panel_and_dispatch_refuse_unapproved_backhaul(self):
+        unsafe = {"transport": "tcp", "bind_addr": "0.0.0.0:3080"}
+        with self.assertRaises(StandardBackhaulSpecError):
+            require_managed_backhaul_activation(
+                core="backhaul", spec=unsafe, management_mode="managed",
+            )
+        with self.assertRaises(StandardBackhaulSpecError):
+            compile_dispatch_payload(
+                node_role="iran", stored_spec=unsafe, management_mode="managed",
+                endpoint="/api/agent/tunnels/apply",
+                incoming={"core": "backhaul", "spec": unsafe},
+            )
+        # The same explicit canonical persisted spec remains eligible for
+        # signed dispatch, but real transport/443 is a separate release gate.
+        require_managed_backhaul_activation(
+            core="backhaul", spec=CANONICAL, management_mode="managed",
+        )
+        result = compile_dispatch_payload(
+            node_role="foreign", stored_spec=CANONICAL,
+            management_mode="managed", endpoint="/api/agent/tunnels/apply",
+            incoming={"core": "backhaul", "spec": unsafe},
+        )
+        self.assertEqual(result["spec"]["remote_addr"], "127.0.0.1:13080")
+        # No collateral restrictions on FRP or legacy Stable Backhaul.
+        require_managed_backhaul_activation(
+            core="frp", spec=unsafe, management_mode="managed",
+        )
+        require_managed_backhaul_activation(
+            core="backhaul", spec=unsafe, management_mode="legacy",
+        )
+
+    def test_managed_standard_rejects_wildcard_and_bad_token(self):
+        for invalid in (
+            dict(CANONICAL, bind_ip="0.0.0.0"),
+            dict(CANONICAL, transport="tcp"),
+            dict(CANONICAL, token="too-short"),
+            dict(CANONICAL, ports=["443=127.0.0.1:443"]),
+            dict(CANONICAL, remote_addr="example.org:443"),
+        ):
+            with self.subTest(invalid=list(invalid.keys())):
+                with self.assertRaises(StandardBackhaulSpecError):
+                    require_managed_backhaul_activation(
+                        core="backhaul", spec=invalid,
+                        management_mode="managed",
+                    )
 
     def test_frp_and_regular_backhaul_passthrough(self):
         request = {"core": "frp", "spec": {"client": True}}
