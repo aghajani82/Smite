@@ -22,7 +22,7 @@ RUN set -eux; \
     FRP_VERSION_NO_V="${FRP_VERSION#v}"; \
     FRP_URL="https://github.com/fatedier/frp/releases/download/${FRP_VERSION}/frp_${FRP_VERSION_NO_V}_linux_${ARCH}.tar.gz"; \
     FRP_TMP="$(mktemp -d)"; \
-    curl -fsSL "$FRP_URL" -o "$FRP_TMP/frp.tar.gz"; \
+    curl -fsSL --retry 4 --retry-delay 2 --connect-timeout 15 --max-time 90 "$FRP_URL" -o "$FRP_TMP/frp.tar.gz"; \
     case "$ARCH" in \
         amd64) FRP_SHA256="84f27e39f11169f7adcef8e8b70c9329de17747b1f14dad9fb95eef5682ea716" ;; \
         arm64) FRP_SHA256="f33c293c275d8fc68c654b6fba8f10b2551d6463d09a9fc9cffb7227eae82266" ;; \
