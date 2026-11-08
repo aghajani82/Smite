@@ -123,6 +123,101 @@ class ManagedRestartTest(unittest.IsolatedAsyncioTestCase):
         running.kill.assert_not_called()
         self.assertFalse((self.manager.config_dir / "saved-tunnel.toml").exists())
 
+    async def test_managed_backhaul_duplicate_signed_apply_keeps_live_process(self):
+        # Replaying an identical, approved signed request must never cause
+        # even a transient interruption or a rewrite of persisted secrets.
+        from unittest.mock import AsyncMock
+        self.manager.tunnel_configs["saved-tunnel"] = {
+            "core": "backhaul", "spec": SAFE_SPEC.copy()}
+        self.manager.active_tunnels = {"saved-tunnel": self.adapter}
+        self.adapter.status.return_value = {"active": True}
+        self.manager.remove_tunnel = AsyncMock()
+        original = self.manager.tunnel_configs["saved-tunnel"].copy()
+        with patch("app.engine_inventory.require_engine_ready") as verified:
+            await self.manager.apply_tunnel("saved-tunnel", "backhaul",
+                                            SAFE_SPEC.copy())
+        verified.assert_called_once_with("backhaul")
+        self.manager.remove_tunnel.assert_not_awaited()
+        self.manager.get_adapter.assert_not_called()
+        self.adapter.apply.assert_not_called()
+        self.adapter.remove.assert_not_called()
+        self.manager._save_tunnels.assert_not_called()
+        self.assertEqual(self.manager.tunnel_configs["saved-tunnel"], original)
+        self.assertIs(self.manager.active_tunnels["saved-tunnel"], self.adapter)
+
+    async def test_managed_backhaul_changed_signed_apply_refuses_before_stop(self):
+        from unittest.mock import AsyncMock
+        self.manager.tunnel_configs["saved-tunnel"] = {
+            "core": "backhaul", "spec": SAFE_SPEC.copy()}
+        self.manager.active_tunnels = {"saved-tunnel": self.adapter}
+        self.adapter.status.return_value = {"active": True}
+        self.manager.remove_tunnel = AsyncMock()
+        changed = dict(SAFE_SPEC, token="ANOTHER-VALID-TEST-TOKEN-00000000123456789")
+        with patch("app.engine_inventory.require_engine_ready") as verified:
+            with self.assertRaisesRegex(RuntimeError, "explicit removal"):
+                await self.manager.apply_tunnel("saved-tunnel", "backhaul", changed)
+        verified.assert_called_once_with("backhaul")
+        self.manager.remove_tunnel.assert_not_awaited()
+        self.adapter.remove.assert_not_called()
+        self.adapter.apply.assert_not_called()
+        self.manager._save_tunnels.assert_not_called()
+        self.assertEqual(self.manager.tunnel_configs["saved-tunnel"]["spec"], SAFE_SPEC)
+
+    async def test_managed_backhaul_mismatched_id_cannot_delete_existing_frp(self):
+        from unittest.mock import AsyncMock
+        self.manager.tunnel_configs["saved-tunnel"] = {
+            "core": "frp", "spec": {"mode": "client"}}
+        self.manager.active_tunnels = {"saved-tunnel": self.adapter}
+        self.adapter.name = "frp"
+        self.manager.remove_tunnel = AsyncMock()
+        with patch("app.engine_inventory.require_engine_ready") as verified:
+            with self.assertRaisesRegex(RuntimeError, "explicit removal"):
+                await self.manager.apply_tunnel("saved-tunnel", "backhaul",
+                                                SAFE_SPEC.copy())
+        verified.assert_called_once_with("backhaul")
+        self.manager.remove_tunnel.assert_not_awaited()
+        self.adapter.apply.assert_not_called()
+        self.adapter.remove.assert_not_called()
+        self.manager._save_tunnels.assert_not_called()
+        self.assertEqual(self.manager.tunnel_configs["saved-tunnel"]["core"], "frp")
+
+    async def test_managed_backhaul_unverified_active_state_cannot_reapply(self):
+        from unittest.mock import AsyncMock
+        self.manager.tunnel_configs["saved-tunnel"] = {
+            "core": "backhaul", "spec": SAFE_SPEC.copy()}
+        self.manager.active_tunnels = {"saved-tunnel": self.adapter}
+        self.manager.remove_tunnel = AsyncMock()
+        self.adapter.status.return_value = {"active": False}
+        with patch("app.engine_inventory.require_engine_ready") as verified:
+            with self.assertRaisesRegex(RuntimeError, "explicit removal"):
+                await self.manager.apply_tunnel("saved-tunnel", "backhaul",
+                                                SAFE_SPEC.copy())
+        verified.assert_called_once_with("backhaul")
+        self.manager.remove_tunnel.assert_not_awaited()
+        self.adapter.remove.assert_not_called()
+        self.manager._save_tunnels.assert_not_called()
+
+    async def test_direct_managed_backhaul_reapply_cannot_stop_running_process(self):
+        # Defense in depth: direct Adapter callers must not bypass Manager.
+        from app.core_adapters import BackhaulAdapter
+        adapter = object.__new__(BackhaulAdapter)
+        adapter.config_dir = self.manager.config_dir
+        active = Mock()
+        adapter.processes = {"saved-tunnel": active}
+        adapter.log_handles = {"saved-tunnel": Mock()}
+        target = adapter.config_dir / "saved-tunnel.toml"
+        target.write_bytes(b"BEFORE-MANAGED-REAPPLY")
+        target.chmod(0o600)
+        with patch.object(adapter, "_resolve_binary_path") as binary:
+            with patch.object(adapter, "remove") as remove:
+                with self.assertRaisesRegex(RuntimeError, "explicit removal"):
+                    adapter.apply("saved-tunnel", SAFE_SPEC.copy())
+        binary.assert_not_called()
+        remove.assert_not_called()
+        active.terminate.assert_not_called()
+        self.assertEqual(target.read_bytes(), b"BEFORE-MANAGED-REAPPLY")
+        adapter.log_handles["saved-tunnel"].close.assert_not_called()
+
     async def test_missing_managed_backhaul_binary_cannot_stop_running_tunnel(self):
         # Restart/reapply must not remove a healthy Backhaul just because
         # the pinned executable is missing or unavailable. This is an
