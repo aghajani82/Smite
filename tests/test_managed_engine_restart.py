@@ -60,7 +60,7 @@ class ManagedRestartTest(unittest.IsolatedAsyncioTestCase):
         node = (ROOT / "node/Dockerfile").read_text()
         panel = (ROOT / "panel/Dockerfile").read_text()
         for dockerfile in (node, panel):
-            self.assertIn("FRP_VERSION=\\\"v0.71.0\\\"", dockerfile)
+            self.assertIn('FRP_VERSION="v0.71.0"', dockerfile)
             self.assertIn("FRP_ASSET_ID=514042277", dockerfile)
             self.assertIn("FRP_ASSET_ID=514042211", dockerfile)
             self.assertIn(
