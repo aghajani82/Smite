@@ -181,6 +181,76 @@ class ManagedRestartTest(unittest.IsolatedAsyncioTestCase):
         self.manager._save_tunnels.assert_not_called()
         self.assertEqual(self.manager.tunnel_configs["saved-tunnel"]["core"], "frp")
 
+    async def test_managed_frp_apply_cannot_remove_live_backhaul_same_id(self):
+        # Reverse direction of a core collision: FRP Apply must not stop
+        # an already running managed Backhaul with the same tunnel ID.
+        from unittest.mock import AsyncMock
+        self.manager.tunnel_configs["saved-tunnel"] = {
+            "core": "backhaul", "spec": SAFE_SPEC.copy()}
+        self.manager.active_tunnels = {"saved-tunnel": self.adapter}
+        self.adapter.status.return_value = {"active": True}
+        self.manager.remove_tunnel = AsyncMock()
+        original = self.manager.tunnel_configs["saved-tunnel"].copy()
+        with patch("app.engine_inventory.require_engine_ready") as ready, \
+             patch("app.core_adapters.require_shared_frps_wss") as frp_wss:
+            with self.assertRaisesRegex(RuntimeError, "explicit removal"):
+                await self.manager.apply_tunnel(
+                    "saved-tunnel", "frp", {"mode": "client"})
+        ready.assert_called_once_with("frp")
+        frp_wss.assert_called_once()
+        self.manager.remove_tunnel.assert_not_awaited()
+        self.manager.get_adapter.assert_not_called()
+        self.adapter.remove.assert_not_called()
+        self.manager._save_tunnels.assert_not_called()
+        self.assertEqual(self.manager.tunnel_configs["saved-tunnel"], original)
+        self.assertIs(self.manager.active_tunnels["saved-tunnel"], self.adapter)
+
+    async def test_managed_frp_apply_cannot_erase_dormant_saved_backhaul(self):
+        # An inactive entry can be awaiting signed restore or remediation.
+        # Never overwrite its durable data just because it has no process.
+        self.manager.tunnel_configs["saved-tunnel"] = {
+            "core": "backhaul", "spec": SAFE_SPEC.copy()}
+        self.manager.active_tunnels = {}
+        original = self.manager.tunnel_configs["saved-tunnel"].copy()
+        with patch("app.engine_inventory.require_engine_ready") as ready, \
+             patch("app.core_adapters.require_shared_frps_wss"):
+            with self.assertRaisesRegex(RuntimeError, "explicit removal"):
+                await self.manager.apply_tunnel(
+                    "saved-tunnel", "frp", {"mode": "client"})
+        ready.assert_called_once_with("frp")
+        self.manager.get_adapter.assert_not_called()
+        self.manager._save_tunnels.assert_not_called()
+        self.assertEqual(self.manager.tunnel_configs["saved-tunnel"], original)
+
+    async def test_managed_backhaul_apply_cannot_erase_dormant_saved_frp(self):
+        # Same defense for an existing FRP record whose child is not active.
+        self.manager.tunnel_configs["saved-tunnel"] = {
+            "core": "frp", "spec": {"mode": "client", "token": "PRIVATE"}}
+        self.manager.active_tunnels = {}
+        old = self.manager.tunnel_configs["saved-tunnel"].copy()
+        with patch("app.engine_inventory.require_engine_ready") as ready:
+            with self.assertRaisesRegex(RuntimeError, "explicit removal"):
+                await self.manager.apply_tunnel(
+                    "saved-tunnel", "backhaul", SAFE_SPEC.copy())
+        ready.assert_called_once_with("backhaul")
+        self.manager.get_adapter.assert_not_called()
+        self.manager._save_tunnels.assert_not_called()
+        self.assertEqual(self.manager.tunnel_configs["saved-tunnel"], old)
+
+    async def test_approved_restore_still_restores_exact_saved_backhaul(self):
+        # Normal restart does not use signed Apply and must not be
+        # accidentally obstructed by the new collision guard.
+        from app.uopti_backhaul_standard import normalize_node_spec
+        self.manager.tunnel_configs["saved-tunnel"] = {
+            "core": "backhaul", "spec": SAFE_SPEC.copy()}
+        with patch("app.engine_inventory.require_engine_ready") as ready:
+            await self.manager.restore_tunnels()
+        ready.assert_called_once_with("backhaul")
+        self.adapter.apply.assert_called_once_with(
+            "saved-tunnel", normalize_node_spec(SAFE_SPEC))
+        self.assertIn("saved-tunnel", self.manager.active_tunnels)
+        self.manager._save_tunnels.assert_not_called()
+
     async def test_managed_backhaul_unverified_active_state_cannot_reapply(self):
         from unittest.mock import AsyncMock
         self.manager.tunnel_configs["saved-tunnel"] = {
