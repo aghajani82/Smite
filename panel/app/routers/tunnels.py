@@ -1589,7 +1589,22 @@ async def apply_tunnel(tunnel_id: str, request: Request, db: AsyncSession = Depe
             raise HTTPException(status_code=400, detail=f"Node {iran_node.id} is not an iran node (role={iran_node.node_metadata.get('role')}). Set NODE_ROLE=iran on the Iran node.")
         if foreign_node.node_metadata.get("role") != "foreign":
             raise HTTPException(status_code=400, detail=f"Node {foreign_node.id} is not a foreign node (role={foreign_node.node_metadata.get('role')}). Set NODE_ROLE=foreign on the foreign node.")
-        
+
+        if (tunnel.core == "backhaul"
+                and settings.smite_engine_management_mode == "managed"):
+            # Never enter the legacy one-way/public-bind transformation below.
+            # The signed pair helper checks exact Node status, claims pending
+            # atomically and compensates only a newly observed Backhaul ID.
+            from app.uopti_backhaul_lifecycle import (
+                ManagedBackhaulPairHold, apply_managed_backhaul_pair,
+            )
+            try:
+                return await apply_managed_backhaul_pair(
+                    tunnel=tunnel, iran_node_id=iran_node.id,
+                    foreign_node_id=foreign_node.id, client=client, db=db)
+            except ManagedBackhaulPairHold as exc:
+                raise HTTPException(status_code=409, detail=str(exc)) from None
+
         if foreign_node and iran_node:
             try:
                 spec = tunnel.spec.copy() if tunnel.spec else {}
