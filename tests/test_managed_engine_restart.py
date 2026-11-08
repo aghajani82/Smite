@@ -219,8 +219,9 @@ class ManagedRestartTest(unittest.IsolatedAsyncioTestCase):
         adapter.log_handles["saved-tunnel"].close.assert_not_called()
 
     async def test_missing_managed_backhaul_binary_cannot_stop_running_tunnel(self):
-        # Restart/reapply must not remove a healthy Backhaul just because
-        # the pinned executable is missing or unavailable. This is an
+        # Missing binary must not impact a separate, already running
+        # Backhaul tunnel. Same-ID reapply is now rejected earlier by
+        # the managed active-process guard. This is an
         # offline mock: no real process, network port or Docker action.
         from app.core_adapters import BackhaulAdapter
         adapter = object.__new__(BackhaulAdapter)
@@ -236,8 +237,9 @@ class ManagedRestartTest(unittest.IsolatedAsyncioTestCase):
         with patch.object(adapter, "_resolve_binary_path",
                           side_effect=FileNotFoundError("missing")) as resolver:
             with self.assertRaises(FileNotFoundError):
-                adapter.apply("saved-tunnel", SAFE_SPEC.copy())
+                adapter.apply("another-tunnel", SAFE_SPEC.copy())
         resolver.assert_called_once_with()
+        self.assertFalse((adapter.config_dir / "another-tunnel.toml").exists())
         running.terminate.assert_not_called()
         running.kill.assert_not_called()
         log_handle.close.assert_not_called()
@@ -270,8 +272,8 @@ class ManagedRestartTest(unittest.IsolatedAsyncioTestCase):
         adapter.log_handles["ci-new-backhaul"].close()
 
     async def test_managed_backhaul_server_binary_preflight_preserves_existing(self):
-        # The IR (server) role must observe the same pre-stop protection
-        # as the Foreign client; never touch a real listener in this test.
+        # The IR server role must reject a missing executable while
+        # leaving an existing separately tracked listener untouched.
         from app.core_adapters import BackhaulAdapter
         adapter = object.__new__(BackhaulAdapter)
         adapter.config_dir = self.manager.config_dir
@@ -286,8 +288,9 @@ class ManagedRestartTest(unittest.IsolatedAsyncioTestCase):
         with patch.object(adapter, "_resolve_binary_path",
                           side_effect=FileNotFoundError("missing")) as resolver:
             with self.assertRaises(FileNotFoundError):
-                adapter.apply("ir-existing", server)
+                adapter.apply("ir-new", server)
         resolver.assert_called_once_with()
+        self.assertFalse((adapter.config_dir / "ir-new.toml").exists())
         running.terminate.assert_not_called()
         running.kill.assert_not_called()
         handle.close.assert_not_called()
