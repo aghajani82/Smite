@@ -123,6 +123,82 @@ class ManagedRestartTest(unittest.IsolatedAsyncioTestCase):
         running.kill.assert_not_called()
         self.assertFalse((self.manager.config_dir / "saved-tunnel.toml").exists())
 
+    async def test_missing_managed_backhaul_binary_cannot_stop_running_tunnel(self):
+        # Restart/reapply must not remove a healthy Backhaul just because
+        # the pinned executable is missing or unavailable. This is an
+        # offline mock: no real process, network port or Docker action.
+        from app.core_adapters import BackhaulAdapter
+        adapter = object.__new__(BackhaulAdapter)
+        adapter.config_dir = self.manager.config_dir
+        running = Mock()
+        config = adapter.config_dir / "saved-tunnel.toml"
+        config.write_bytes(b"PRIVATE_OLD_MANAGED_BACKHAUL_CONFIG\\n")
+        config.chmod(0o600)
+        previous = config.read_bytes()
+        log_handle = Mock()
+        adapter.processes = {"saved-tunnel": running}
+        adapter.log_handles = {"saved-tunnel": log_handle}
+        with patch.object(adapter, "_resolve_binary_path",
+                          side_effect=FileNotFoundError("missing")) as resolver:
+            with self.assertRaises(FileNotFoundError):
+                adapter.apply("saved-tunnel", SAFE_SPEC.copy())
+        resolver.assert_called_once_with()
+        running.terminate.assert_not_called()
+        running.kill.assert_not_called()
+        log_handle.close.assert_not_called()
+        self.assertIs(adapter.processes["saved-tunnel"], running)
+        self.assertIs(adapter.log_handles["saved-tunnel"], log_handle)
+        self.assertEqual(config.read_bytes(), previous)
+        self.assertEqual(config.stat().st_mode & 0o777, 0o600)
+
+    async def test_managed_backhaul_binary_preflight_runs_once_before_first_spawn(self):
+        from app.core_adapters import BackhaulAdapter
+        adapter = object.__new__(BackhaulAdapter)
+        adapter.config_dir = self.manager.config_dir
+        adapter.processes = {}
+        adapter.log_handles = {}
+        fake = Mock()
+        fake.poll.return_value = None
+        with patch.object(adapter, "_resolve_binary_path",
+                          return_value=Path("/ci-only/backhaul")) as resolver:
+            with patch("app.core_adapters.subprocess.Popen", return_value=fake) as popen:
+                with patch("app.core_adapters.time.sleep"):
+                    adapter.apply("ci-new-backhaul", SAFE_SPEC.copy())
+        resolver.assert_called_once_with()
+        popen.assert_called_once()
+        self.assertEqual(popen.call_args.args[0],
+                         ["/ci-only/backhaul", "-c",
+                          str(adapter.config_dir / "ci-new-backhaul.toml")])
+        self.assertEqual((adapter.config_dir / "ci-new-backhaul.toml").stat().st_mode & 0o777,
+                         0o600)
+        self.assertIs(adapter.processes["ci-new-backhaul"], fake)
+        adapter.log_handles["ci-new-backhaul"].close()
+
+    async def test_managed_backhaul_server_binary_preflight_preserves_existing(self):
+        # The IR (server) role must observe the same pre-stop protection
+        # as the Foreign client; never touch a real listener in this test.
+        from app.core_adapters import BackhaulAdapter
+        adapter = object.__new__(BackhaulAdapter)
+        adapter.config_dir = self.manager.config_dir
+        running = Mock()
+        adapter.processes = {"ir-existing": running}
+        handle = Mock()
+        adapter.log_handles = {"ir-existing": handle}
+        config = adapter.config_dir / "ir-existing.toml"
+        config.write_bytes(b"BEFORE-SERVER-REAPPLY")
+        config.chmod(0o600)
+        server = dict(SAFE_SPEC, mode="server")
+        with patch.object(adapter, "_resolve_binary_path",
+                          side_effect=FileNotFoundError("missing")) as resolver:
+            with self.assertRaises(FileNotFoundError):
+                adapter.apply("ir-existing", server)
+        resolver.assert_called_once_with()
+        running.terminate.assert_not_called()
+        running.kill.assert_not_called()
+        handle.close.assert_not_called()
+        self.assertIs(adapter.processes["ir-existing"], running)
+        self.assertEqual(config.read_bytes(), b"BEFORE-SERVER-REAPPLY")
+
     async def test_signed_node_agent_rejects_invalid_before_adapter(self):
         from app.routers.agent import apply_tunnel as agent_apply, TunnelApply
         from fastapi import HTTPException

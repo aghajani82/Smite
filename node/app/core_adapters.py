@@ -325,6 +325,10 @@ class BackhaulAdapter:
                 or spec.get("uopti_standard_backhaul") is True):
             from app.uopti_backhaul_standard import normalize_node_spec
             spec = normalize_node_spec(spec)
+        # A failed engine lookup must NEVER stop an already healthy Backhaul
+        # tunnel. Resolve the binary before any process/config mutations.
+        # This is a preflight only, not permission to activate a new tunnel.
+        binary_path = self._resolve_binary_path()
         if tunnel_id in self.processes:
             logger.info(f"Backhaul tunnel {tunnel_id} already exists, removing it first")
             self.remove(tunnel_id)
@@ -415,7 +419,6 @@ class BackhaulAdapter:
             else:
                 config_path.write_text(self._render_toml({"server": server_config}), encoding="utf-8")
             
-            binary_path = self._resolve_binary_path()
             log_path = self.config_dir / f"backhaul_{tunnel_id}.log"
             log_fh = log_path.open("w", buffering=1)
             log_fh.write(f"Starting Backhaul server for tunnel {tunnel_id}\n")
@@ -487,7 +490,6 @@ class BackhaulAdapter:
             else:
                 config_path.write_text(self._render_toml({"client": config_dict}), encoding="utf-8")
 
-            binary_path = self._resolve_binary_path()
 
             log_path = self.config_dir / f"backhaul_{tunnel_id}.log"
             log_fh = log_path.open("w", buffering=1)
