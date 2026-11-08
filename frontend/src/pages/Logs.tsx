@@ -91,7 +91,7 @@ const Logs = () => {
   }
 
   return (
-    <div className="w-full max-w-7xl mx-auto">
+    <div className="w-full min-w-0">
       <div className="mb-8">
         <h1 className="text-3xl font-bold text-gray-900 dark:text-white mb-2">{t.logs.title}</h1>
         <p className="text-gray-500 dark:text-gray-400">{t.logs.subtitle}</p>

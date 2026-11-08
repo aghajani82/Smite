@@ -125,7 +125,7 @@ const Nodes = () => {
   }
 
   return (
-    <div className="w-full max-w-7xl mx-auto">
+    <div className="w-full min-w-0">
       <div className="flex justify-between items-center mb-8">
         <div>
           <h1 className="text-3xl font-bold text-gray-900 dark:text-white mb-2">{t.nodes.title}</h1>

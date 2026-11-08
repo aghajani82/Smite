@@ -101,11 +101,43 @@ const apiFixtures={
      }
      if(width===1366 && language==='en' && dark)
       await p.screenshot({path:'login-brand-evidence/dashboard-90-percent.png',fullPage:true})
+     // The five remaining operator pages used max-w-7xl mx-auto while
+     // Dashboard was already fluid. Check real route geometries with the
+     // same authenticated fixture and existing main-content padding.
+     for (const [route,label] of [
+       ['/logs','logs'],
+       ['/core-health','core-health'],
+       ['/tunnels','tunnels'],
+       ['/nodes','iran-nodes'],
+       ['/servers','foreign-nodes']
+     ]) {
+       await p.goto('http://127.0.0.1:3100'+route)
+       await p.locator('main > div:last-child > div h1').first().waitFor()
+       const area=await p.evaluate(()=>{
+         const main=document.querySelector('.smite-shell main')
+         const page=main.lastElementChild
+         const content=page.firstElementChild
+         const style=getComputedStyle(page)
+         return {width:content.getBoundingClientRect().width,
+          available:main.clientWidth-parseFloat(style.paddingLeft)-parseFloat(style.paddingRight),
+          rootSize:parseFloat(getComputedStyle(document.documentElement).fontSize),
+          outerScroll:document.documentElement.scrollWidth,
+          viewport:window.innerWidth}
+       })
+       assert.ok(near(area.width,area.available,2),
+         `Centered/narrow ${label} at ${width}px (${language}): ${JSON.stringify(area)}`)
+       assert.ok(area.outerScroll<=area.viewport+1,
+         `Unexpected page horizontal overflow in ${label} at ${width}px (${language}): ${JSON.stringify(area)}`)
+       assert.ok(near(area.rootSize,width>=1024?14.4:16,.05),
+         `Density changed unexpectedly in ${label} at ${width}px: ${area.rootSize}px`)
+       if(width===1600 && language==='en' && dark)
+         await p.screenshot({path:'login-brand-evidence/'+label+'-fluid.png',fullPage:true})
+     }
     } finally {
      await context.close()
     }
    }
   }
  } finally {await browser.close()}
- console.log('PASS: 16 fixture-only Login + Dashboard combinations; 90% desktop, full-width fluid dashboard, mobile 100%, no enlarged gutters, card gaps or horizontal overflow.')
+ console.log('PASS: 16 Login/Dashboard and 80 operator-route fixture cases; all six operator pages fluid, desktop 90%, mobile 100%, no expanded gutters/card gaps or page overflow.')
 })().catch(e=>{console.error(e);process.exit(1)})
