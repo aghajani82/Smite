@@ -1511,38 +1511,43 @@ class AdapterManager:
                 shared_frps_owner=spec.get("shared_frps_owner"),
             )
 
-        # An authenticated managed Backhaul reapply must not accidentally
-        # stop the already active engine (or a same-ID FRP tunnel). Replaying
-        # the exact approved, healthy spec is a no-op; changing or repairing
-        # it requires an explicit, separately authorized Remove. Never erase
-        # the durable tunnel registry as an implicit precondition.
-        if (settings.smite_engine_inventory_mode == "managed"
-                and tunnel_core == "backhaul"
-                and tunnel_id in self.active_tunnels):
-            current_adapter = self.active_tunnels[tunnel_id]
-            existing = self.tunnel_configs.get(tunnel_id)
-            previous_spec = (
-                existing.get("spec") if isinstance(existing, dict)
-                and existing.get("core") == "backhaul" else None
-            )
-            if (current_adapter.name == "backhaul"
-                    and isinstance(previous_spec, dict)):
-                from app.uopti_backhaul_standard import (
-                    normalize_node_spec, StandardBackhaulSpecError,
-                )
-                try:
-                    same = normalize_node_spec(previous_spec) == spec
-                except StandardBackhaulSpecError:
-                    same = False
-                if same and current_adapter.status(tunnel_id).get("active") is True:
-                    logger.info(
-                        "Existing signed managed Backhaul tunnel %s is already active",
-                        tunnel_id,
+        # Never reuse an existing managed Backhaul identity implicitly:
+        # guard BOTH directions (FRP -> Backhaul and Backhaul -> FRP)
+        # and persisted IDs that have no active process after a restart.
+        # The separate restore_tunnels path restores existing saved specs
+        # directly and is not affected by this signed Apply guard.
+        if settings.smite_engine_inventory_mode == "managed":
+            saved = self.tunnel_configs.get(tunnel_id)
+            saved_core = saved.get("core") if isinstance(saved, dict) else None
+            current_adapter = self.active_tunnels.get(tunnel_id)
+            active_core = current_adapter.name if current_adapter else None
+            if ((tunnel_id in self.active_tunnels
+                    or tunnel_id in self.tunnel_configs)
+                    and ("backhaul" in (tunnel_core, saved_core, active_core))):
+                # Exact signed replay of a healthy managed Backhaul is
+                # idempotent. Do not stop the process or touch the journal,
+                # even if the same activation request arrives twice.
+                if (tunnel_core == "backhaul"
+                        and saved_core == "backhaul"
+                        and active_core == "backhaul"
+                        and isinstance(saved.get("spec"), dict)):
+                    from app.uopti_backhaul_standard import (
+                        normalize_node_spec, StandardBackhaulSpecError,
                     )
-                    return
-            raise RuntimeError(
-                "Managed Backhaul replacement requires explicit removal"
-            )
+                    try:
+                        same = normalize_node_spec(saved["spec"]) == spec
+                    except StandardBackhaulSpecError:
+                        same = False
+                    if (same and current_adapter.status(tunnel_id)
+                            .get("active") is True):
+                        logger.info(
+                            "Existing signed managed Backhaul tunnel %s is already active",
+                            tunnel_id,
+                        )
+                        return
+                raise RuntimeError(
+                    "Managed Backhaul ID reuse requires explicit removal"
+                )
 
         if tunnel_id in self.active_tunnels:
             logger.info(f"Tunnel {tunnel_id} already exists, removing it first")
