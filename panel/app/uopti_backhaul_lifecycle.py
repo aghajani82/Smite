@@ -90,15 +90,26 @@ async def apply_managed_backhaul_pair(*, tunnel, iran_node_id: str,
                 or not isinstance(reply.get("data"), dict)):
             raise ManagedBackhaulPairHold("BACKHAUL_PAIR_SIGNED_STATUS_UNVERIFIED")
         data = reply["data"]
-        if type(data.get("active")) is not bool:
+        if (type(data.get("active")) is not bool
+                or type(data.get("record_present")) is not bool):
+            # An older Node lacking the persisted-record evidence fails closed.
             raise ManagedBackhaulPairHold("BACKHAUL_PAIR_SIGNED_STATUS_UNVERIFIED")
-        if data["active"] and data.get("type") != "backhaul":
+        if data["record_present"]:
+            if data.get("record_core") not in (
+                    "backhaul", "frp", "gost", "rathole", "chisel"):
+                raise ManagedBackhaulPairHold("BACKHAUL_PAIR_EXISTING_ID_UNTRUSTED")
+        elif data.get("record_core") is not None:
+            raise ManagedBackhaulPairHold("BACKHAUL_PAIR_SIGNED_STATUS_UNVERIFIED")
+        if data["active"] and (
+                data.get("type") != "backhaul"
+                or data.get("record_core") != "backhaul"):
             raise ManagedBackhaulPairHold("BACKHAUL_PAIR_EXISTING_ID_UNTRUSTED")
-        return data["active"]
+        return data
 
-    # A stale or already-running same-ID engine must never be removed by this
-    # transaction; no guessing that a timed-out Apply did not take effect.
-    if await observed(iran_node_id) or await observed(foreign_node_id):
+    # Verify BOTH full records before any write: an inactive persisted ID
+    # (including dormant FRP) must never look like an unused Backhaul ID.
+    preflight = (await observed(iran_node_id), await observed(foreign_node_id))
+    if any(state["active"] or state["record_present"] for state in preflight):
         raise ManagedBackhaulPairHold("BACKHAUL_PAIR_ALREADY_PRESENT")
 
     # CAS prevents two Panel requests from both claiming the same pending
@@ -126,9 +137,13 @@ async def apply_managed_backhaul_pair(*, tunnel, iran_node_id: str,
             if not isinstance(reply, dict) or reply.get("status") != "success":
                 raise ManagedBackhaulPairHold("BACKHAUL_PAIR_NODE_APPLY_FAILED")
             acknowledged.add(node_id)
-            if not await observed(node_id):
+            state = await observed(node_id)
+            if (not state["active"] or not state["record_present"]
+                    or state["record_core"] != "backhaul"):
                 raise ManagedBackhaulPairHold("BACKHAUL_PAIR_APPLY_NOT_RUNNING")
-        if not await observed(iran_node_id) or not await observed(foreign_node_id):
+        final_states = (await observed(iran_node_id), await observed(foreign_node_id))
+        if any(not state["active"] or not state["record_present"]
+               or state["record_core"] != "backhaul" for state in final_states):
             raise ManagedBackhaulPairHold("BACKHAUL_PAIR_POSTCHECK_FAILED")
     except Exception:
         # Signed status first: an error/timeout may occur *after* Node Apply.
@@ -137,23 +152,28 @@ async def apply_managed_backhaul_pair(*, tunnel, iran_node_id: str,
         clean = True
         for node_id in (foreign_node_id, iran_node_id):
             try:
-                active = await observed(node_id)
-                # A signed success may persist the Node's config even if
-                # its process died before status review. Remove that exact
-                # newly acknowledged identity, not just active listeners.
-                if node_id in attempted and (active or node_id in acknowledged):
+                state = await observed(node_id)
+                if state["record_present"] and state["record_core"] != "backhaul":
+                    # Never compensate an FRP (including dormant saved FRP).
+                    clean = False
+                    continue
+                if node_id in attempted and (state["active"] or state["record_present"]):
+                    # Baseline was empty; compensate this newly observed ID,
+                    # even if the Backhaul process exited after saving it.
                     reply = await client.send_to_node(
                         node_id=node_id, endpoint="/api/agent/tunnels/remove",
                         data={"tunnel_id": tunnel.id})
                     if not isinstance(reply, dict) or reply.get("status") != "success":
                         clean = False
-                    elif await observed(node_id):
-                        clean = False
-                elif active or node_id in attempted:
-                    # A failed/ambiguous Apply can leave a dormant persisted
-                    # ID even when the process is not running. Status alone
-                    # cannot establish that the saved registry is empty.
-                    # Do not delete an unverified pre-existing saved entry.
+                    else:
+                        after = await observed(node_id)
+                        if after["active"] or after["record_present"]:
+                            clean = False
+                elif state["active"] or state["record_present"]:
+                    clean = False
+                elif node_id in attempted and node_id in acknowledged:
+                    # Acknowledged then removed externally: require manual
+                    # confirmation rather than silently accepting a race.
                     clean = False
             except Exception:
                 clean = False

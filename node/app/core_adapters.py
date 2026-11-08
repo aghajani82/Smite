@@ -1583,11 +1583,20 @@ class AdapterManager:
             self._save_tunnels()
     
     async def get_tunnel_status(self, tunnel_id: str) -> Dict[str, Any]:
-        """Get tunnel status"""
+        """Read exact-ID runtime AND saved identity without exposing specs.
+
+        A stopped process can still have a durable saved tunnel; signed
+        Backhaul rollback must distinguish it from an unused tunnel ID.
+        """
+        present = tunnel_id in self.tunnel_configs
+        saved = self.tunnel_configs.get(tunnel_id)
+        core = saved.get("core") if isinstance(saved, dict) else None
         if tunnel_id in self.active_tunnels:
             adapter = self.active_tunnels[tunnel_id]
-            return adapter.status(tunnel_id)
-        return {"active": False}
+            state = adapter.status(tunnel_id)
+            return {**state, "record_present": present, "record_core": core}
+        return {"active": False, "record_present": present,
+                "record_core": core}
     
     async def cleanup(self):
         """Stop active runtimes without forgetting tunnels during Node shutdown.

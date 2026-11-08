@@ -124,6 +124,36 @@ class ManagedRestartTest(unittest.IsolatedAsyncioTestCase):
         self.manager.remove_tunnel.assert_not_called()
         self.adapter.apply.assert_not_called()
 
+    async def test_signed_exact_id_status_distinguishes_saved_from_running(self):
+        saved = await self.manager.get_tunnel_status("saved-tunnel")
+        self.assertEqual(saved, {
+            "active": False, "record_present": True,
+            "record_core": "backhaul",
+        })
+        absent = await self.manager.get_tunnel_status("fresh-tunnel")
+        self.assertEqual(absent, {
+            "active": False, "record_present": False,
+            "record_core": None,
+        })
+        self.adapter.status.return_value = {
+            "active": True, "type": "backhaul",
+        }
+        self.manager.active_tunnels["saved-tunnel"] = self.adapter
+        active = await self.manager.get_tunnel_status("saved-tunnel")
+        self.assertEqual(active, {
+            "active": True, "type": "backhaul",
+            "record_present": True, "record_core": "backhaul",
+        })
+        # Stopped saved FRP must not masquerade as unused Backhaul identity.
+        self.manager.active_tunnels.clear()
+        self.manager.tunnel_configs["saved-tunnel"] = {
+            "core": "frp", "spec": {"mode": "client"}
+        }
+        self.assertEqual(
+            (await self.manager.get_tunnel_status("saved-tunnel"))["record_core"],
+            "frp",
+        )
+
     async def test_direct_adapter_apply_denies_before_existing_removal(self):
         self.manager.active_tunnels = {"saved-tunnel": self.adapter}
         self.manager.remove_tunnel = Mock()
