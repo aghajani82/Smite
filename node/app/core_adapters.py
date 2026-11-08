@@ -325,6 +325,16 @@ class BackhaulAdapter:
                 or spec.get("uopti_standard_backhaul") is True):
             from app.uopti_backhaul_standard import normalize_node_spec
             spec = normalize_node_spec(spec)
+        # Managed Standard Backhaul is a separately approved single-listener
+        # tunnel. Never tear down a tracked process on direct reapply: a
+        # replacement may fail after removal and cannot be made atomic on
+        # the same loopback ports. An explicit Remove is a separate operation.
+        if (node_settings.smite_engine_inventory_mode == "managed"
+                or spec.get("uopti_standard_backhaul") is True):
+            if tunnel_id in self.processes:
+                raise RuntimeError(
+                    "Managed Backhaul replacement requires explicit removal"
+                )
         # A failed engine lookup must NEVER stop an already healthy Backhaul
         # tunnel. Resolve the binary before any process/config mutations.
         # This is a preflight only, not permission to activate a new tunnel.
@@ -1501,10 +1511,43 @@ class AdapterManager:
                 shared_frps_owner=spec.get("shared_frps_owner"),
             )
 
+        # An authenticated managed Backhaul reapply must not accidentally
+        # stop the already active engine (or a same-ID FRP tunnel). Replaying
+        # the exact approved, healthy spec is a no-op; changing or repairing
+        # it requires an explicit, separately authorized Remove. Never erase
+        # the durable tunnel registry as an implicit precondition.
+        if (settings.smite_engine_inventory_mode == "managed"
+                and tunnel_core == "backhaul"
+                and tunnel_id in self.active_tunnels):
+            current_adapter = self.active_tunnels[tunnel_id]
+            existing = self.tunnel_configs.get(tunnel_id)
+            previous_spec = (
+                existing.get("spec") if isinstance(existing, dict)
+                and existing.get("core") == "backhaul" else None
+            )
+            if (current_adapter.name == "backhaul"
+                    and isinstance(previous_spec, dict)):
+                from app.uopti_backhaul_standard import (
+                    normalize_node_spec, StandardBackhaulSpecError,
+                )
+                try:
+                    same = normalize_node_spec(previous_spec) == spec
+                except StandardBackhaulSpecError:
+                    same = False
+                if same and current_adapter.status(tunnel_id).get("active") is True:
+                    logger.info(
+                        "Existing signed managed Backhaul tunnel %s is already active",
+                        tunnel_id,
+                    )
+                    return
+            raise RuntimeError(
+                "Managed Backhaul replacement requires explicit removal"
+            )
+
         if tunnel_id in self.active_tunnels:
             logger.info(f"Tunnel {tunnel_id} already exists, removing it first")
             await self.remove_tunnel(tunnel_id)
-        
+
         adapter = self.get_adapter(tunnel_core)
         if not adapter:
             error_msg = f"Unknown tunnel core: {tunnel_core}"
