@@ -245,12 +245,13 @@ class BackhaulSignedDispatchTest(unittest.IsolatedAsyncioTestCase):
             foreign_node_id="foreign-ci", spec=CANONICAL.copy(),
         )
         db = FakeDB()
-        with patch.object(panel_settings, "smite_engine_management_mode", "managed"), \\
-             patch.object(routes, "require_engine_ready_pair",
-                          new_callable=AsyncMock) as admitted, \\
-             patch("app.node_client.NodeClient.send_to_node",
-                   new_callable=AsyncMock) as node_apply:
-            saved = await routes.create_tunnel(request, SimpleNamespace(), db)
+        with patch.object(panel_settings, "smite_engine_management_mode", "managed"):
+            with patch.object(routes, "require_engine_ready_pair",
+                              new_callable=AsyncMock) as admitted:
+                with patch("app.node_client.NodeClient.send_to_node",
+                           new_callable=AsyncMock) as node_apply:
+                    saved = await routes.create_tunnel(
+                        request, SimpleNamespace(), db)
         admitted.assert_awaited_once()
         node_apply.assert_not_awaited()
         self.assertIs(saved, db.created)
