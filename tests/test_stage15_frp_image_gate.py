@@ -33,6 +33,35 @@ class ImageFrpGate(unittest.TestCase):
                 else:
                     self.assertEqual(set(gate.checked_archive(raw, 'amd64')), {'frpc', 'frps'})
 
+    def test_official_api_fallback_requires_same_exact_archive_hash(self):
+        import urllib.error
+        raw = self.archive()
+        source_error = urllib.error.HTTPError(
+            'https://github.com/fatedier/frp/releases/download/v0.71.0/',
+            504, 'Gateway Timeout', {}, None)
+        with patch.dict(gate.HASHES, amd64=hashlib.sha256(raw).hexdigest()):
+            with patch.object(gate.urllib.request, 'urlopen',
+                              side_effect=[source_error, io.BytesIO(raw)]) as fetch:
+                self.assertEqual(
+                    set(gate.checked_archive(gate.official_archive('amd64'),
+                                             'amd64')), {'frpc', 'frps'})
+                self.assertEqual(fetch.call_count, 2)
+                api = fetch.call_args.args[0]
+                self.assertEqual(
+                    api.full_url,
+                    'https://api.github.com/repos/fatedier/frp/releases/assets/514042277')
+                self.assertEqual(api.headers['Accept'], 'application/octet-stream')
+        with patch.object(gate.urllib.request, 'urlopen',
+                          side_effect=[source_error, io.BytesIO(b'{"id":514042277}')]):
+            with self.assertRaisesRegex(ValueError, 'FRP_OFFICIAL_ARCHIVE_MISMATCH'):
+                gate.checked_archive(gate.official_archive('amd64'), 'amd64')
+
+    def test_unknown_arch_cannot_fetch_release_asset(self):
+        with patch.object(gate.urllib.request, 'urlopen') as fetch:
+            with self.assertRaisesRegex(ValueError, 'UNSUPPORTED_FRP_ARCHITECTURE'):
+                gate.official_archive('invalid')
+            fetch.assert_not_called()
+
     def test_dockerfiles_verify_before_extract_and_fail_unknown_arch(self):
         root = Path(__file__).resolve().parents[1]
         for role in ('panel', 'node'):
