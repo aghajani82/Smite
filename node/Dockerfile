@@ -24,14 +24,14 @@ RUN set -eux; \
     esac; \
     RATHOLE_URL="https://github.com/rapiz1/rathole/releases/download/v0.5.0/rathole-$RATHOLE_ARCH-unknown-linux-gnu.zip"; \
     TMP_DIR="$(mktemp -d)"; \
-    curl -fsSL "$RATHOLE_URL" -o "$TMP_DIR/rathole.zip"; \
+    curl -fsSL --retry 4 --retry-delay 2 --connect-timeout 15 --max-time 90 "$RATHOLE_URL" -o "$TMP_DIR/rathole.zip"; \
     unzip -q "$TMP_DIR/rathole.zip" -d "$TMP_DIR"; \
     RATHOLE_BIN="$(find "$TMP_DIR" -type f -name 'rathole' | head -n1)"; \
     install -Dm755 "$RATHOLE_BIN" /usr/local/bin/rathole; \
     rm -rf "$TMP_DIR"; \
     GOST_URL="https://github.com/ginuerzh/gost/releases/download/v2.12.0/gost_2.12.0_linux_${ARCH}.tar.gz"; \
     GOST_TMP="$(mktemp -d)"; \
-    curl -fsSL "$GOST_URL" -o "$GOST_TMP/gost.tar.gz"; \
+    curl -fsSL --retry 4 --retry-delay 2 --connect-timeout 15 --max-time 90 "$GOST_URL" -o "$GOST_TMP/gost.tar.gz"; \
     tar -xzf "$GOST_TMP/gost.tar.gz" -C "$GOST_TMP"; \
     GOST_BIN="$(find "$GOST_TMP" -type f -name 'gost' | head -n1)"; \
     install -Dm755 "$GOST_BIN" /usr/local/bin/gost; \
@@ -39,7 +39,7 @@ RUN set -eux; \
     echo "Fetching chisel release"; \
     CHISEL_URL="https://github.com/jpillora/chisel/releases/download/v1.11.3/chisel_1.11.3_linux_${ARCH}.gz"; \
     CHISEL_TMP="$(mktemp -d)"; \
-    curl -fsSL "$CHISEL_URL" -o "$CHISEL_TMP/chisel.gz"; \
+    curl -fsSL --retry 4 --retry-delay 2 --connect-timeout 15 --max-time 90 "$CHISEL_URL" -o "$CHISEL_TMP/chisel.gz"; \
     gunzip "$CHISEL_TMP/chisel.gz"; \
     install -Dm755 "$CHISEL_TMP/chisel" /usr/local/bin/chisel; \
     rm -rf "$CHISEL_TMP"; \
@@ -48,7 +48,7 @@ RUN set -eux; \
     FRP_VERSION_NO_V="${FRP_VERSION#v}"; \
     FRP_URL="https://github.com/fatedier/frp/releases/download/${FRP_VERSION}/frp_${FRP_VERSION_NO_V}_linux_${ARCH}.tar.gz"; \
     FRP_TMP="$(mktemp -d)"; \
-    curl -fsSL "$FRP_URL" -o "$FRP_TMP/frp.tar.gz"; \
+    curl -fsSL --retry 4 --retry-delay 2 --connect-timeout 15 --max-time 90 "$FRP_URL" -o "$FRP_TMP/frp.tar.gz"; \
     case "$ARCH" in \
         amd64) FRP_SHA256="84f27e39f11169f7adcef8e8b70c9329de17747b1f14dad9fb95eef5682ea716" ;; \
         arm64) FRP_SHA256="f33c293c275d8fc68c654b6fba8f10b2551d6463d09a9fc9cffb7227eae82266" ;; \
@@ -82,7 +82,7 @@ RUN set -eux; \
     esac; \
     ASSET_URL="https://github.com/Musixal/Backhaul/releases/download/${BACKHAUL_VERSION}/backhaul_linux_${PLATFORM}.tar.gz"; \
     TMP_DIR="$(mktemp -d)"; \
-    curl -fsSL "$ASSET_URL" -o "$TMP_DIR/backhaul.tar.gz"; \
+    curl -fsSL --retry 4 --retry-delay 2 --connect-timeout 15 --max-time 90 "$ASSET_URL" -o "$TMP_DIR/backhaul.tar.gz"; \
     echo "${EXPECTED_SHA}  $TMP_DIR/backhaul.tar.gz" | sha256sum -c -; \
     tar -xzf "$TMP_DIR/backhaul.tar.gz" -C "$TMP_DIR"; \
     BIN_PATH="$(find "$TMP_DIR" -type f -name 'backhaul' | head -n1)"; \
