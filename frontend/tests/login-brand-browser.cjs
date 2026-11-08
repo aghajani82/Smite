@@ -71,7 +71,8 @@ const apiFixtures={
       const first=await metrics[0].boundingBox()
       const second=await metrics[1].boundingBox()
       const rowGap=first.y-(heading.y+heading.height)
-      const metricGap=second.x-(first.x+first.width)
+      const [leftMetric,rightMetric]=[first,second].sort((a,b)=>a.x-b.x)
+      const metricGap=rightMetric.x-(leftMetric.x+leftMetric.width)
       assert.ok(rowGap>=0 && rowGap<=23,`Dashboard header/metric gap expanded: ${rowGap}px`)
       assert.ok(metricGap>=0 && metricGap<=15,`Metric columns are too far apart: ${metricGap}px`)
       if(width===1366){
