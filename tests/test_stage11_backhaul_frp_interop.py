@@ -203,6 +203,64 @@ class BackhaulSignedDispatchTest(unittest.IsolatedAsyncioTestCase):
                 signed.assert_not_awaited()
 
 
+    async def test_managed_backhaul_create_does_not_auto_apply_only_iran(self):
+        # This exercises the actual Panel Create handler with a fake database.
+        # Signed engines can report ready, but a newly persisted Backhaul
+        # must NOT run only the IR half or be marked active prematurely.
+        from types import SimpleNamespace
+        from app.routers import tunnels as routes
+
+        class Result:
+            def __init__(self, row):
+                self.row = row
+
+            def scalar_one_or_none(self):
+                return self.row
+
+        class FakeDB:
+            def __init__(self):
+                self.nodes = [
+                    SimpleNamespace(id="foreign-ci", node_metadata={"role": "foreign"}),
+                    SimpleNamespace(id="iran-ci", node_metadata={"role": "iran"}),
+                ]
+                self.created = None
+                self.commits = 0
+
+            async def execute(self, statement):
+                return Result(self.nodes.pop(0))
+
+            def add(self, row):
+                self.created = row
+
+            async def commit(self):
+                self.commits += 1
+
+            async def refresh(self, row):
+                if row.id is None:
+                    row.id = "backhaul-ci-new-id"
+
+        request = SimpleNamespace(
+            name="CI approved Backhaul", core="backhaul", type="ws",
+            node_id="iran-ci", iran_node_id="iran-ci",
+            foreign_node_id="foreign-ci", spec=CANONICAL.copy(),
+        )
+        db = FakeDB()
+        with patch.object(panel_settings, "smite_engine_management_mode", "managed"):
+            with patch.object(routes, "require_engine_ready_pair",
+                              new_callable=AsyncMock) as admitted:
+                with patch("app.node_client.NodeClient.send_to_node",
+                           new_callable=AsyncMock) as node_apply:
+                    saved = await routes.create_tunnel(
+                        request, SimpleNamespace(), db)
+        admitted.assert_awaited_once()
+        node_apply.assert_not_awaited()
+        self.assertIs(saved, db.created)
+        self.assertEqual(saved.status, "pending")
+        self.assertEqual(db.commits, 1)
+        self.assertEqual(db.nodes, [])
+        self.assertEqual(saved.spec, CANONICAL)
+
+
 class FrpStandardWssTest(unittest.TestCase):
     def test_default_off_does_not_force_tcp_frp_to_wss(self):
         with patch.dict(os.environ, {"PANEL_ADDRESS": "panel.example.org:443",
