@@ -174,6 +174,31 @@ class ManagedRestartTest(unittest.IsolatedAsyncioTestCase):
         self.assertIs(adapter.processes["ci-new-backhaul"], fake)
         adapter.log_handles["ci-new-backhaul"].close()
 
+    async def test_managed_backhaul_server_binary_preflight_preserves_existing(self):
+        # The IR (server) role must observe the same pre-stop protection
+        # as the Foreign client; never touch a real listener in this test.
+        from app.core_adapters import BackhaulAdapter
+        adapter = object.__new__(BackhaulAdapter)
+        adapter.config_dir = self.manager.config_dir
+        running = Mock()
+        adapter.processes = {"ir-existing": running}
+        handle = Mock()
+        adapter.log_handles = {"ir-existing": handle}
+        config = adapter.config_dir / "ir-existing.toml"
+        config.write_bytes(b"BEFORE-SERVER-REAPPLY")
+        config.chmod(0o600)
+        server = dict(SAFE_SPEC, mode="server")
+        with patch.object(adapter, "_resolve_binary_path",
+                          side_effect=FileNotFoundError("missing")) as resolver:
+            with self.assertRaises(FileNotFoundError):
+                adapter.apply("ir-existing", server)
+        resolver.assert_called_once_with()
+        running.terminate.assert_not_called()
+        running.kill.assert_not_called()
+        handle.close.assert_not_called()
+        self.assertIs(adapter.processes["ir-existing"], running)
+        self.assertEqual(config.read_bytes(), b"BEFORE-SERVER-REAPPLY")
+
     async def test_signed_node_agent_rejects_invalid_before_adapter(self):
         from app.routers.agent import apply_tunnel as agent_apply, TunnelApply
         from fastapi import HTTPException
