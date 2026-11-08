@@ -342,7 +342,17 @@ async def create_tunnel(tunnel: TunnelCreate, request: Request, db: AsyncSession
     db.add(db_tunnel)
     await db.commit()
     await db.refresh(db_tunnel)
-    
+
+    # Managed Backhaul requires a deliberate, separately approved two-Node
+    # Apply. Auto-applying only the IR Node here could leave an orphan server
+    # while incorrectly reporting the tunnel active before Foreign starts.
+    # Keep the validated persisted spec pending; the existing /apply path
+    # performs the paired signed dispatch after separate operator approval.
+    if (db_tunnel.core == "backhaul"
+            and settings.smite_engine_management_mode == "managed"):
+        logger.info("Managed Backhaul %s saved pending two-Node Apply", db_tunnel.id)
+        return db_tunnel
+
     try:
         needs_gost_forwarding = db_tunnel.type in ["tcp", "udp", "ws", "grpc", "tcpmux"] and db_tunnel.core == "gost" and not is_reverse_tunnel
         needs_rathole_server = False
