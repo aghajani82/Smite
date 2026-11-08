@@ -457,7 +457,8 @@ class BackhaulPairCompensationTest(unittest.IsolatedAsyncioTestCase):
         async def owner_status(node_id, *, method, target, timeout):
             if node_id == "ci-ir":
                 return {"status": "success",
-                        "data": {"active": True, "type": "frp"}}
+                        "data": {"active": True, "type": "frp",
+                                 "record_present": True, "record_core": "frp"}}
             return await self.status(node_id, method=method,
                                      target=target, timeout=timeout)
         self.client._signed_agent_request.side_effect = owner_status
