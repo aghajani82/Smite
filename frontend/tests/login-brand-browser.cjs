@@ -20,7 +20,7 @@ const apiFixtures={
  const browser=await chromium.launch({headless:true,...(process.env.CHROMIUM_PATH?{executablePath:process.env.CHROMIUM_PATH,args:['--no-sandbox','--disable-gpu']}:{})})
  fs.mkdirSync('login-brand-evidence',{recursive:true})
  try {
-  for(const [width,height] of [[1366,768],[1920,1080],[390,844]]) {
+  for(const [width,height] of [[1366,768],[1600,756],[1920,1080],[390,844]]) {
    for(const language of ['en','fa']) for(const dark of [true,false]) {
     const context=await browser.newContext({viewport:{width,height},deviceScaleFactor:1})
     try {
@@ -66,6 +66,25 @@ const apiFixtures={
      const sidebar=await p.locator('aside').boundingBox()
      const heading=await p.locator('.smite-dashboard-heading').boundingBox()
      const metrics=await p.locator('.smite-metric').all()
+     // Dashboard should fill the available main content area, not stop at a
+     // centered max-w-7xl. This was the visible empty margin at 90% density.
+     const geometry=await p.evaluate(()=>{
+      const main=document.querySelector('.smite-shell main')
+      const dashboard=document.querySelector('.smite-dashboard')
+      const inner=main.lastElementChild
+      const box=dashboard.getBoundingClientRect()
+      const mainStyle=getComputedStyle(inner)
+      const padLeft=parseFloat(mainStyle.paddingLeft)
+      const padRight=parseFloat(mainStyle.paddingRight)
+      return {actual:box.width, available:main.clientWidth-padLeft-padRight,
+       leftPad:padLeft,rightPad:padRight}
+     })
+     assert.ok(near(geometry.actual,geometry.available,2),
+      `Dashboard is artificially narrow at ${width}px (${language}): ${JSON.stringify(geometry)}`)
+     if(width>=1024) {
+      assert.ok(geometry.actual>=Math.min(width-300,1000),
+       `Dashboard width still clamped to a fixed content max: ${geometry.actual}px`)
+     }
      if(width>=1024) {
       assert.ok(near(sidebar.width,216),`Sidebar must scale from 240px to 216px, got ${sidebar.width}`)
       const first=await metrics[0].boundingBox()
@@ -88,5 +107,5 @@ const apiFixtures={
    }
   }
  } finally {await browser.close()}
- console.log('PASS: 12 fixture-only Login + Dashboard combinations; desktop 90% and mobile 100%, no enlarged gutters, card gaps or horizontal overflow.')
+ console.log('PASS: 16 fixture-only Login + Dashboard combinations; 90% desktop, full-width fluid dashboard, mobile 100%, no enlarged gutters, card gaps or horizontal overflow.')
 })().catch(e=>{console.error(e);process.exit(1)})
