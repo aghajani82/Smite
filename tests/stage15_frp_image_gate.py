@@ -10,6 +10,9 @@ import subprocess
 import tarfile
 import tempfile
 import urllib.request
+import urllib.error
+
+ASSET_IDS = {'amd64': 514042277, 'arm64': 514042211}
 
 HASHES = {
     'amd64': '84f27e39f11169f7adcef8e8b70c9329de17747b1f14dad9fb95eef5682ea716',
@@ -28,19 +31,42 @@ def checked_archive(raw, arch):
             result[name] = archive.extractfile(member).read()
         return result
 
+def official_archive(arch):
+    """Try exact official release first, then its immutable GitHub API asset.
+
+    Neither a proxy nor a substitute release is trusted. The caller always
+    verifies the pinned SHA-256 before parsing or comparing image bytes.
+    """
+    if arch not in ASSET_IDS:
+        raise ValueError('UNSUPPORTED_FRP_ARCHITECTURE')
+    url = f'https://github.com/fatedier/frp/releases/download/v0.71.0/frp_0.71.0_linux_{arch}.tar.gz'
+    try:
+        with urllib.request.urlopen(url, timeout=60) as response:
+            return response.read(64 * 1024 * 1024 + 1)
+    except urllib.error.URLError:
+        api_url = (
+            'https://api.github.com/repos/fatedier/frp/releases/assets/'
+            + str(ASSET_IDS[arch])
+        )
+        request = urllib.request.Request(
+            api_url, headers={'Accept': 'application/octet-stream'})
+        with urllib.request.urlopen(request, timeout=60) as response:
+            return response.read(64 * 1024 * 1024 + 1)
+
+
 def run(*argv):
     return subprocess.check_output(argv, text=True, timeout=120).strip()
 
 def main():
+    verified_archives = {}
     for role in ('panel', 'node'):
         image = f'smite-{role}:stage15-local'
         arch = run('docker', 'image', 'inspect', image, '--format', '{{.Architecture}}')
         if arch not in HASHES:
             raise ValueError('UNSUPPORTED_FRP_ARCHITECTURE')
-        url = f'https://github.com/fatedier/frp/releases/download/v0.71.0/frp_0.71.0_linux_{arch}.tar.gz'
-        with urllib.request.urlopen(url, timeout=60) as response:
-            raw = response.read(64 * 1024 * 1024 + 1)
-        official = checked_archive(raw, arch)
+        if arch not in verified_archives:
+            verified_archives[arch] = checked_archive(official_archive(arch), arch)
+        official = verified_archives[arch]
         cid = run('docker', 'create', '--network', 'none', '--entrypoint', '/bin/true', image)
         try:
             with tempfile.TemporaryDirectory() as temp:
