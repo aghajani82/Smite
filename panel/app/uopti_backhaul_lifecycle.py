@@ -114,6 +114,7 @@ async def apply_managed_backhaul_pair(*, tunnel, iran_node_id: str,
     await db.commit()
 
     attempted: list[str] = []
+    acknowledged: set[str] = set()
     try:
         for node_id, mode in ((iran_node_id, "server"),
                               (foreign_node_id, "client")):
@@ -124,6 +125,7 @@ async def apply_managed_backhaul_pair(*, tunnel, iran_node_id: str,
                       "type": tunnel.type, "spec": {**tunnel.spec, "mode": mode}})
             if not isinstance(reply, dict) or reply.get("status") != "success":
                 raise ManagedBackhaulPairHold("BACKHAUL_PAIR_NODE_APPLY_FAILED")
+            acknowledged.add(node_id)
             if not await observed(node_id):
                 raise ManagedBackhaulPairHold("BACKHAUL_PAIR_APPLY_NOT_RUNNING")
         if not await observed(iran_node_id) or not await observed(foreign_node_id):
@@ -136,7 +138,10 @@ async def apply_managed_backhaul_pair(*, tunnel, iran_node_id: str,
         for node_id in (foreign_node_id, iran_node_id):
             try:
                 active = await observed(node_id)
-                if active and node_id in attempted:
+                # A signed success may persist the Node's config even if
+                # its process died before status review. Remove that exact
+                # newly acknowledged identity, not just active listeners.
+                if node_id in attempted and (active or node_id in acknowledged):
                     reply = await client.send_to_node(
                         node_id=node_id, endpoint="/api/agent/tunnels/remove",
                         data={"tunnel_id": tunnel.id})
@@ -144,7 +149,11 @@ async def apply_managed_backhaul_pair(*, tunnel, iran_node_id: str,
                         clean = False
                     elif await observed(node_id):
                         clean = False
-                elif active:
+                elif active or node_id in attempted:
+                    # A failed/ambiguous Apply can leave a dormant persisted
+                    # ID even when the process is not running. Status alone
+                    # cannot establish that the saved registry is empty.
+                    # Do not delete an unverified pre-existing saved entry.
                     clean = False
             except Exception:
                 clean = False
