@@ -93,7 +93,7 @@ const Dashboard = () => {
   const textStatus = (value: boolean | null) => value === null ? t.dashboard.statusUnknown : value ? t.dashboard.added : t.dashboard.notAdded
 
   return (
-    <div className="smite-dashboard w-full max-w-7xl mx-auto space-y-5 pb-8" dir={dir}>
+    <div className="smite-dashboard w-full min-w-0 space-y-5 pb-8" dir={dir}>
       <header className="smite-dashboard-heading rounded-2xl bg-slate-100 dark:bg-slate-800 p-5 sm:p-7">
         <div className="flex flex-wrap items-start justify-between gap-4">
           <div>
