@@ -336,7 +336,7 @@ class BackhaulPairCompensationTest(unittest.IsolatedAsyncioTestCase):
             return await self.command(node_id=node_id, endpoint=endpoint, data=data)
         self.client.send_to_node.side_effect = fail_foreign
         with self.assertRaisesRegex(ManagedBackhaulPairHold,
-                                    "BACKHAUL_PAIR_ROLLED_BACK"):
+                                    "BACKHAUL_PAIR_RECOVERY_REQUIRED"):
             await self.run_pair()
         self.assertEqual(self.current, {"ci-ir": False, "ci-foreign": False})
         self.assertEqual(self.actions, [
@@ -344,7 +344,8 @@ class BackhaulPairCompensationTest(unittest.IsolatedAsyncioTestCase):
             ("ci-foreign", "/api/agent/tunnels/apply"),
             ("ci-ir", "/api/agent/tunnels/remove"),
         ])
-        self.assertEqual(self.tunnel.status, "pending")
+        # A generic error does not prove Foreign's persisted registry empty.
+        self.assertEqual(self.tunnel.status, "error")
         self.assertNotIn("REDACTED", self.tunnel.error_message)
 
     async def test_timeout_after_foreign_apply_compensates_both(self):
@@ -363,6 +364,23 @@ class BackhaulPairCompensationTest(unittest.IsolatedAsyncioTestCase):
             ("ci-foreign", "/api/agent/tunnels/remove"),
             ("ci-ir", "/api/agent/tunnels/remove"),
         ])
+        self.assertEqual(self.tunnel.status, "pending")
+
+    async def test_acknowledged_apply_with_dead_process_removes_saved_id(self):
+        from app.uopti_backhaul_lifecycle import ManagedBackhaulPairHold
+        calls = {"iran": 0}
+        async def stop_ir_after_ack(node_id, *, method, target, timeout):
+            if node_id == "ci-ir":
+                calls["iran"] += 1
+                if calls["iran"] > 1:
+                    self.current[node_id] = False
+            return await self.status(node_id, method=method,
+                                     target=target, timeout=timeout)
+        self.client._signed_agent_request.side_effect = stop_ir_after_ack
+        with self.assertRaisesRegex(ManagedBackhaulPairHold,
+                                    "BACKHAUL_PAIR_ROLLED_BACK"):
+            await self.run_pair()
+        self.assertIn(("ci-ir", "/api/agent/tunnels/remove"), self.actions)
         self.assertEqual(self.tunnel.status, "pending")
 
     async def test_rollback_unknown_quarantines_without_auto_retry(self):
