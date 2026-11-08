@@ -53,6 +53,35 @@ class ManagedRestartTest(unittest.IsolatedAsyncioTestCase):
     async def restore_mode(self):
         settings.smite_engine_inventory_mode = self.old_mode
 
+    async def test_official_release_api_fallback_keeps_exact_asset_pins(self):
+        # Regression against accidentally replacing the official API path
+        # with a mutable mirror, skipping archive/digest checks, or swapping
+        # the pinned RC7 versions to make image builds pass.
+        node = (ROOT / "node/Dockerfile").read_text()
+        panel = (ROOT / "panel/Dockerfile").read_text()
+        for dockerfile in (node, panel):
+            self.assertIn("FRP_VERSION=\\\"v0.71.0\\\"", dockerfile)
+            self.assertIn("FRP_ASSET_ID=514042277", dockerfile)
+            self.assertIn("FRP_ASSET_ID=514042211", dockerfile)
+            self.assertIn(
+                "https://api.github.com/repos/fatedier/frp/releases/assets/$FRP_ASSET_ID",
+                dockerfile)
+            self.assertIn('sha256sum -c -', dockerfile)
+            self.assertIn("Accept: application/octet-stream", dockerfile)
+            self.assertNotIn("ghproxy", dockerfile.lower())
+        self.assertIn("BACKHAUL_VERSION=v0.7.2", node)
+        self.assertIn("BACKHAUL_ASSET_ID=289712775", node)
+        self.assertIn("BACKHAUL_ASSET_ID=289712774", node)
+        self.assertIn(
+            "https://api.github.com/repos/Musixal/Backhaul/releases/assets/$BACKHAUL_ASSET_ID",
+            node)
+        self.assertIn("BACKHAUL_SHA256_AMD64=57bf95c2", node)
+        self.assertIn("BACKHAUL_SHA256_ARM64=9a424c97", node)
+        self.assertIn("RATHOLE_ASSET_ID=128547246", node)
+        self.assertIn("GOST_ASSET_ID=198232929", node)
+        self.assertIn("CHISEL_ASSET_ID=292957248", node)
+        self.assertIn("sha256sum -c -", node)
+
     async def test_invalid_enrollment_cannot_autostart_stored_tunnel(self):
         with patch("app.engine_inventory.require_engine_ready",
                    side_effect=EngineInventoryUnavailable("not ready")) as gate:
