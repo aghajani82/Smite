@@ -76,3 +76,12 @@
   }
 }
 
+/* Desktop density: match the operator's 90% browser-zoom reference without
+   transform/zoom. Rem-based sidebar, content padding, cards and their gaps
+   shrink together, keeping the sidebar-to-dashboard gutter proportional.
+   Leave small screens at the original 16px baseline for readable controls. */
+@media (min-width: 1024px) {
+  html {
+    font-size: 90%;
+  }
+}
