@@ -273,6 +273,7 @@ class BackhaulPairCompensationTest(unittest.IsolatedAsyncioTestCase):
             node_id="ci-ir",
         )
         self.current = {"ci-ir": False, "ci-foreign": False}
+        self.saved = {"ci-ir": False, "ci-foreign": False}
         self.actions = []
         self.db = SimpleNamespace(
             execute=AsyncMock(return_value=SimpleNamespace(rowcount=1)),
@@ -294,9 +295,11 @@ class BackhaulPairCompensationTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(timeout, 3.0)
         self.assertEqual(target,
                          "/api/agent/tunnels/status?tunnel_id=ci-bh-new-uuid")
-        active = self.current[node_id]
+        active, present = self.current[node_id], self.saved[node_id]
         return {"status": "success",
-                "data": {"active": active, **({"type": "backhaul"} if active else {})}}
+                "data": {"active": active, "record_present": present,
+                         "record_core": "backhaul" if present else None,
+                         **({"type": "backhaul"} if active else {})}}
 
     async def command(self, *, node_id, endpoint, data):
         self.actions.append((node_id, endpoint))
@@ -304,9 +307,11 @@ class BackhaulPairCompensationTest(unittest.IsolatedAsyncioTestCase):
         if endpoint.endswith("/apply"):
             self.assertEqual(data["core"], "backhaul")
             self.current[node_id] = True
+            self.saved[node_id] = True
         else:
             self.assertEqual(data, {"tunnel_id": self.tunnel.id})
             self.current[node_id] = False
+            self.saved[node_id] = False
         return {"status": "success"}
 
     async def run_pair(self):
@@ -336,7 +341,7 @@ class BackhaulPairCompensationTest(unittest.IsolatedAsyncioTestCase):
             return await self.command(node_id=node_id, endpoint=endpoint, data=data)
         self.client.send_to_node.side_effect = fail_foreign
         with self.assertRaisesRegex(ManagedBackhaulPairHold,
-                                    "BACKHAUL_PAIR_RECOVERY_REQUIRED"):
+                                    "BACKHAUL_PAIR_ROLLED_BACK"):
             await self.run_pair()
         self.assertEqual(self.current, {"ci-ir": False, "ci-foreign": False})
         self.assertEqual(self.actions, [
@@ -344,8 +349,9 @@ class BackhaulPairCompensationTest(unittest.IsolatedAsyncioTestCase):
             ("ci-foreign", "/api/agent/tunnels/apply"),
             ("ci-ir", "/api/agent/tunnels/remove"),
         ])
-        # A generic error does not prove Foreign's persisted registry empty.
-        self.assertEqual(self.tunnel.status, "error")
+        # Signed persisted-state proof establishes Foreign had no durable
+        # record; IR was compensated, so it is now safe to retry manually.
+        self.assertEqual(self.tunnel.status, "pending")
         self.assertNotIn("REDACTED", self.tunnel.error_message)
 
     async def test_timeout_after_foreign_apply_compensates_both(self):
@@ -360,6 +366,7 @@ class BackhaulPairCompensationTest(unittest.IsolatedAsyncioTestCase):
         with self.assertRaises(ManagedBackhaulPairHold):
             await self.run_pair()
         self.assertEqual(self.current, {"ci-ir": False, "ci-foreign": False})
+        self.assertEqual(self.saved, {"ci-ir": False, "ci-foreign": False})
         self.assertEqual(self.actions[-2:], [
             ("ci-foreign", "/api/agent/tunnels/remove"),
             ("ci-ir", "/api/agent/tunnels/remove"),
@@ -409,6 +416,41 @@ class BackhaulPairCompensationTest(unittest.IsolatedAsyncioTestCase):
         with self.assertRaisesRegex(ManagedBackhaulPairHold,
                                     "BACKHAUL_PAIR_PENDING_SIGNED_REQUIRED"):
             await self.run_pair()
+
+    async def test_dormant_frp_record_denies_before_any_apply_or_removal(self):
+        from app.uopti_backhaul_lifecycle import ManagedBackhaulPairHold
+        self.saved["ci-foreign"] = True
+        async def dormant_frp(node_id, *, method, target, timeout):
+            reply = await self.status(node_id, method=method,
+                                      target=target, timeout=timeout)
+            if node_id == "ci-foreign":
+                reply["data"]["record_core"] = "frp"
+            return reply
+        self.client._signed_agent_request.side_effect = dormant_frp
+        with self.assertRaisesRegex(ManagedBackhaulPairHold,
+                                    "BACKHAUL_PAIR_ALREADY_PRESENT"):
+            await self.run_pair()
+        self.client.send_to_node.assert_not_awaited()
+        self.assertEqual(self.tunnel.status, "pending")
+        self.db.execute.assert_not_awaited()
+
+    async def test_dormant_backhaul_record_denies_preflight(self):
+        from app.uopti_backhaul_lifecycle import ManagedBackhaulPairHold
+        self.saved["ci-ir"] = True
+        with self.assertRaisesRegex(ManagedBackhaulPairHold,
+                                    "BACKHAUL_PAIR_ALREADY_PRESENT"):
+            await self.run_pair()
+        self.client.send_to_node.assert_not_awaited()
+
+    async def test_old_node_status_without_record_proof_fails_closed(self):
+        from app.uopti_backhaul_lifecycle import ManagedBackhaulPairHold
+        async def old_status(node_id, *, method, target, timeout):
+            return {"status": "success", "data": {"active": False}}
+        self.client._signed_agent_request.side_effect = old_status
+        with self.assertRaisesRegex(ManagedBackhaulPairHold,
+                                    "BACKHAUL_PAIR_SIGNED_STATUS_UNVERIFIED"):
+            await self.run_pair()
+        self.client.send_to_node.assert_not_awaited()
 
     async def test_existing_frp_identity_not_removed(self):
         from app.uopti_backhaul_lifecycle import ManagedBackhaulPairHold
