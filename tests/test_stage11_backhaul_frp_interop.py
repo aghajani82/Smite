@@ -261,6 +261,191 @@ class BackhaulSignedDispatchTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(saved.spec, CANONICAL)
 
 
+class BackhaulPairCompensationTest(unittest.IsolatedAsyncioTestCase):
+    """No live Node or network: signed Apply/Remove/status are fake endpoints."""
+
+    def setUp(self):
+        from types import SimpleNamespace
+        self.tunnel = SimpleNamespace(
+            id="ci-bh-new-uuid", core="backhaul", type="ws",
+            status="pending", error_message=None, spec=CANONICAL.copy(),
+            iran_node_id="ci-ir", foreign_node_id="ci-foreign",
+            node_id="ci-ir",
+        )
+        self.current = {"ci-ir": False, "ci-foreign": False}
+        self.actions = []
+        self.db = SimpleNamespace(
+            execute=AsyncMock(return_value=SimpleNamespace(rowcount=1)),
+            commit=AsyncMock(), rollback=AsyncMock(),
+        )
+        self.client = SimpleNamespace(
+            _signed_agent_request=AsyncMock(side_effect=self.status),
+            send_to_node=AsyncMock(side_effect=self.command),
+        )
+        self.mode = patch.object(panel_settings, "smite_engine_management_mode", "managed")
+        self.auth = patch.object(panel_settings, "smite_panel_agent_auth_mode", "signed")
+        self.mode.start()
+        self.auth.start()
+        self.addCleanup(self.mode.stop)
+        self.addCleanup(self.auth.stop)
+
+    async def status(self, node_id, *, method, target, timeout):
+        self.assertEqual(method, "GET")
+        self.assertEqual(timeout, 3.0)
+        self.assertEqual(target,
+                         "/api/agent/tunnels/status?tunnel_id=ci-bh-new-uuid")
+        active = self.current[node_id]
+        return {"status": "success",
+                "data": {"active": active, **({"type": "backhaul"} if active else {})}}
+
+    async def command(self, *, node_id, endpoint, data):
+        self.actions.append((node_id, endpoint))
+        self.assertEqual(data["tunnel_id"], self.tunnel.id)
+        if endpoint.endswith("/apply"):
+            self.assertEqual(data["core"], "backhaul")
+            self.current[node_id] = True
+        else:
+            self.assertEqual(data, {"tunnel_id": self.tunnel.id})
+            self.current[node_id] = False
+        return {"status": "success"}
+
+    async def run_pair(self):
+        from app.uopti_backhaul_lifecycle import apply_managed_backhaul_pair
+        return await apply_managed_backhaul_pair(
+            tunnel=self.tunnel, iran_node_id="ci-ir",
+            foreign_node_id="ci-foreign", client=self.client, db=self.db)
+
+    async def test_complete_signed_pair_only_after_both_running(self):
+        out = await self.run_pair()
+        self.assertEqual(out["status"], "applied")
+        self.assertEqual(self.tunnel.status, "active")
+        self.assertEqual(self.tunnel.spec, CANONICAL)
+        self.assertEqual(self.current, {"ci-ir": True, "ci-foreign": True})
+        self.assertEqual(self.actions, [
+            ("ci-ir", "/api/agent/tunnels/apply"),
+            ("ci-foreign", "/api/agent/tunnels/apply"),
+        ])
+        self.assertEqual(self.db.commit.await_count, 2)
+
+    async def test_foreign_reject_compensates_ir_only(self):
+        from app.uopti_backhaul_lifecycle import ManagedBackhaulPairHold
+        async def fail_foreign(*, node_id, endpoint, data):
+            if node_id == "ci-foreign" and endpoint.endswith("/apply"):
+                self.actions.append((node_id, endpoint))
+                return {"status": "error", "message": "REDACTED"}
+            return await self.command(node_id=node_id, endpoint=endpoint, data=data)
+        self.client.send_to_node.side_effect = fail_foreign
+        with self.assertRaisesRegex(ManagedBackhaulPairHold,
+                                    "BACKHAUL_PAIR_ROLLED_BACK"):
+            await self.run_pair()
+        self.assertEqual(self.current, {"ci-ir": False, "ci-foreign": False})
+        self.assertEqual(self.actions, [
+            ("ci-ir", "/api/agent/tunnels/apply"),
+            ("ci-foreign", "/api/agent/tunnels/apply"),
+            ("ci-ir", "/api/agent/tunnels/remove"),
+        ])
+        self.assertEqual(self.tunnel.status, "pending")
+        self.assertNotIn("REDACTED", self.tunnel.error_message)
+
+    async def test_timeout_after_foreign_apply_compensates_both(self):
+        from app.uopti_backhaul_lifecycle import ManagedBackhaulPairHold
+        async def timeout_after_apply(*, node_id, endpoint, data):
+            result = await self.command(
+                node_id=node_id, endpoint=endpoint, data=data)
+            if node_id == "ci-foreign" and endpoint.endswith("/apply"):
+                raise TimeoutError("unknown after commit")
+            return result
+        self.client.send_to_node.side_effect = timeout_after_apply
+        with self.assertRaises(ManagedBackhaulPairHold):
+            await self.run_pair()
+        self.assertEqual(self.current, {"ci-ir": False, "ci-foreign": False})
+        self.assertEqual(self.actions[-2:], [
+            ("ci-foreign", "/api/agent/tunnels/remove"),
+            ("ci-ir", "/api/agent/tunnels/remove"),
+        ])
+        self.assertEqual(self.tunnel.status, "pending")
+
+    async def test_rollback_unknown_quarantines_without_auto_retry(self):
+        from app.uopti_backhaul_lifecycle import ManagedBackhaulPairHold
+        calls = {"foreign": 0}
+        async def fail_foreign_status(node_id, *, method, target, timeout):
+            if node_id == "ci-foreign":
+                calls["foreign"] += 1
+                if calls["foreign"] > 1:
+                    return {"status": "error", "message": "host unavailable"}
+            return await self.status(node_id, method=method,
+                                     target=target, timeout=timeout)
+        async def fail_foreign_apply(*, node_id, endpoint, data):
+            if node_id == "ci-foreign" and endpoint.endswith("/apply"):
+                raise TimeoutError("possibly already applied")
+            return await self.command(node_id=node_id, endpoint=endpoint, data=data)
+        self.client._signed_agent_request.side_effect = fail_foreign_status
+        self.client.send_to_node.side_effect = fail_foreign_apply
+        with self.assertRaisesRegex(ManagedBackhaulPairHold,
+                                    "BACKHAUL_PAIR_RECOVERY_REQUIRED"):
+            await self.run_pair()
+        self.assertEqual(self.tunnel.status, "error")
+        self.assertEqual(self.tunnel.error_message, "BACKHAUL_PAIR_RECOVERY_REQUIRED")
+        self.assertFalse(self.current["ci-ir"])
+        self.assertNotIn(("ci-foreign", "/api/agent/tunnels/remove"), self.actions)
+        with self.assertRaisesRegex(ManagedBackhaulPairHold,
+                                    "BACKHAUL_PAIR_PENDING_SIGNED_REQUIRED"):
+            await self.run_pair()
+
+    async def test_existing_frp_identity_not_removed(self):
+        from app.uopti_backhaul_lifecycle import ManagedBackhaulPairHold
+        async def owner_status(node_id, *, method, target, timeout):
+            if node_id == "ci-ir":
+                return {"status": "success",
+                        "data": {"active": True, "type": "frp"}}
+            return await self.status(node_id, method=method,
+                                     target=target, timeout=timeout)
+        self.client._signed_agent_request.side_effect = owner_status
+        with self.assertRaisesRegex(ManagedBackhaulPairHold,
+                                    "BACKHAUL_PAIR_EXISTING_ID_UNTRUSTED"):
+            await self.run_pair()
+        self.db.execute.assert_not_awaited()
+        self.client.send_to_node.assert_not_awaited()
+
+    async def test_concurrent_pending_claim_refused_before_node_write(self):
+        from types import SimpleNamespace
+        from app.uopti_backhaul_lifecycle import ManagedBackhaulPairHold
+        self.db.execute.return_value = SimpleNamespace(rowcount=0)
+        with self.assertRaisesRegex(ManagedBackhaulPairHold,
+                                    "BACKHAUL_PAIR_CONCURRENT_APPLY"):
+            await self.run_pair()
+        self.db.rollback.assert_awaited_once()
+        self.client.send_to_node.assert_not_awaited()
+
+    async def test_real_apply_route_uses_pair_not_legacy_path(self):
+        from types import SimpleNamespace
+        from app.routers import tunnels as routes
+
+        class Result:
+            def __init__(self, row):
+                self.row = row
+
+            def scalar_one_or_none(self):
+                return self.row
+
+        ir = SimpleNamespace(id="ci-ir", node_metadata={"role": "iran"})
+        foreign = SimpleNamespace(id="ci-foreign",
+                                  node_metadata={"role": "foreign"})
+        self.db.execute.side_effect = [
+            Result(self.tunnel), Result(ir), Result(foreign),
+            SimpleNamespace(rowcount=1),
+        ]
+        with patch.object(routes, "require_managed_tunnel_pair",
+                          new_callable=AsyncMock) as admit:
+            with patch.object(routes, "NodeClient", return_value=self.client):
+                out = await routes.apply_tunnel(
+                    self.tunnel.id, SimpleNamespace(), self.db)
+        admit.assert_awaited_once()
+        self.assertEqual(out["status"], "applied")
+        self.assertEqual(self.tunnel.status, "active")
+        self.assertEqual(len(self.actions), 2)
+
+
 class FrpStandardWssTest(unittest.TestCase):
     def test_default_off_does_not_force_tcp_frp_to_wss(self):
         with patch.dict(os.environ, {"PANEL_ADDRESS": "panel.example.org:443",
