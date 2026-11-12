@@ -49,8 +49,17 @@ def regular(path: Path, *, private: bool = False):
 
 
 def checked_db(path) -> Path:
-    candidate = Path(path)
-    if not candidate.is_absolute() or ".." in candidate.parts or candidate.parent.is_symlink():
+    # The real Panel ships DB_PATH=./data/smite.db inside its working
+    # directory. Admit that relative setting, but never follow any symlink or
+    # parent traversal after resolving it to an absolute path.
+    requested = Path(path)
+    if ".." in requested.parts:
+        deny()
+    candidate = requested.absolute()
+    try:
+        if candidate.resolve(strict=True) != candidate or candidate.parent.is_symlink():
+            deny()
+    except (OSError, RuntimeError):
         deny()
     regular(candidate)
     return candidate
