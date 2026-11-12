@@ -330,3 +330,33 @@ to IR/Foreign until independently proven and explicitly approved by
 the user. The next phase should connect the signed trial runtime image
 admission to actual activation/replay, then wire final option 2 only
 after durable end-to-end rollback tests.
+
+## Companion checkpoint — U-OPTI signed Foreign read-only activation gate (2026-11-12)
+
+The U-OPTI branch now extends its existing strict RC7 Foreign Gateway
+read-only preflight with an explicit exact **signed trial image**
+review mode. This accepts only the immutable trial Node digest
+sha256:587a131156736961c86fa91f33f013d28eb85e606ab0ab4335969fabfd881483,
+preserving the older RC7 default activation digest and read-only
+Sanaei, paused strict runtime, Compose ownership and HTTPS/443
+guards. The old RC7 activation path remains unchanged.
+
+New U-OPTI review re-verifies BOTH Cosign-signed Panel/Node image
+digests and OIDC source claims, paired identity + replay continuity,
+actual local Node image ID and effective strict/paused env. The only
+outcome is READY_READ_ONLY with activation_allowed=False and
+bidirectional_connected=False; it does not call the Panel or alter
+containers, credentials, files or ports.
+
+The exact Panel/Node image source is still the previously signed
+b865be93e22153c60769f6329e6e55e781494ded.
+GitHub CI:
+https://github.com/aghajani82/u-opti/actions/runs/43238825374
+2/2 jobs green; all prior real isolated Smite ASGI, signed status,
+Nginx, identity promotion and rollback fixture gates preserved.
+
+NEXT: a separate explicitly authorized trial activation + paused
+rollback path using the existing pairing module, then a full
+dual-direction signed Connected proof and two-host disposable
+tests. Keep trial branches, no main or active-host modifications
+until user-approved final rollout.
