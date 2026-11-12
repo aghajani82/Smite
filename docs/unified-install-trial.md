@@ -360,3 +360,52 @@ rollback path using the existing pairing module, then a full
 dual-direction signed Connected proof and two-host disposable
 tests. Keep trial branches, no main or active-host modifications
 until user-approved final rollout.
+
+## User flow checkpoint — verify Iran before issuing 2-hour Foreign code (2026-11-12)
+
+The approved installation journey is: **Smite Manager 1 on Iran** completes
+Panel + Iran Node + HTTPS/443 + automatic signed Pairing and admin setup;
+operator signs into the Panel and checks that the Iran Node is genuinely
+Connected. Operator then opens this SAME Panel's **Foreign Node** section,
+reserves the Foreign Node, records the precise name/domain, issues one
+7200-second smi1 grant and copies the full JSON information. Finally,
+on the Foreign server, **Smite Manager 2** is intended to install the
+Foreign Node, SSL/443 Gateway and Sanaei Docker/RO inventory, accept the
+copied packet, redeem/promote without rekey and complete signed
+bidirectional reachability. After refreshing the Foreign Node page,
+the UI may show **Connected** only when the Panel can currently reach
+the signed Foreign Agent.
+
+Existing frontend/src/components/ForeignInstallDialog.tsx already
+supports the full scoped grant/JSON and expiry timer without retaining
+the secret in browser storage. This checkpoint changes its help copy
+only; it does not redesign the UI. Code expiry begins when ISSUED,
+not on Foreign installation completion; expiry has no bearing on an
+already redeemed signed identity.
+
+The U-OPTI trial now has an offline-only bounded multiline input
+admission and cross-repository test of the actual Panel JSON through
+its existing signed Foreign enrollment and promotion modules. Its
+private capture is intentionally NOT wired to live host option 2
+until real TTY echo suppression, safe journal, signed activation
+and rollback/Connected proofs are reviewed.
+
+Additional Panel regression in
+tests/test_signed_node_inbound_panel.py checks the operator refresh
+semantics explicitly: pending remains waiting; signed check-in
+alone is NOT proof of live reachability; the authenticated live
+NodeClient response determines Connected; after a timeout, a further
+refresh must NOT show a stale Connected result. This reuses the
+existing signed Panel APIs instead of introducing a second status
+endpoint.
+
+Evidence: 
+https://github.com/aghajani82/Smite/actions/runs/43242503985
+https://github.com/aghajani82/Smite/actions/runs/43242503734
+https://github.com/aghajani82/u-opti/actions/runs/43242232991
+
+No Smite main merge, production rollout, FRP or Foreign Node runtime
+change. Exact trial manifest still forbids host activation. Future
+phase: connect one approved, crash-recoverable unified option-2
+runtime, and separately prove two-host signed live Connected before
+making any release claim.
