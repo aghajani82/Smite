@@ -50,6 +50,26 @@ class Migration(unittest.TestCase):
         self.assertEqual(m.migrate(self.db, confirm=m.CONFIRM), "ALREADY_READY")
         self.assertEqual(self.backup.read_bytes(), original)
 
+    def test_real_panel_relative_db_path_supported(self):
+        # The shipped Panel uses DB_PATH=./data/smite.db from its working dir.
+        current = Path.cwd()
+        try:
+            os.chdir(self.root)
+            self.assertEqual(m.inspect("./smite.db"), "MISSING")
+            self.assertEqual(m.migrate("./smite.db", confirm=m.CONFIRM), "READY")
+            self.assertEqual(m.inspect("./smite.db"), "READY")
+        finally:
+            os.chdir(current)
+
+    def test_parent_symlink_and_traversal_refused(self):
+        alias = self.root / "alias"
+        alias.symlink_to(self.root, target_is_directory=True)
+        with self.assertRaises(m.AdmissionHold):
+            m.inspect(alias / "smite.db")
+        with self.assertRaises(m.AdmissionHold):
+            m.inspect(self.root / "one" / ".." / "smite.db")
+        self.assertFalse(self.backup.exists())
+
     def test_wrong_confirmation_never_backups_or_migrates(self):
         with self.assertRaises(m.AdmissionHold):
             m.migrate(self.db, confirm="NO")
