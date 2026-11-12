@@ -30,6 +30,8 @@ class Settings(BaseSettings):
 
     # Default OFF. Requires separate encryption and trusted-proxy keys.
     smite_node_pairing_preview_enabled: bool = False
+    # Trial installation grants: explicit migration and HTTPS ingress required.
+    smite_foreign_install_enabled: bool = False
     smite_node_pairing_master_key: str = ""
     smite_node_pairing_ingress_token: str = ""
 

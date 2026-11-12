@@ -1,13 +1,14 @@
 # Unified installation trial: Foreign installation grants
 
-Branch: trial/unified-smite-install. Status: inert store implemented; not a host-installable release.
+Branch: trial/unified-smite-install. Status: store and default-OFF HTTP adapters implemented; not a host-installable release.
 User approved trial branches only. Never merge main until Mohammad tests and approves.
 U-OPTI tracking: https://github.com/aghajani82/u-opti/blob/trial/unified-smite-install/docs/UNIFIED_SMITE_INSTALL_TRIAL.md
 Base: 5e7a289071e446345ac27e4255994daf3446430a.
 
 ## Implemented checkpoint (2026-11-12)
 `panel/app/foreign_install_grants.py` implements an explicitly migrated SQLite
-store; no HTTP route, application startup or trusted-origin reader imports it.
+store. The next checkpoint below adds gated HTTP adapters; startup migration and
+trusted-origin integration remain disabled.
 Existing RC7 pairing codes still have their existing maximum 900-second TTL.
 The new grant defaults to 7200 seconds (accepted range 60..7200), a separate
 256-bit `smi1_` bearer code hashed at rest, and an exact existing pending Foreign
@@ -59,7 +60,34 @@ Existing pairing store: 17 tests passed. Recovery snapshot admission: 6 passed.
 The existing Node Pairing Atomic Store workflow now runs these on the trial branch.
 Full application integration, HTTP/UI and real two-host tests remain outstanding.
 
+## HTTP checkpoint (2026-11-12)
+Added /api/foreign-install/capabilities, /issue, /revoke and /redeem, mounted
+in the trial Panel with SMITE_FOREIGN_INSTALL_ENABLED=false by default.
+Issuance, revocation and capability checks use the existing real admin JWT,
+auth-version and MFA dependency. Redemption requires signed mode, explicitly
+migrated schema, pairing master key and the existing trusted gateway ingress
+proof as well as a valid scoped grant. No schema creation in HTTP requests.
+The route limits streamed bodies to 8192 bytes, rejects unknown fields and
+wrong TTL types, marks responses no-store, and hides validation inputs and
+internal SQL errors so keys/codes are not reflected. Redemption acknowledges
+only the Node ID; it never returns a secret. Pending-code revocation does not
+revoke an already enrolled Node.
+
+Local verification: 13 new ASGI/real-JWT tests, 9 existing pairing HTTP tests,
+3 real MFA tests, 19 grant-store tests all PASS (44 tests). Existing CI extended
+with a separate HTTP job using pinned Panel dependencies. Remote CI must be
+checked on the final commit. No server, image publication, or main change.
+
+Important newly verified dependency: signed_agent_transport.py validates TLS,
+rejects redirects and ignores environment proxies, but uses httpx hostname DNS
+resolution without public-IP pinning. Do NOT assume DNS-rebinding protection
+already exists. Add/test a transport that pins vetted public DNS addresses while
+preserving certificate hostname/SNI before enabling database-origin trust.
+
 ## Next action
-Implement gated HTTP adapters and capability response; then a safe database-backed
-origin reader and its conflict/revocation tests. Keep these trial-only until UI,
-installer, image signatures, lost-reply verification and snapshot recovery are tested.
+Implement gated database origin lookup with file/DB conflict and identity
+revocation checks, plus public-IP DNS pinning for the new origin source. Then
+admin UI, durable client identity staging, signed lost-reply verification,
+snapshot/recovery coverage, signed trial images and U-OPTI orchestration.
+Do not enable the new flag or advertise a host install command at this checkpoint.
+The external Nginx endpoint/ingress configuration is not wired yet.
