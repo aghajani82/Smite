@@ -61,6 +61,15 @@ class Grants(unittest.TestCase):
         with self.assertRaises(p.PairingDenied):
             self.redeem(grant, node_secret=secrets.token_hex(32))
 
+    def test_retry_after_signed_checkin_does_not_rekey(self):
+        grant = self.issue()
+        self.redeem(grant)
+        with sqlite3.connect(self.db) as c:
+            c.execute('UPDATE nodes SET metadata=?', (json.dumps({'role':'foreign','provisioning':'signed_checkin'}),))
+        self.assertTrue(self.redeem(grant))
+        self.assertEqual(self.count('smite_node_identities'),1)
+        with self.assertRaises(p.PairingDenied): self.issue()
+
     def test_expiry_does_not_revoke_identity(self):
         grant = self.issue()
         self.redeem(grant)

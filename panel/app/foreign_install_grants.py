@@ -61,13 +61,15 @@ def _hash(code: str) -> str:
     return hashlib.sha256(b"smite-foreign-install-v1\0" + code.encode("ascii")).hexdigest()
 
 
-def _node(conn, node_id: str, name: str) -> bool:
+def _node(conn, node_id: str, name: str, *, paired: bool = False) -> bool:
     row = conn.execute("SELECT name,metadata FROM nodes WHERE id=?", (node_id,)).fetchone()
     if not row or row["name"] != name:
         return False
     try:
         meta = json.loads(row["metadata"] or "{}")
-        return isinstance(meta, dict) and meta.get("role") == "foreign" and meta.get("provisioning") == "reserved_for_pairing"
+        return (isinstance(meta, dict) and meta.get("role") == "foreign"
+                and meta.get("provisioning") in (("reserved_for_pairing", "signed_checkin")
+                                                if paired else ("reserved_for_pairing",)))
     except (ValueError, TypeError):
         return False
 
@@ -144,7 +146,7 @@ def redeem(database_path, *, master_key, code: str, node_id: str,
         conn.execute("BEGIN IMMEDIATE")
         try:
             grant = conn.execute("SELECT * FROM smite_foreign_install_grants WHERE code_hash=?", (hashed,)).fetchone()
-            if not grant or grant["revoked_at"] is not None or current >= grant["expires_at"] or current < grant["issued_at"] or grant["node_id"] != node_id or grant["node_name"] != node_name or grant["control_url"] != control_url or not _node(conn, node_id, node_name):
+            if not grant or grant["revoked_at"] is not None or current >= grant["expires_at"] or current < grant["issued_at"] or grant["node_id"] != node_id or grant["node_name"] != node_name or grant["control_url"] != control_url or not _node(conn, node_id, node_name, paired=grant["consumed_at"] is not None):
                 _deny()
             identity = conn.execute("SELECT * FROM smite_node_identities WHERE node_id=?", (node_id,)).fetchone()
             origin = conn.execute("SELECT * FROM smite_foreign_install_origins WHERE node_id=?", (node_id,)).fetchone()

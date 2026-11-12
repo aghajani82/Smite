@@ -22,7 +22,7 @@ identity staging directory BEFORE sending redemption. Over verified TLS it sends
 that same secret, exact node name/UUID/control URL and grant code. The database
 atomically commits the encrypted identity, exact origin and grant consumption.
 The reply contains acknowledgement only, never a server-generated secret.
-An identical retry before expiry is acknowledged; a different secret is rejected.
+An identical retry before expiry is acknowledged, including after signed check-in; a different secret is rejected.
 After expiry, a successfully paired key remains valid. A client with a lost reply
 must use a signed verification path to discover prior success after expiry; that
 client flow is NOT implemented yet. Revocation of an identity blocks retries.
@@ -51,7 +51,7 @@ replace any existing identity, including revoked identities.
   the client and full installer orchestration. No install command released yet.
 
 ## Verification
-18 isolated tests passed: default expiry, secret redaction/encryption, lost reply,
+19 isolated tests passed: default expiry, secret redaction/encryption, lost reply,
 expiry before/after redemption, reissue/path preservation, domain replacement,
 revocation, exact scopes, role/name drift, legacy collision, transactional rollback,
 concurrent different-key redemption and identical retries, explicit migration.
