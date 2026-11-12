@@ -508,3 +508,37 @@ still has activation_allowed=false and separate rollback + both live
 Connected probes remain to be proven on disposable two-host systems.
 No main merge, real host install, Node recreation, active Sanaei/FRP
 alteration or credential rotation happened.
+
+## Companion checkpoint — U-OPTI live-state read-only witness adapters (2026-11-12)
+
+The one-choice Iran → Iran Panel Foreign reservation and two-hour
+grant → one-choice Foreign flow is unchanged. The current trial
+does not enable active-host installation.
+
+U-OPTI's existing Foreign stage journal now has a concrete
+**read-only witness adapter** that reuses the independently signed
+trial Panel/Node manifest verifier, the original U-OPTI RC7
+Compose/paused/strict Node checks, the existing Sanaei
+instance database/RO mount validation and the original
+Foreign Gateway HTTPS/443 certificate-verifying readiness
+preflight.
+
+The witnesses distinguish exact fresh Sanaei empty placeholder
+from RO-attached instance 01, and distinguish no Gateway yet
+from a conflicting/missing or drifted path. A completed journal
+does not bypass these independent checks. Test fixtures run the
+actual manifest OIDC/Cosign admission code with injected
+signatures plus simulated Docker/Nginx responses, then exercise
+the existing recovery coordinator. This is evidence of
+correct *read-only inspection and safe refusal*, not proof of
+real-host execution or Connected.
+
+U-OPTI successful CI:
+https://github.com/aghajani82/u-opti/actions/runs/43250694673
+
+The manifest still states activation_allowed=false. Public
+Foreign option 2 is not wired to the unified trial code; the
+real signed activation, no-rekey rollback and live two-way
+Connected proof remain separate gates. There were no changes
+to Smite code, UI, deployed Panel, production foreign Node,
+Sanaei Docker, FRP, main or live servers in this checkpoint.
