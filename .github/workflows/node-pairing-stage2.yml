@@ -5,6 +5,10 @@ on:
     paths:
       - 'panel/app/node_pairing_store.py'
       - 'panel/app/foreign_install_grants.py'
+      - 'panel/app/signed_node_origins.py'
+      - 'panel/app/signed_agent_transport.py'
+      - 'panel/app/node_client.py'
+      - 'tests/test_foreign_install_origins.py'
       - 'tests/test_foreign_install_grants.py'
       - 'panel/app/routers/foreign_install.py'
       - 'panel/app/config.py'
@@ -54,6 +58,10 @@ jobs:
         run: python -m pip install -r panel/requirements.txt
       - name: Trial HTTP authorization and existing enrollment regressions
         run: |
+          python -B tests/test_foreign_install_origins.py -v
+          python -B tests/test_panel_signed_nodeclient.py -v
+          python -B tests/test_stage12_signed_origins_and_updates.py -v
+          python -B tests/test_signed_node_inbound_panel.py -v
           python -B tests/test_foreign_install_http.py -v
           python -B tests/test_node_pairing_http.py -v
           python -B tests/test_totp_mfa.py -v

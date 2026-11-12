@@ -1,6 +1,6 @@
 # Unified installation trial: Foreign installation grants
 
-Branch: trial/unified-smite-install. Status: store and default-OFF HTTP adapters implemented; not a host-installable release.
+Branch: trial/unified-smite-install. Status: store, default-OFF HTTP adapters and gated origin/DNS transport implemented; not a host-installable release.
 User approved trial branches only. Never merge main until Mohammad tests and approves.
 U-OPTI tracking: https://github.com/aghajani82/u-opti/blob/trial/unified-smite-install/docs/UNIFIED_SMITE_INSTALL_TRIAL.md
 Base: 5e7a289071e446345ac27e4255994daf3446430a.
@@ -37,7 +37,7 @@ replace any existing identity, including revoked identities.
 - Domain syntax checks alone are NOT SSRF protection. Network adapters must reuse
   reviewed public-IP DNS pinning, redirect rejection and certificate verification.
   No network request is made by this module.
-- The new origin table is inert. Add a gated trusted-origin reader, ensuring no
+- The new origin table is gated by a separate default-OFF trust flag, ensuring no
   silent fallback/override of an existing file-approved node. A consumed grant and
   an unrevoked identity must agree before any outgoing signed request.
 - Existing private approved-origins file stays read-only. Do not make it writable
@@ -85,9 +85,46 @@ already exists. Add/test a transport that pins vetted public DNS addresses while
 preserving certificate hostname/SNI before enabling database-origin trust.
 
 ## Next action
-Implement gated database origin lookup with file/DB conflict and identity
-revocation checks, plus public-IP DNS pinning for the new origin source. Then
-admin UI, durable client identity staging, signed lost-reply verification,
+The gated origin/DNS checkpoint below is implemented. Continue with admin UI, durable client identity staging, signed lost-reply verification,
 snapshot/recovery coverage, signed trial images and U-OPTI orchestration.
 Do not enable the new flag or advertise a host install command at this checkpoint.
 The external Nginx endpoint/ingress configuration is not wired yet.
+
+
+## Origin and DNS transport checkpoint (2026-11-12)
+SMITE_FOREIGN_INSTALL_ORIGIN_TRUST_ENABLED=false is separate from grant issuance.
+With explicit migration and trust enabled, a read-only SQLite snapshot verifies
+consumed grant, exact UUID/name/origin/control binding, consumption timestamps,
+current Node role/name and unrevoked Foreign identity. Grant expiry after enrollment
+is intentionally irrelevant. Missing committed origin evidence, revoked identity,
+unsafe/corrupt file or conflicting file/DB approvals fail closed. Matching file/DB
+approval still uses DNS pinning. Legacy file-only nodes retain the existing path.
+No trusted-origin file is written and no schema is created by lookup.
+
+NodeClient passes database-approved requests through a fresh pinned transport:
+resolve once, reject the entire DNS result if any address is non-public/special,
+dial one vetted literal IPv4/IPv6 address, retain original Host and TLS SNI/hostname
+verification. No redirect, environment proxy, retry or second hostname resolution.
+HTTPCore is pinned to 1.0.9 for its tested sni_hostname extension. Reserved and
+transition ranges are conservatively denied across Python 3.11/3.12 differences.
+Only database-approved Foreign traffic uses this new policy; existing Iran/FRP
+and file-approved behavior is preserved.
+
+Rollback contract: stop new issuance with SMITE_FOREIGN_INSTALL_ENABLED=false;
+keep origin trust enabled and retain grant/origin/identity rows for enrolled nodes.
+Do not disable trust or remove these tables to roll back an active installation:
+DB-only nodes will be unavailable. Export/migration and recovery tooling are still
+pending; administrators must not manually substitute a file origin to downgrade.
+Trust is default-OFF and no installation command enables it at this checkpoint.
+
+Local verification: 20 new tests plus 97 existing tests PASS (117 total). Tests
+exercise actual HTTPX/HTTPCore dialing and TLS-context/SNI handling with an offline
+network backend, simulated certificate failure before credentials, IPv4/IPv6,
+private/mixed DNS, timeout/empty DNS, HMAC bytes, redirect denial, NodeClient routing,
+conflict/revocation/missing-evidence failures and legacy behavior. This is not a
+public-CA/live-host TLS test. Extended CI runs the same suites; check final commit.
+
+NEXT: administrator UI for reserve/domain/issue and safe code presentation; durable
+installer secret staging and signed lost-reply recovery; schema/ingress provisioning
+and snapshots/revocation recovery; signed trial images; U-OPTI integrated installer.
+Main and live hosts remain untouched. The unified install is NOT ready to run.

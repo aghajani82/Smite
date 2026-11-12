@@ -1,6 +1,6 @@
-"""Inert trial foundation for administrator-authorized Foreign installation.
+"""Trial store for administrator-authorized Foreign installation.
 
-No HTTP route, startup migration or trusted-origin fallback imports this yet.
+HTTP and origin readers are separately gated; no automatic startup migration.
 Callers must authenticate admin issuance and enforce verified TLS ingress.
 The installer must durably save its random 256-bit Node secret BEFORE redeeming.
 Redemption stores that secret encrypted, never returns a secret, and atomically
