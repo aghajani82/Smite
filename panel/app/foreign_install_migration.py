@@ -113,9 +113,11 @@ def _save_snapshot(db: Path):
             os.fsync(directory_fd)
         finally:
             os.close(directory_fd)
-        regular(backup, private=True)
     finally:
+        # Only after unlinking the temporary inode can the committed snapshot
+        # have the mandatory single hard link.
         os.unlink(temporary)
+    regular(backup, private=True)
 
 
 def migrate(database_path, *, confirm: str):
