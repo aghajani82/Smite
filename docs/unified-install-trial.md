@@ -305,3 +305,28 @@ Iran/Foreign test servers, prove healthy Panel/Nginx/strict pairing
 with two signed image digests, then wire Foreign fresh-host install
 and signed bidirectional Connected proof. No main merges or real
 host changes before user testing and final approval.
+
+## Companion checkpoint — real Panel grant to Foreign offline identity composition (2026-11-12)
+
+The U-OPTI trial branch now composes its pre-existing one-use Foreign
+grant client, verified Gateway scope, and retained/no-overwrite identity
+promotion in a single **offline rehearsal** function. It does not activate
+or recreate a Node, touch Gateway/FRP/Sanaei, or claim Connected.
+
+Cross-repository CI exercises the **actual pinned Smite Panel ASGI
+endpoints** in disposable SQLite: issue two-hour bound Foreign code,
+redeem, simulate lost reply after commit, perform a signed HMAC status
+proof, promote the same Node secret, recover after code expiry without
+another redeem, and reject a subsequent revoked proof. The reusable
+Panel, JWT/MFA, signed replay and Foreign grant code remains unchanged.
+
+U-OPTI verified CI:
+https://github.com/aghajani82/u-opti/actions/runs/43236069532
+
+Still HOLD: trial signed images have activation_allowed=false, old RC7
+runtime pairing expects a different image, and the two-host runtime
+Connected/rollback evidence is not present. Do not merge main or deploy
+to IR/Foreign until independently proven and explicitly approved by
+the user. The next phase should connect the signed trial runtime image
+admission to actual activation/replay, then wire final option 2 only
+after durable end-to-end rollback tests.
