@@ -439,3 +439,37 @@ image manifest still denies activation; the actual paused→signed
 runtime transition, retry journal, HTTPS/SSL installation and two-host
 live Connected proof are outstanding. No production host, deployed
 Sanaei, FRP, Backhaul, main branch or existing Node identity changed.
+
+## Companion checkpoint — U-OPTI Foreign identity recovery journal (2026-11-12)
+
+The Foreign host is meant to install with Smite Manager option 2 using
+the two-hour single-use JSON copied from the **Iran Smite Panel** after
+the Iran Node itself has already been checked Connected. A successful
+redeem or local identity promotion **does not** prove live Connected.
+
+The U-OPTI trial now adds an operation-level 0600 lock and atomic
+private journal to its already-existing, disposable-only Foreign
+enrollment/promotion rehearsal. The journal binds exact packet SHA256
+and nonsecret Node scope to `INTENT` or
+`IDENTITY_PROMOTED_OFFLINE`. Existing Smite signed HMAC proof,
+one-use grant and durable PREPARED/COMPLETED identity receipts remain
+the authorities; the journal is not a second identity database.
+
+Interrupted grant redemption is safely reconciled with the **same
+staged node_secret** and signed Panel status API, not reissued or
+silently rotated. An already-promoted identity still requires a fresh
+signed proof on retry; revoked grants, corrupted journal, code swaps
+or simultaneous executions HOLD. Cross-repository integration uses
+the actual pinned Panel ASGI + SQLite code in CI.
+
+Proof:
+https://github.com/aghajani82/u-opti/actions/runs/43246255073
+
+This is NOT production installation or Node activation. The current
+signed unified trial manifest still explicitly denies host activation,
+and the operation journal does not yet cover Docker, Sanaei Docker,
+Nginx SSL, FRP, Backhaul or the final two-direction Connected probes.
+No Smite or U-OPTI main merge and no live-host changes have occurred.
+The next work is a complete reviewed host install/rollback envelope
+and explicit two-direction signed Connected gate before enabling
+the one-choice Foreign menu installation.
