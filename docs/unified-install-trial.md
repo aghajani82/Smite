@@ -409,3 +409,33 @@ change. Exact trial manifest still forbids host activation. Future
 phase: connect one approved, crash-recoverable unified option-2
 runtime, and separately prove two-host signed live Connected before
 making any release claim.
+
+## Companion checkpoint — code transfer without terminal echo (2026-11-12)
+
+The end-user journey remains: install Iran via Smite Manager option 1,
+verify the Iran Node inside the Panel, reserve the Foreign Node in the
+Panel, issue the existing exactly two-hour single-use `smi1` JSON,
+then paste it once while installing Foreign via Smite Manager option 2.
+The Panel refresh may show Connected only after the signed live Node
+probe succeeds, not after simply issuing/redeeming a code.
+
+The U-OPTI trial branch extended its existing Foreign packet intake
+with Linux TTY no-echo capture and secret-free scope confirmation. An
+actual pseudo-terminal test proves the bearer token is not echoed to
+the terminal and that echo returns after normal completion, denial or
+interrupt. A cross-repository integration test passes a REAL grant
+from the pinned Smite Panel ASGI/SQLite endpoint through the same
+no-echo PTY into the existing HMAC signing, redemption and identity
+promotion code, including lost-acknowledgement recovery, no-rekey
+retry after expiry and rejection after revocation.
+
+U-OPTI CI: https://github.com/aghajani82/u-opti/actions/runs/43244674444
+Both jobs green. There are NO changes to Smite Panel API or the
+release image authorization in this checkpoint.
+
+This input mechanism is currently a disposable-fixture library, NOT
+a host CLI or a live Smite Manager option-2 action. The signed trial
+image manifest still denies activation; the actual paused→signed
+runtime transition, retry journal, HTTPS/SSL installation and two-host
+live Connected proof are outstanding. No production host, deployed
+Sanaei, FRP, Backhaul, main branch or existing Node identity changed.
