@@ -276,3 +276,32 @@ preservation checks. Then integrate and test the Foreign installer,
 Sanaei return-to-caller, durable promotion to strict runtime, one-time replay
 enrollment and two-way Connected proof. No live servers or main until
 Mohammad tests and approves.
+
+## Companion checkpoint — U-OPTI Panel rollout dry-run and rollback (2026-11-12)
+
+Smite's independently signed Panel/Node digest pair remains pinned at
+source `b865be93e22153c60769f6329e6e55e781494ded`; the
+official tag-only publisher and release signer remain unchanged.
+U-OPTI's `trial/unified-smite-install` branch now has a distinct
+`smite-unified-panel-transaction.py` review and **disposable-root
+apply/rollback rehearsal**. This is a rehearsal, NOT actual host
+execution: it rejects root `/` for rehearsal, never invokes a
+container manager or reloads Nginx, does not change Panel settings,
+and never modifies Iran/Grandoptical or FRP.
+
+The fixture proves ordered candidate config changes, additive SQLite
+grant-schema setup, crash-intent journaling and owner-scoped file
+rollback. It retains the database/replay and refuses restoring config
+if Foreign reservations, grants, HMAC identities, durable replay rows
+or staged evidence drifted. Original trial signing provenance and the
+independent U-OPTI registry-verification path remain required.
+The U-OPTI integration CI companion checkout now uses the **same exact
+Smite source commit as the signed published trial images**. CI
+[43203203311](https://github.com/aghajani82/u-opti/actions/runs/43203203311)
+SUCCESS, both jobs.
+
+NEXT: implement real operator-gated host apply/rollback on disposable
+Iran/Foreign test servers, prove healthy Panel/Nginx/strict pairing
+with two signed image digests, then wire Foreign fresh-host install
+and signed bidirectional Connected proof. No main merges or real
+host changes before user testing and final approval.
