@@ -101,7 +101,7 @@ export function ForeignInstallDialog({ node, onClose, onReserved }: {
         <h2 id="foreign-install-title" className="text-xl font-semibold">Foreign Node installation — Trial</h2>
         <button type="button" aria-label="Close installation dialog" onClick={onClose}>Close</button>
       </div>
-      <p className="text-sm mb-4">Prepare information for the Foreign installer. Valid for 2 hours; expiry does not disconnect an enrolled Node. The combined installer is not released yet.</p>
+      <p className="text-sm mb-4">First verify the Iran Node is Connected in the Panel. Then reserve this Foreign Node with its Gateway domain and copy the installation information for Smite Manager option 2 on the Foreign server. The code expires 2 hours after it is issued—not after installation finishes. Expiry does not disconnect an already enrolled Node. The combined installer is still in trial and is not released yet.</p>
       {!packet ? <form onSubmit={event => { event.preventDefault(); void issue() }}>
         <label className="block mb-3">Node name<input aria-label="Node name" value={name} disabled={!!reserved || busy || uncertain} onChange={e => setName(e.target.value)} autoComplete="off" className="block w-full p-2 border rounded dark:bg-gray-900" /></label>
         <label className="block mb-3">Foreign Gateway domain<input aria-label="Foreign Gateway domain" value={domain} disabled={busy || uncertain} onChange={e => setDomain(e.target.value)} placeholder="kh.your-domain.com" autoComplete="off" spellCheck={false} className="block w-full p-2 border rounded dark:bg-gray-900" /></label>
