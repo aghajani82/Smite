@@ -1,0 +1,188 @@
+name: Unified Smite Signed Trial Digest Pair (no deployment)
+
+on:
+  push:
+    branches: [trial/unified-smite-install]
+    paths:
+      - '.github/workflows/unified-install-signed-trial.yml'
+      - 'scripts/unified-trial-sign-image.sh'
+      - 'scripts/create-unified-trial-pair.py'
+      - 'tests/test_unified_trial_publication.py'
+      - 'panel/**'
+      - 'node/**'
+      - 'frontend/**'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: unified-smite-signed-trial
+  cancel-in-progress: false
+
+jobs:
+  preflight:
+    if: github.repository == 'aghajani82/Smite' && github.ref == 'refs/heads/trial/unified-smite-install' && github.event_name == 'push' && github.actor == 'aghajani82'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Require exact branch checkout and signed-trial scope
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$GITHUB_REPOSITORY" = "aghajani82/Smite"
+          test "$GITHUB_ACTOR" = "aghajani82"
+          test "$GITHUB_EVENT_NAME" = "push"
+          test "$GITHUB_REF" = "refs/heads/trial/unified-smite-install"
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          bash -n scripts/unified-trial-sign-image.sh
+          python3 -m py_compile scripts/create-unified-trial-pair.py tests/test_unified_trial_publication.py
+          python3 -B tests/test_unified_trial_publication.py -v
+      - name: Install pinned Panel dependencies and run Foreign admission checks
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -m pip install -r panel/requirements.txt
+          python3 -B tests/test_foreign_install_migration.py -v
+          python3 -B tests/test_foreign_install_http.py -v
+          python3 -B tests/test_foreign_install_recovery.py -v
+          python3 -B tests/test_foreign_install_origins.py -v
+      - name: Verify that live activation is not authorized
+        run: echo NO_DEPLOYMENT_OR_RELEASE=YES
+
+  build-panel:
+    needs: preflight
+    runs-on: ubuntu-24.04
+    timeout-minutes: 65
+    permissions:
+      contents: read
+      packages: write
+      id-token: write
+    outputs:
+      digest: ${{ steps.pushed-panel.outputs.digest }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - name: Verify immutable source
+        run: test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.repository_owner }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Build and push Panel by digest ONLY (no tags)
+        uses: docker/build-push-action@v6
+        id: pushed-panel
+        with:
+          context: .
+          file: panel/Dockerfile
+          platforms: linux/amd64
+          outputs: type=image,name=ghcr.io/aghajani82/smite-panel,push-by-digest=true,name-canonical=true,push=true
+          build-args: |
+            SMITE_VERSION=2.0.0-unified-install-trial
+            SMITE_SOURCE_SHA=${{ github.sha }}
+          provenance: mode=max
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+      - uses: sigstore/cosign-installer@v4.1.0
+        with:
+          cosign-release: 'v3.0.6'
+      - name: Sign and verify exact Panel digest (trial branch identity)
+        shell: bash
+        env:
+          SMITE_IMAGE_ROLE: panel
+          SMITE_IMAGE_DIGEST: ${{ steps.pushed-panel.outputs.digest }}
+        run: bash scripts/unified-trial-sign-image.sh
+
+  build-node:
+    needs: preflight
+    runs-on: ubuntu-24.04
+    timeout-minutes: 65
+    permissions:
+      contents: read
+      packages: write
+      id-token: write
+    outputs:
+      digest: ${{ steps.pushed-node.outputs.digest }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - name: Verify immutable source
+        run: test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.repository_owner }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Build and push Node by digest ONLY (no tags)
+        uses: docker/build-push-action@v6
+        id: pushed-node
+        with:
+          context: ./node
+          file: ./node/Dockerfile
+          platforms: linux/amd64
+          outputs: type=image,name=ghcr.io/aghajani82/smite-node,push-by-digest=true,name-canonical=true,push=true
+          build-args: |
+            SMITE_VERSION=2.0.0-unified-install-trial
+            SMITE_SOURCE_SHA=${{ github.sha }}
+          provenance: mode=max
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+      - uses: sigstore/cosign-installer@v4.1.0
+        with:
+          cosign-release: 'v3.0.6'
+      - name: Sign and verify exact Node digest (trial branch identity)
+        shell: bash
+        env:
+          SMITE_IMAGE_ROLE: node
+          SMITE_IMAGE_DIGEST: ${{ steps.pushed-node.outputs.digest }}
+        run: bash scripts/unified-trial-sign-image.sh
+
+  trial-pair-handoff:
+    needs: [preflight, build-panel, build-node]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 8
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - name: Emit inert exact-SHA digest pair only after BOTH signed jobs
+        shell: bash
+        env:
+          PANEL_DIGEST: ${{ needs.build-panel.outputs.digest }}
+          NODE_DIGEST: ${{ needs.build-node.outputs.digest }}
+          SOURCE_SHA: ${{ github.sha }}
+          PUBLISH_REF: ${{ github.ref }}
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$SOURCE_SHA"
+          mkdir -p "$RUNNER_TEMP/unified-trial"
+          python3 -B scripts/create-unified-trial-pair.py \
+            --source-sha "$SOURCE_SHA" \
+            --publish-ref "$PUBLISH_REF" \
+            --panel-digest "$PANEL_DIGEST" \
+            --node-digest "$NODE_DIGEST" \
+            --output "$RUNNER_TEMP/unified-trial/registry-pair.json"
+          sha256sum "$RUNNER_TEMP/unified-trial/registry-pair.json"
+          echo NO_DEPLOYMENT_OR_RELEASE=YES
+      - uses: actions/upload-artifact@v4
+        with:
+          name: smite-unified-install-trial-pair-${{ github.sha }}
+          path: ${{ runner.temp }}/unified-trial/registry-pair.json
+          retention-days: 7
+          if-no-files-found: error
