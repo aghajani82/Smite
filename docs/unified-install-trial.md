@@ -180,3 +180,53 @@ NEXT: explicit schema and Nginx ingress provisioning including installation-stat
 controlled promotion from client staging to runtime identity; safe retry after
 promotion, snapshot/recovery coverage; signed trial images and full orchestration.
 No default flag, live runtime or main change. Enrollment proof is not Connected.
+
+## Explicit schema and HTTPS ingress design checkpoint (2026-11-12)
+
+Trial Smite SHA: `a9a42982ffbfdf1c60c76bf4e08f277616761775`.
+Companion U-OPTI ingress SHA: `e7ef316394bbf239cbc210c314075740421ea0c4`.
+No host action, signed image build, default flag change or main merge.
+
+`panel/app/foreign_install_migration.py` supplies a standalone review and an
+explicit confirmation-required additive schema migration, never invoked at
+application startup. It requires the existing signed pairing, incoming replay
+and nodes tables, refuses partial/incorrect schemas, and uses an online SQLite
+snapshot (including committed WAL data) to create a root-/service-user-owned
+0600, single-link, no-overwrite backup before adding the two grant tables.
+An existing, ambiguous migration backup blocks another migration attempt
+rather than being overwritten. Re-runs after verified migration are read-only
+and idempotent. The actual Panel DB_PATH=./data/smite.db works when resolved
+inside the Panel working directory; ancestor symlinks/traversal are rejected.
+No replay nonce or existing Node identity is replaced. No automatic rollback
+or recovery of active grants is authorized: the backup must be retained with
+the independent Panel encryption key and replay evidence for an audited
+recovery plan. Both grant/trust feature flags stay disabled.
+
+The companion U-OPTI renderer verifies the existing signed Pairing ingress
+and exact U-OPTI TLS backend; it emits exact POST-only HTTPS/443 routes for
+/api/foreign-install/redeem and /api/node-control/installation-status.
+The former injects ONLY the trusted local ingress header from the existing
+private Nginx include; the latter always strips client-supplied ingress
+headers. The root Panel proxy also strips that client header for all other
+paths. Existing Pairing, FRP, backhaul and root routes remain preserved.
+Duplicate or drifted locations fail closed. The renderer has no apply/reload
+or configuration write path in this checkpoint.
+
+Verification: 13 new migration tests including real relative DB_PATH,
+snapshots with WAL, failed migration retention, hardlink/symlink/partial
+schema refusal and unchanged existing Node identity. Smite exact-source
+Node Pairing Atomic Store CI 43196483303 SUCCESS and Admin UI CI
+43196483549 SUCCESS. Companion U-OPTI 10 ingress template tests plus real
+disposable Nginx TLS proxy test (fake certificate and local echo upstream):
+forged client ingress is replaced ONLY on the grant route, stripped on
+signed proof and general Panel routes, GET is denied and oversized POST
+is rejected. U-OPTI run 43196231871 SUCCESS. These are isolated CI checks,
+not public-CA or live two-host admission.
+
+NEXT: signed trial Panel/Node image pair with provenance and exact digests;
+then implement explicitly authorized, backup-first transactional U-OPTI host
+apply and rollback for the schema, Nginx configuration and Panel flags
+without changing FRP. Only after the Panel runtime is admitted, integrate
+Foreign installer orchestration with identity promotion, one-time replay
+provisioning and dual-direction signed connectivity. Do not activate the new
+endpoints on the old immutable RC7 images.
