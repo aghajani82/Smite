@@ -2,6 +2,8 @@
   "extends": "./tsconfig.json",
   "include": [
     "src/components/NodePairingAction.tsx",
+    "src/components/ForeignInstallDialog.tsx",
+    "src/pages/Servers.tsx",
     "src/api/client.ts"
   ],
   "references": []

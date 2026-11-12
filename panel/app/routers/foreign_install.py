@@ -135,7 +135,9 @@ async def capabilities(admin: Admin = Depends(auth.get_current_user)):
         ready = True
     except HTTPException:
         ready = False
-    return {'foreign_install_enabled': ready, 'default_ttl_seconds': grants.DEFAULT_TTL,
+    return {'foreign_install_enabled': ready,
+            'origin_trust_ready': ready and settings.smite_foreign_install_origin_trust_enabled,
+            'default_ttl_seconds': grants.DEFAULT_TTL,
             'max_ttl_seconds': grants.MAX_TTL, 'protocol': 'smi1'}
 
 

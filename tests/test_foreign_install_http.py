@@ -34,7 +34,8 @@ class ForeignInstallHTTP(unittest.TestCase):
             smite_node_pairing_preview_enabled=True,
             smite_node_pairing_master_key=Fernet.generate_key().decode(),
             smite_node_pairing_ingress_token=self.ingress,
-            smite_node_registration_mode='signed',smite_panel_agent_auth_mode='signed')
+            smite_node_registration_mode='signed',smite_panel_agent_auth_mode='signed',
+            smite_foreign_install_origin_trust_enabled=False)
         self.previous = {key:getattr(settings,key) for key in values}
         for key,value in values.items(): setattr(settings,key,value)
         self.addCleanup(lambda: [setattr(settings,k,v) for k,v in self.previous.items()])
@@ -95,9 +96,12 @@ class ForeignInstallHTTP(unittest.TestCase):
 
     def test_capabilities_and_no_automatic_migration(self):
         r=self.client.get('/api/foreign-install/capabilities',headers=self.headers)
-        self.assertEqual(r.json(),{'foreign_install_enabled':True,'default_ttl_seconds':7200,'max_ttl_seconds':7200,'protocol':'smi1'})
+        self.assertEqual(r.json(),{'foreign_install_enabled':True,'origin_trust_ready':False,'default_ttl_seconds':7200,'max_ttl_seconds':7200,'protocol':'smi1'})
         self.private(r)
+        settings.smite_foreign_install_origin_trust_enabled=True
+        self.assertTrue(self.client.get('/api/foreign-install/capabilities',headers=self.headers).json()['origin_trust_ready'])
         with sqlite3.connect(self.db) as c: c.execute('DROP TABLE smite_foreign_install_origins')
+        self.assertFalse(self.client.get('/api/foreign-install/capabilities',headers=self.headers).json()['origin_trust_ready'])
         self.assertEqual(self.issue().status_code,503)
         with sqlite3.connect(self.db) as c:
             self.assertIsNone(c.execute("SELECT name FROM sqlite_master WHERE name='smite_foreign_install_origins'").fetchone())

@@ -128,3 +128,35 @@ NEXT: administrator UI for reserve/domain/issue and safe code presentation; dura
 installer secret staging and signed lost-reply recovery; schema/ingress provisioning
 and snapshots/revocation recovery; signed trial images; U-OPTI integrated installer.
 Main and live hosts remain untouched. The unified install is NOT ready to run.
+
+## Administrator UI checkpoint (2026-11-12)
+The Foreign page now offers a gated installation dialog: name + Gateway domain,
+existing authenticated reservation, then a 7200-second grant. Pending rows expose
+Installation information for reissue; connected rows do not offer new enrollment.
+The default-OFF capability must report both issuance readiness and origin trust,
+and the browser must use HTTPS/443. Old/disabled Panels retain their existing UI.
+
+The copyable JSON packet is protocol smi1 with panel_url, node_id, node_name,
+origin, control_url, installation_code and expires_at. The response's exact Node,
+domain/path/code/expiry is validated before display. The code lives only in the
+mounted dialog; closing/expiry removes it, copying is explicit, and pending-code
+revocation is available. Closing does NOT revoke a valid grant or clear the system
+clipboard. No executable installation command is shown or generated.
+
+Reservation and issuance are two requests. After a confirmed reservation, issue
+failure retries the same Node. After an unknown/lost reservation reply, the dialog
+blocks blind reservation retry and asks the operator to reconcile the Node list.
+A reserved Node remains visible if issuance fails or the dialog closes. Expired or
+lost codes are replaced for the same pending Node; this does not replace paired keys.
+
+Validation: 9 offline React interaction tests, strict scoped TypeScript, production
+Vite build, 13 HTTP authorization/capability tests, 6 reservation tests and 4 legacy
+UI invariants PASS. UI tests cover retry/lost reply, wrong Node, invalid domain,
+expiry, revoke failures, copy contract and unmount cancellation. No live browser or
+real server installation was exercised. CI now runs interaction tests on the trial
+branch as well as the existing API/transport regressions; check exact head results.
+
+NEXT: U-OPTI client for this packet, durable secret staging BEFORE redemption,
+resume with the exact same secret and signed lost-response recovery after expiry.
+Then explicit migration/ingress setup, snapshot/recovery coverage, signed images,
+and unified installer wiring. Neither feature flag is enabled by this checkpoint.
