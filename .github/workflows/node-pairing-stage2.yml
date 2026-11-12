@@ -4,6 +4,8 @@ on:
   pull_request:
     paths:
       - 'panel/app/node_pairing_store.py'
+      - 'panel/app/foreign_install_grants.py'
+      - 'tests/test_foreign_install_grants.py'
       - 'tests/test_node_pairing_store.py'
       - 'panel/app/recovery_snapshot_admission.py'
       - 'tests/test_recovery_snapshot_admission.py'
@@ -12,6 +14,7 @@ on:
   push:
     branches:
       - feature/node-pairing-transactional-store-20261018
+      - trial/unified-smite-install
 
 permissions:
   contents: read
@@ -31,4 +34,5 @@ jobs:
       - name: Execute inert SQLite pairing and replay tests
         run: |
           python -B tests/test_node_pairing_store.py -v
+          python -B tests/test_foreign_install_grants.py -v
           python -B tests/test_recovery_snapshot_admission.py -v
