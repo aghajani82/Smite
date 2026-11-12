@@ -473,3 +473,38 @@ No Smite or U-OPTI main merge and no live-host changes have occurred.
 The next work is a complete reviewed host install/rollback envelope
 and explicit two-direction signed Connected gate before enabling
 the one-choice Foreign menu installation.
+
+## Companion checkpoint — Foreign host-stage resume rehearsal (2026-11-12)
+
+The final operator workflow is unchanged: Iran Smite Manager option 1
+finishes Panel/Gateway/SSL/Iran Node with automatic secure pairing;
+operator verifies Iran Connected in that Panel, reserves the Foreign
+Node there and copies one 2-hour, one-use installation JSON. Foreign
+Smite Manager option 2 must consume it once and eventually finish
+Foreign Node, Sanaei Docker + RO DB, HTTPS/443 Gateway and genuine
+authenticated dual-direction Connected.
+
+The U-OPTI trial adds a **disposable-only host-stage journal and
+lock** around the existing planned Sanaei/Gateway steps. No parallel
+Sanaei/Gateway installer is introduced. The journal tracks exact
+private packet hash and nonsecret Node scope across:
+CORE_VERIFIED, SANAEI_INTENT, SANAEI_RO_VERIFIED,
+GATEWAY_INTENT, GATEWAY_443_VERIFIED. On restart it requires independent
+REAL stage witnesses: if an interrupted step is READY, it advances
+without repeating it; if state is absent/ambiguous/drifted it HOLDs
+instead of blindly recreating Node, reinstalling Sanaei or reloading
+Gateway. Already completed journal phases are reverified on *every*
+retry. This does not touch the existing Smite Panel identity/SQLite
+replay records or claim Connected.
+
+18 offline cases and prior Smite signed/API/SSL/identity/Python/Node
+tests ran in U-OPTI CI (two successful jobs):
+https://github.com/aghajani82/u-opti/actions/runs/43248094754
+
+**This is not yet wired to the public installer.** Test-injected
+witnesses must next be replaced by safely audited, read-only
+real Node/Sanaei/Nginx checks. Exact signed runtime activation
+still has activation_allowed=false and separate rollback + both live
+Connected probes remain to be proven on disposable two-host systems.
+No main merge, real host install, Node recreation, active Sanaei/FRP
+alteration or credential rotation happened.
