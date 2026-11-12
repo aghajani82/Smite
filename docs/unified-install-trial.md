@@ -230,3 +230,49 @@ without changing FRP. Only after the Panel runtime is admitted, integrate
 Foreign installer orchestration with identity promotion, one-time replay
 provisioning and dual-direction signed connectivity. Do not activate the new
 endpoints on the old immutable RC7 images.
+
+## Signed, immutable unified-install trial image pair (2026-11-12)
+
+Separate workflow `.github/workflows/unified-install-signed-trial.yml`
+built and pushed digest-only GHCR images from exactly the same trial source
+commit `b865be93e22153c60769f6329e6e55e781494ded`. No version tags,
+`latest` tag, official release workflows, main branch, host installations
+or existing runtime digests were modified. This workflow runs ONLY on owner
+pushes to `trial/unified-smite-install` affecting its reviewed code/recipe;
+a mandatory preflight runs the trial pairing, migration, origins, recovery
+and signed publishing contract tests before any package write.
+
+Signed GHCR digests (linux/amd64):
+- Panel: `ghcr.io/aghajani82/smite-panel@sha256:1b03d0d865ba4abd6fe45899d2ccd6d34f300b4804acd2c6690a52b68fb26289`
+- Node: `ghcr.io/aghajani82/smite-node@sha256:587a131156736961c86fa91f33f013d28eb85e606ab0ab4335969fabfd881483`
+
+The detached candidate pair artifact is
+`smite-unified-install-trial-pair-b865be93e22153c60769f6329e6e55e781494ded`,
+in Actions run [43197803544](https://github.com/aghajani82/Smite/actions/runs/43197803544)
+(SUCCESS, all 4 jobs), artifact ID `13934051359`.
+Its inner `registry-pair.json` SHA256 is
+`e13f0708b1de5eef112b955f4b6efe4e1efa5520d404458646bb6e1e76c96608`.
+The package artifact expires after 7 days; the same hash-checked JSON
+is retained on the U-OPTI trial branch as
+`modules/smite-unified-trial-registry-pair.json`.
+
+Each registry digest was signed with Sigstore keyless Cosign v3.0.6,
+bound to the exact trial push workflow identity, commit SHA, role and
+`smite_trial=unified-install` annotation; the official tag-only signer
+`scripts/sign-verified-image.sh` and official publisher are untouched.
+A separate U-OPTI read-only verifier requires an independently supplied
+manifest SHA256, the SHA-pinned Sigstore trusted root, OIDC issuer,
+exact trial GitHub Actions workflow identity, exact source SHA and roles
+and verifies BOTH real GHCR registry signatures. Independent U-OPTI
+Actions run [43198492747](https://github.com/aghajani82/u-opti/actions/runs/43198492747)
+SUCCESS. Passing signatures do NOT prove first boot, live connectivity,
+signed replay, Host rollback or approval for installation.
+
+NEXT EXACT WORK: introduce an explicitly selected transactional U-OPTI
+Panel-side host install/rollback that safely migrates the Panel schema,
+applies reviewed trusted 443 ingress without clobbering FRP and reconciles
+trial Panel image/feature flags. Require backup and independent replay/key
+preservation checks. Then integrate and test the Foreign installer,
+Sanaei return-to-caller, durable promotion to strict runtime, one-time replay
+enrollment and two-way Connected proof. No live servers or main until
+Mohammad tests and approves.
