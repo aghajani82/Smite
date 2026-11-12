@@ -160,3 +160,23 @@ NEXT: U-OPTI client for this packet, durable secret staging BEFORE redemption,
 resume with the exact same secret and signed lost-response recovery after expiry.
 Then explicit migration/ingress setup, snapshot/recovery coverage, signed images,
 and unified installer wiring. Neither feature flag is enabled by this checkpoint.
+
+## Signed installation recovery checkpoint (2026-11-12)
+Added POST /api/node-control/installation-status to the existing signed machine
+allowlist. It requires the paired key and durable replay check, signed mode and
+explicit origin trust. It returns only exact grant-approved Node/name/origin/path
+bindings. It does not register/activate a Node or change its runtime/metadata.
+Only replay nonce bookkeeping is written. Expired consumed grants and disabled
+new issuance still permit proof; revoked keys and missing origin evidence fail.
+
+Six new real-HMAC/ASGI tests PASS: expiry/issuance-off recovery, wrong key/unsigned,
+replay, revocation, disabled trust/wrong scope, and missing committed evidence.
+U-OPTI companion client stages a scoped secret durably before redemption and uses
+this proof after lost replies or expiry. Offline cross-repository ASGI integration
+verified a real redemption followed by a deliberately lost acknowledgement, expired
+recovery and later revocation. Public TLS and live host installation remain untested.
+
+NEXT: explicit schema and Nginx ingress provisioning including installation-status;
+controlled promotion from client staging to runtime identity; safe retry after
+promotion, snapshot/recovery coverage; signed trial images and full orchestration.
+No default flag, live runtime or main change. Enrollment proof is not Connected.

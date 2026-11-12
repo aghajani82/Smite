@@ -201,3 +201,31 @@ async def signed_frp_status(
     node.last_seen = datetime.utcnow()
     await db.commit()
     return {"status": "success"}
+
+
+@router.post("/installation-status")
+async def installation_status(
+    response: Response,
+    authenticated: tuple[str, bytes] = Depends(authenticated_node),
+):
+    """Prove a previously committed grant without activating or rekeying a Node.
+
+    Works after grant expiry and after issuance is disabled. Authentication uses
+    the existing durable replay store; no grant code or Node secret is returned.
+    """
+    _no_store(response)
+    if (not settings.smite_foreign_install_origin_trust_enabled
+            or settings.smite_panel_agent_auth_mode != "signed"):
+        raise HTTPException(503, detail="Installation verification unavailable")
+    node_id, raw = authenticated
+    try:
+        report = json.loads(raw)
+        if report != {"node_id": node_id}:
+            raise ValueError("Invalid installation report")
+        pin = approved_node(node_id)
+        if pin.get("origin_source") != "installation_grant" or pin["role"] != "foreign":
+            raise ApprovedOriginUnavailable("Installation evidence unavailable")
+    except (ValueError, TypeError, ApprovedOriginUnavailable):
+        raise HTTPException(403, detail="Installation verification denied")
+    return {"status": "enrolled", **{k: pin[k] for k in
+            ("node_id", "node_name", "origin", "control_url")}}
