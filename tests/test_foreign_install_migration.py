@@ -114,6 +114,85 @@ class Migration(unittest.TestCase):
         with self.assertRaises(m.AdmissionHold): m.inspect(self.db)
         self.assertFalse(self.backup.exists())
 
+    def _fake_schema(self, *, weaken_grants=False, weaken_origins=False,
+                     extra_index=False, trigger=False, extra_foreign_key=False):
+        from app.foreign_install_grants import FOREIGN_INSTALL_DDL
+        grants, origins = FOREIGN_INSTALL_DDL
+        if weaken_grants:
+            grants = grants.replace("code_hash TEXT PRIMARY KEY",
+                                    "code_hash TEXT")
+        if weaken_origins:
+            origins = origins.replace("grant_hash TEXT NOT NULL UNIQUE",
+                                      "grant_hash TEXT NOT NULL")
+        if extra_foreign_key:
+            origins = origins.replace(
+                "approved_at INTEGER NOT NULL)",
+                "approved_at INTEGER NOT NULL, "
+                "FOREIGN KEY (node_id) REFERENCES nodes(id))")
+        with sqlite3.connect(self.db) as conn:
+            conn.execute(grants)
+            conn.execute(origins)
+            if extra_index:
+                conn.execute(
+                    "CREATE INDEX foreign_unreviewed_index ON "
+                    "smite_foreign_install_grants(node_id)")
+            if trigger:
+                conn.execute("""CREATE TRIGGER foreign_unreviewed_trigger
+                    AFTER INSERT ON smite_foreign_install_origins
+                    BEGIN SELECT RAISE(ABORT, 'unexpected'); END""")
+
+    def test_grant_primary_key_must_not_be_omitted_by_old_migration(self):
+        self._fake_schema(weaken_grants=True)
+        with self.assertRaises(m.AdmissionHold): m.inspect(self.db)
+        with self.assertRaises(m.AdmissionHold):
+            m.migrate(self.db, confirm=m.CONFIRM)
+        self.assertFalse(self.backup.exists())
+        self.assertIn("smite_foreign_install_grants", self.tables(self.db))
+
+    def test_origin_grant_hash_must_remain_unique(self):
+        self._fake_schema(weaken_origins=True)
+        with self.assertRaises(m.AdmissionHold): m.inspect(self.db)
+        with self.assertRaises(m.AdmissionHold):
+            m.migrate(self.db, confirm=m.CONFIRM)
+        self.assertFalse(self.backup.exists())
+
+    def test_existing_foreign_tables_with_extra_index_hold(self):
+        self._fake_schema(extra_index=True)
+        with self.assertRaises(m.AdmissionHold): m.inspect(self.db)
+        self.assertFalse(self.backup.exists())
+
+    def test_existing_foreign_tables_with_trigger_hold(self):
+        self._fake_schema(trigger=True)
+        with self.assertRaises(m.AdmissionHold): m.inspect(self.db)
+        self.assertFalse(self.backup.exists())
+
+    def test_unreviewed_foreign_key_constraint_holds(self):
+        self._fake_schema(extra_foreign_key=True)
+        with self.assertRaises(m.AdmissionHold): m.inspect(self.db)
+        self.assertFalse(self.backup.exists())
+
+    def test_wrong_expiry_default_and_case_insensitive_grant_index_hold(self):
+        from app.foreign_install_grants import FOREIGN_INSTALL_DDL
+        grants, origins = FOREIGN_INSTALL_DDL
+        for change in (
+            ("expires_at INTEGER NOT NULL",
+             "expires_at INTEGER NOT NULL DEFAULT 1"),
+            ("code_hash TEXT PRIMARY KEY",
+             "code_hash TEXT PRIMARY KEY COLLATE NOCASE"),
+        ):
+            with self.subTest(change=change):
+                with sqlite3.connect(self.db) as conn:
+                    conn.execute(grants.replace(*change))
+                    conn.execute(origins)
+                with self.assertRaises(m.AdmissionHold):
+                    m.inspect(self.db)
+                with self.assertRaises(m.AdmissionHold):
+                    m.migrate(self.db, confirm=m.CONFIRM)
+                self.assertFalse(self.backup.exists())
+                with sqlite3.connect(self.db) as conn:
+                    conn.execute("DROP TABLE smite_foreign_install_origins")
+                    conn.execute("DROP TABLE smite_foreign_install_grants")
+
     def test_preexisting_backup_symlink_is_not_followed(self):
         original = self.root / "guard"
         original.write_text("guard")
