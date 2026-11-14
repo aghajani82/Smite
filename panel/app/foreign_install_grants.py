@@ -74,6 +74,23 @@ def _node(conn, node_id: str, name: str, *, paired: bool = False) -> bool:
         return False
 
 
+# Single canonical DDL source shared by the existing migration writer
+# and its fail-closed, read-only schema admission. Do not duplicate or
+# silently "repair" a partially migrated database.
+FOREIGN_INSTALL_DDL = (
+    """CREATE TABLE IF NOT EXISTS smite_foreign_install_grants (
+        code_hash TEXT PRIMARY KEY, node_id TEXT NOT NULL,
+        node_name TEXT NOT NULL, origin TEXT NOT NULL,
+        control_url TEXT NOT NULL, issued_by TEXT NOT NULL,
+        issued_at INTEGER NOT NULL, expires_at INTEGER NOT NULL,
+        consumed_at INTEGER, revoked_at INTEGER)""",
+    """CREATE TABLE IF NOT EXISTS smite_foreign_install_origins (
+        node_id TEXT PRIMARY KEY, node_name TEXT NOT NULL,
+        origin TEXT NOT NULL, control_url TEXT NOT NULL,
+        grant_hash TEXT NOT NULL UNIQUE, approved_at INTEGER NOT NULL)""",
+)
+
+
 def initialize_schema(database_path):
     """Explicit additive migration; requires the existing pairing schema first."""
     with closing(pairing._open_database(database_path)) as conn:
@@ -81,16 +98,8 @@ def initialize_schema(database_path):
         try:
             conn.execute("SELECT node_id FROM smite_node_identities LIMIT 0")
             conn.execute("SELECT code_hash FROM smite_node_pairing_codes LIMIT 0")
-            conn.execute("""CREATE TABLE IF NOT EXISTS smite_foreign_install_grants (
-                code_hash TEXT PRIMARY KEY, node_id TEXT NOT NULL,
-                node_name TEXT NOT NULL, origin TEXT NOT NULL,
-                control_url TEXT NOT NULL, issued_by TEXT NOT NULL,
-                issued_at INTEGER NOT NULL, expires_at INTEGER NOT NULL,
-                consumed_at INTEGER, revoked_at INTEGER)""")
-            conn.execute("""CREATE TABLE IF NOT EXISTS smite_foreign_install_origins (
-                node_id TEXT PRIMARY KEY, node_name TEXT NOT NULL,
-                origin TEXT NOT NULL, control_url TEXT NOT NULL,
-                grant_hash TEXT NOT NULL UNIQUE, approved_at INTEGER NOT NULL)""")
+            for statement in FOREIGN_INSTALL_DDL:
+                conn.execute(statement)
             conn.commit()
         except Exception:
             conn.rollback()
