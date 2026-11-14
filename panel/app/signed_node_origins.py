@@ -19,6 +19,8 @@ import os
 from pathlib import Path
 import re
 import stat
+import sqlite3
+from contextlib import closing
 from urllib.parse import urlsplit
 
 from app.config import settings
@@ -87,7 +89,7 @@ def _control_address(control: str, approved_origin: str, role: str) -> str:
     return base + parts.path.rstrip("/")
 
 
-def approved_node(node_id: str) -> dict[str, str]:
+def _file_node(node_id: str, *, optional: bool = False) -> dict[str, str] | None:
     if not isinstance(node_id, str) or not _ID.fullmatch(node_id):
         raise ApprovedOriginUnavailable("Node identity invalid")
     path = Path(settings.smite_signed_node_origins_path)
@@ -110,6 +112,10 @@ def approved_node(node_id: str) -> dict[str, str]:
             ):
                 raise ApprovedOriginUnavailable("Trusted Node file unsafe")
             data = json.loads(stream.read(64_001))
+    except FileNotFoundError as exc:
+        if optional:
+            return None
+        raise ApprovedOriginUnavailable("Trusted Node store unavailable") from exc
     except (OSError, ValueError, TypeError, UnicodeError) as exc:
         raise ApprovedOriginUnavailable("Trusted Node store unavailable") from exc
     if not isinstance(data, dict) or data.get("version") != 1:
@@ -117,6 +123,8 @@ def approved_node(node_id: str) -> dict[str, str]:
     nodes = data.get("nodes")
     if not isinstance(nodes, dict):
         raise ApprovedOriginUnavailable("Trusted Node list missing")
+    if optional and node_id not in nodes:
+        return None
     found = nodes.get(node_id)
     if not isinstance(found, dict):
         raise ApprovedOriginUnavailable("Node not administrator-approved")
@@ -135,3 +143,60 @@ def control_url_matches(pin: dict[str, str], claimed: str) -> bool:
         return _control_address(claimed, pin["origin"], pin["role"]) == pin["control_url"]
     except (ApprovedOriginUnavailable, KeyError, TypeError):
         return False
+
+
+def _database_node(node_id: str) -> dict[str, str] | None:
+    """Read one coherent snapshot; never create/migrate or trust metadata URLs."""
+    from app import foreign_install_grants as grants
+    path = Path(settings.db_path)
+    if settings.db_type != "sqlite" or path.is_symlink() or not path.is_file():
+        raise ApprovedOriginUnavailable("Installation origin database unavailable")
+    try:
+        with closing(sqlite3.connect(path.resolve().as_uri() + "?mode=ro", uri=True)) as db:
+            db.row_factory = sqlite3.Row
+            db.execute("BEGIN")
+            origin = db.execute("SELECT * FROM smite_foreign_install_origins WHERE node_id=?", (node_id,)).fetchone()
+            if origin is None:
+                if db.execute("SELECT 1 FROM smite_foreign_install_grants WHERE node_id=? AND consumed_at IS NOT NULL", (node_id,)).fetchone():
+                    raise ApprovedOriginUnavailable("Committed installation origin missing")
+                return None
+            grant = db.execute("SELECT * FROM smite_foreign_install_grants WHERE code_hash=?", (origin["grant_hash"],)).fetchone()
+            identity = db.execute("SELECT * FROM smite_node_identities WHERE node_id=?", (node_id,)).fetchone()
+            if (not grant or not identity or identity["revoked_at"] is not None
+                    or identity["node_role"] != "foreign" or grant["revoked_at"] is not None
+                    or grant["consumed_at"] is None
+                    or not grant["issued_at"] <= grant["consumed_at"] < grant["expires_at"]
+                    or identity["paired_at"] != grant["consumed_at"]
+                    or origin["approved_at"] != grant["consumed_at"]
+                    or any(origin[key] != grant[key] for key in ("node_id", "node_name", "origin", "control_url"))
+                    or not grants._node(db, node_id, origin["node_name"], paired=True)):
+                raise ApprovedOriginUnavailable("Installation origin evidence invalid")
+            base = _origin(origin["origin"], "foreign")
+            host = urlsplit(base).hostname
+            grants.normalize_domain(host)
+            control = _control_address(origin["control_url"], base, "foreign")
+            if (base != origin["origin"] or control != origin["control_url"]
+                    or not grants._PATH.fullmatch(control[len(base):])):
+                raise ApprovedOriginUnavailable("Installation origin binding invalid")
+            return {"node_id": node_id, "role": "foreign", "node_name": origin["node_name"],
+                    "origin": base, "control_url": control}
+    except (sqlite3.Error, OSError, ValueError, TypeError, KeyError, IndexError) as exc:
+        raise ApprovedOriginUnavailable("Installation origin unavailable") from exc
+
+
+def approved_node(node_id: str) -> dict[str, str]:
+    if not isinstance(node_id, str) or not _ID.fullmatch(node_id):
+        raise ApprovedOriginUnavailable("Node identity invalid")
+    # Trust is separate from issuance: stopping new grants must not disconnect
+    # enrolled Nodes. Enabling trust requires an explicit schema migration.
+    if not settings.smite_foreign_install_origin_trust_enabled:
+        return _file_node(node_id)
+    file_pin = _file_node(node_id, optional=True)
+    database_pin = _database_node(node_id)
+    if database_pin is not None:
+        if file_pin is not None and file_pin != database_pin:
+            raise ApprovedOriginUnavailable("Conflicting approved Node origins")
+        return {**database_pin, "origin_source": "installation_grant"}
+    if file_pin is not None:
+        return file_pin
+    raise ApprovedOriginUnavailable("Node not administrator-approved")

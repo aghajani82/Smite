@@ -104,6 +104,7 @@ class NodeClient:
                 node_id=node_id, address=address, using_frp=using_frp,
                 method=method, target=target, payload=payload, timeout=timeout,
                 gateway_control_url=gateway_control_url,
+                **({"pin_public_dns": True} if pin.get("origin_source") == "installation_grant" else {}),
             )
         except SignedAgentHTTPFailure as exc:
             # Only the integer response code from the authenticated, pinned

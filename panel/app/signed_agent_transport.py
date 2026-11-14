@@ -12,6 +12,8 @@ and bytes; any proxy rewriting that path breaks authentication (fail closed).
 from __future__ import annotations
 
 import ipaddress
+import asyncio
+import socket
 from pathlib import Path
 import re
 from urllib.parse import urlsplit
@@ -129,11 +131,67 @@ def get_paired_key(*, node_id: str) -> bytes:
         raise SignedAgentUnavailable("Paired Node identity is missing or invalid") from exc
 
 
+async def resolve_public_address(host: str, timeout: float) -> str:
+    """Resolve once and reject the whole answer if any destination is non-public."""
+    try:
+        records = await asyncio.wait_for(
+            asyncio.get_running_loop().getaddrinfo(
+                host, 443, family=socket.AF_UNSPEC, type=socket.SOCK_STREAM,
+                proto=socket.IPPROTO_TCP,
+            ), timeout=timeout,
+        )
+        addresses = []
+        for family, kind, protocol, _, sockaddr in records:
+            ip = ipaddress.ip_address(sockaddr[0])
+            if (family not in (socket.AF_INET, socket.AF_INET6)
+                    or kind != socket.SOCK_STREAM or protocol != socket.IPPROTO_TCP
+                    or sockaddr[1] != 443 or "%" in sockaddr[0]
+                    or not ip.is_global or ip.is_multicast or ip.is_reserved
+                    or ip.is_loopback or ip.is_link_local or ip.is_unspecified
+                    or (ip.version == 4 and any(ip in ipaddress.ip_network(net)
+                        for net in ("192.0.0.0/24", "192.88.99.0/24")))
+                    or (ip.version == 6 and (ip not in ipaddress.ip_network("2000::/3")
+                        or any(ip in ipaddress.ip_network(net) for net in
+                               ("2001::/23", "2002::/16", "3fff::/20"))))):
+                raise SignedAgentUnavailable("Node DNS destination prohibited")
+            addresses.append(str(ip))
+        if not addresses:
+            raise SignedAgentUnavailable("Node DNS destination unavailable")
+        return addresses[0]
+    except (OSError, ValueError, asyncio.TimeoutError) as exc:
+        raise SignedAgentUnavailable("Node DNS destination unavailable") from exc
+
+
+class PublicPinnedTransport(httpx.AsyncHTTPTransport):
+    """Dial the vetted literal IP; TLS verifies the original DNS hostname.
+
+    One fresh transport per signed call, zero retries, no proxy, no redirects.
+    HTTPX passes sni_hostname to the pinned HTTPCore TLS implementation.
+    """
+    def __init__(self, host: str, address: str):
+        super().__init__(verify=True, trust_env=False, retries=0,
+                         limits=httpx.Limits(max_keepalive_connections=0))
+        self.host, self.address = host, address
+
+    async def handle_async_request(self, request: httpx.Request) -> httpx.Response:
+        if request.url.scheme != "https" or request.url.host != self.host or request.url.port not in (None, 443):
+            raise SignedAgentUnavailable("Pinned request origin differs")
+        headers = request.headers.copy()
+        headers["Host"] = self.host
+        pinned = httpx.Request(
+            request.method, request.url.copy_with(host=self.address),
+            headers=headers, stream=request.stream,
+            extensions={**request.extensions, "sni_hostname": self.host},
+        )
+        return await super().handle_async_request(pinned)
+
+
 async def signed_agent_call(
     *, node_id: str, address: str, using_frp: bool,
     method: str, target: str, payload: dict | None = None,
     timeout: float = 30.0,
     gateway_control_url: str | None = None,
+    pin_public_dns: bool = False,
 ) -> dict:
     """Send ONE signed request. No redirect, no insecure TLS, no old fallback.
 
@@ -150,6 +208,13 @@ async def signed_agent_call(
         )
         if gateway_control_url is not None else origin
     )
+    transport_options = {}
+    if pin_public_dns:
+        if not origin.startswith("https://") or gateway_control_url is None or using_frp:
+            raise SignedAgentUnavailable("Installation gateway requires pinned HTTPS")
+        host = urlsplit(origin).hostname
+        address = await resolve_public_address(host, timeout)
+        transport_options["transport"] = PublicPinnedTransport(host, address)
     secret = await run_in_threadpool(get_paired_key, node_id=node_id)
     body, signed_headers = prepare_agent_request(
         secret=secret, node_id=node_id, method=method,
@@ -163,6 +228,7 @@ async def signed_agent_call(
             trust_env=False,
             follow_redirects=False,
             limits=httpx.Limits(max_keepalive_connections=0),
+            **transport_options,
         ) as client:
             response = await client.request(
                 method, url, content=body, headers=signed_headers

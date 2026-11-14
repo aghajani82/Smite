@@ -471,6 +471,67 @@ class SignedInboundTest(unittest.TestCase):
         body, headers = self.request(path=path, data=params)
         self.assertEqual(self.client.post(path, content=body, headers=headers).status_code, 503)
 
+    def test_operator_refresh_shows_connected_only_after_real_signed_liveness(self):
+        """User flow: Foreign reserved -> installed -> signed -> refresh.
+
+        An issued or redeemed installation credential MUST NOT mark KH as
+        Connected. The Panel must probe the authenticated Foreign Node on
+        every refresh, and stale metadata/FRP hints cannot override failure.
+        """
+        token = auth.create_access_token({"sub": "test-admin"})
+        admin = {"Authorization": "Bearer " + token}
+        initialize_replay_schema(self.db_path)
+        with patch("app.routers.nodes.NodeClient.get_tunnel_status",
+                   new_callable=AsyncMock, return_value={"status": "ok"}) as probe:
+            pending = self.client.get("/api/nodes", headers=admin)
+        self.assertEqual(pending.status_code, 200, pending.text)
+        self.assertEqual(pending.json()[0]["metadata"]["connection_status"],
+                         "waiting-for-pairing")
+        probe.assert_not_awaited()
+
+        # Only actual signed Node registration moves the reserved record
+        # to active/signed_checkin. No earlier code redemption does this.
+        signed_body, signed_headers = self.request()
+        checkin = self.client.post(
+            "/api/node-control/register",
+            content=signed_body, headers=signed_headers)
+        self.assertEqual(checkin.status_code, 200, checkin.text)
+        with sqlite3.connect(self.db_path) as conn:
+            status, meta = conn.execute(
+                "SELECT status,metadata FROM nodes WHERE id=?",
+                (self.node_id,)).fetchone()
+        self.assertEqual(status, "active")
+        self.assertEqual(json.loads(meta)["provisioning"], "signed_checkin")
+
+        # A real signed check-in alone does not prove *current* reachability.
+        with patch("app.routers.nodes.NodeClient.get_tunnel_status",
+                   new_callable=AsyncMock, return_value={
+                       "status": "error", "message": "unreachable"
+                   }) as probe:
+            offline = self.client.get("/api/nodes", headers=admin)
+        self.assertEqual(offline.json()[0]["metadata"]["connection_status"],
+                         "failed")
+        probe.assert_awaited_once_with(self.node_id, "")
+
+        with patch("app.routers.nodes.NodeClient.get_tunnel_status",
+                   new_callable=AsyncMock, return_value={"status": "ok"}) as probe:
+            connected = self.client.get("/api/nodes", headers=admin)
+        self.assertEqual(connected.json()[0]["metadata"]["connection_status"],
+                         "connected")
+        probe.assert_awaited_once_with(self.node_id, "")
+
+        # The same endpoint on a subsequent refresh must not cache a
+        # previously successful authenticated check.
+        with patch("app.routers.nodes.NodeClient.get_tunnel_status",
+                   new_callable=AsyncMock, return_value={
+                       "status": "error", "message": "connection timeout"
+                   }):
+            dropped = self.client.get("/api/nodes", headers=admin)
+        self.assertEqual(dropped.json()[0]["metadata"]["connection_status"],
+                         "reconnecting")
+        self.assertNotEqual(dropped.json()[0]["metadata"]["connection_status"],
+                            "connected")
+
     def test_stale_signed_frp_hint_cannot_fake_connected_status(self):
         """An authenticated failure beats last known FRP telemetry."""
         initialize_replay_schema(self.db_path)

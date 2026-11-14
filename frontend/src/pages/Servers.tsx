@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { Plus, Copy, Trash2, CheckCircle, XCircle, AlertCircle } from 'lucide-react'
 import api from '../api/client'
 import { NodePairingAction, usePairingPreviewAvailability, useNodeRegistrationMode, type NodeRegistrationMode } from '../components/NodePairingAction'
+import { ForeignInstallDialog, useForeignInstallAvailability } from '../components/ForeignInstallDialog'
 import { useLanguage } from '../contexts/LanguageContext'
 
 interface Server {
@@ -20,6 +21,8 @@ const Servers = () => {
   const [loading, setLoading] = useState(true)
   const pairingPreviewEnabled = usePairingPreviewAvailability()
   const registrationMode = useNodeRegistrationMode()
+  const installAvailable = useForeignInstallAvailability()
+  const [installNode, setInstallNode] = useState<Server | null>(null)
   const [showAddModal, setShowAddModal] = useState(false)
   const [showCertModal, setShowCertModal] = useState(false)
   const [certContent, setCertContent] = useState('')
@@ -259,7 +262,9 @@ const Servers = () => {
                     {new Date(server.last_seen).toLocaleString()}
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap text-sm">
-                    <NodePairingAction node={server} role="foreign" enabled={pairingPreviewEnabled} />
+                    {installAvailable ? (server.metadata?.provisioning === 'reserved_for_pairing' &&
+                      <button type="button" onClick={() => setInstallNode(server)} className="mr-3 text-blue-600 dark:text-blue-300">Installation information</button>
+                    ) : <NodePairingAction node={server} role="foreign" enabled={pairingPreviewEnabled} />}
                     <button
                       onClick={() => deleteServer(server.id)}
                       className="text-red-600 dark:text-red-400 hover:text-red-800 dark:hover:text-red-300"
@@ -274,7 +279,11 @@ const Servers = () => {
         </table>
       </div>
 
-      {showAddModal && (
+      {(installNode || (showAddModal && installAvailable)) && (
+        <ForeignInstallDialog node={installNode || undefined} onReserved={fetchServers}
+          onClose={() => { setInstallNode(null); setShowAddModal(false); fetchServers() }} />
+      )}
+      {showAddModal && !installAvailable && (
         <AddServerModal
           onClose={() => setShowAddModal(false)}
           securePreview={pairingPreviewEnabled}
