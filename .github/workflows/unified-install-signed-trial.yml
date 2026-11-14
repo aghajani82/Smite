@@ -8,6 +8,7 @@ on:
       - 'scripts/unified-trial-sign-image.sh'
       - 'scripts/create-unified-trial-pair.py'
       - 'tests/test_unified_trial_publication.py'
+      - 'tests/test_foreign_install_migration.py'
       - 'panel/**'
       - 'node/**'
       - 'frontend/**'
