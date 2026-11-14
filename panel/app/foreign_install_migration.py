@@ -7,6 +7,9 @@ Rollback of an *active* enrollment requires a separate audited recovery plan.
 from __future__ import annotations
 
 import argparse
+from contextlib import closing
+import fcntl
+from itertools import zip_longest
 import os
 from pathlib import Path
 import sqlite3
@@ -73,7 +76,7 @@ def inspect(database_path) -> str:
     """Return MISSING or READY; refuse partially migrated or corrupt schemas."""
     db = checked_db(database_path)
     try:
-        with readonly(db) as conn:
+        with closing(readonly(db)) as conn:
             for query in BASE_CHECKS:
                 conn.execute(query)
             if conn.execute("PRAGMA quick_check").fetchone() != ("ok",):
@@ -96,19 +99,36 @@ def _backup_path(db):
     return db.with_name(db.name + BACKUP_SUFFIX)
 
 
+def _verify_retry_snapshot(db: Path, backup: Path) -> None:
+    """Authorize reuse only when the prior backup still covers the full DB."""
+    regular(backup, private=True)
+    if inspect(backup) != "MISSING":
+        deny()
+    with closing(readonly(db)) as live, closing(readonly(backup)) as saved:
+        live.execute("BEGIN")
+        saved.execute("BEGIN")
+        # SQLite's logical dump compares schema and data without relying on
+        # page layout, journals or timestamps. A drifted DB needs review.
+        for current, previous in zip_longest(live.iterdump(), saved.iterdump()):
+            if current != previous:
+                deny()
+
+
 def _save_snapshot(db: Path):
     backup = _backup_path(db)
-    if backup.exists() or backup.is_symlink():
-        # Never reuse an older snapshot for a new migration attempt.
-        regular(backup, private=True)
+    if os.path.lexists(backup):
         deny()
     descriptor, temporary = tempfile.mkstemp(prefix=".u-opti-foreign-backup-", dir=db.parent)
     os.close(descriptor)
     try:
-        with readonly(db) as source, sqlite3.connect(temporary, timeout=15) as target:
+        with closing(readonly(db)) as source, closing(
+            sqlite3.connect(temporary, timeout=15)
+        ) as target:
             source.backup(target)
+            if target.execute("PRAGMA journal_mode=DELETE").fetchone() != ("delete",):
+                deny()
         os.chmod(temporary, 0o600)
-        with sqlite3.connect(Path(temporary).absolute().as_uri() + "?mode=ro", uri=True) as copy:
+        with closing(readonly(Path(temporary))) as copy:
             if copy.execute("PRAGMA quick_check").fetchone() != ("ok",):
                 deny()
             for query in BASE_CHECKS:
@@ -117,14 +137,7 @@ def _save_snapshot(db: Path):
             os.fsync(item.fileno())
         # No rename/overwrite race: hard-link only to a still-unoccupied name.
         os.link(temporary, backup, follow_symlinks=False)
-        directory_fd = os.open(db.parent, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
-        try:
-            os.fsync(directory_fd)
-        finally:
-            os.close(directory_fd)
     finally:
-        # Only after unlinking the temporary inode can the committed snapshot
-        # have the mandatory single hard link.
         os.unlink(temporary)
     regular(backup, private=True)
 
@@ -134,18 +147,25 @@ def migrate(database_path, *, confirm: str):
     if confirm != CONFIRM:
         deny()
     db = checked_db(database_path)
-    current = inspect(db)
-    if current == "READY":
-        # A prior successful installation must be idempotent, never restored.
-        return "ALREADY_READY"
-    _save_snapshot(db)
+    directory_fd = os.open(db.parent, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
     try:
+        # Serialize cooperating migration attempts before checking schema or backup.
+        fcntl.flock(directory_fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        if inspect(db) == "READY":
+            return "ALREADY_READY"
+        backup = _backup_path(db)
+        if not os.path.lexists(backup):
+            _save_snapshot(db)
+        _verify_retry_snapshot(db, backup)
+        os.fsync(directory_fd)
         foreign_install_grants.initialize_schema(db)
+        if inspect(db) != "READY":
+            deny()
+        return "READY"
     except (sqlite3.Error, ValueError, OSError) as exc:
         raise AdmissionHold("Foreign installation migration HOLD; retain backup") from exc
-    if inspect(db) != "READY":
-        deny()
-    return "READY"
+    finally:
+        os.close(directory_fd)
 
 
 def main():

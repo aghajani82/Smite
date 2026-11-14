@@ -1,6 +1,7 @@
 """Foreign SQLite migration: offline-only, no imported startup side effects."""
 from pathlib import Path
 import importlib
+import fcntl
 import os
 import sqlite3
 import sys
@@ -127,8 +128,29 @@ class Migration(unittest.TestCase):
                 m.migrate(self.db, confirm=m.CONFIRM)
         self.assertEqual(m.inspect(self.db), "MISSING")
         self.assertTrue(self.backup.exists())
+        original = self.backup.read_bytes()
+        self.assertEqual(m.migrate(self.db, confirm=m.CONFIRM), "READY")
+        self.assertEqual(self.backup.read_bytes(), original)
+
+    def test_retry_refuses_database_changes_after_snapshot(self):
+        m._save_snapshot(self.db)
+        original = self.backup.read_bytes()
+        with sqlite3.connect(self.db) as conn:
+            conn.execute("UPDATE nodes SET name='changed'")
         with self.assertRaises(m.AdmissionHold):
             m.migrate(self.db, confirm=m.CONFIRM)
+        self.assertEqual(m.inspect(self.db), "MISSING")
+        self.assertEqual(self.backup.read_bytes(), original)
+
+    def test_migration_holds_while_another_operation_owns_lock(self):
+        descriptor = os.open(self.root, os.O_RDONLY | os.O_DIRECTORY)
+        try:
+            fcntl.flock(descriptor, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            with self.assertRaises(m.AdmissionHold):
+                m.migrate(self.db, confirm=m.CONFIRM)
+            self.assertFalse(self.backup.exists())
+        finally:
+            os.close(descriptor)
 
     def test_existing_pairing_identity_preserved(self):
         with sqlite3.connect(self.db) as conn:
