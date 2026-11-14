@@ -90,6 +90,45 @@ def inspect(database_path) -> str:
                 deny()
             for query in TRIAL_CHECKS:
                 conn.execute(query)
+
+            # Match the EXACT schema from the same Foreign grant writer:
+            # mere column presence cannot prove one-use grants or the
+            # unique origin/grant binding survive a failed old migration.
+            # This is strictly read-only; never auto-repair live records.
+            expected = ("smite_foreign_install_grants",
+                        "smite_foreign_install_origins")
+            if conn.execute(
+                    "SELECT 1 FROM sqlite_master WHERE type='trigger' AND "
+                    "tbl_name IN ('smite_foreign_install_grants',"
+                    "'smite_foreign_install_origins') LIMIT 1").fetchone():
+                deny()
+
+            def shape(connection, table):
+                columns = connection.execute(
+                    "PRAGMA table_info(" + table + ")").fetchall()
+                foreign_keys = connection.execute(
+                    "PRAGMA foreign_key_list(" + table + ")").fetchall()
+                indexes = connection.execute(
+                    "PRAGMA index_list(" + table + ")").fetchall()
+                return columns, foreign_keys, indexes
+
+            with closing(sqlite3.connect(":memory:")) as template:
+                for statement in foreign_install_grants.FOREIGN_INSTALL_DDL:
+                    template.execute(statement)
+                for table in expected:
+                    if shape(conn, table) != shape(template, table):
+                        deny()
+                    # Read only index identifiers produced by trusted DDL:
+                    # never interpolate an untrusted SQLite index name.
+                    for row in template.execute(
+                            "PRAGMA index_list(" + table + ")"):
+                        index_name = row[1]
+                        if conn.execute(
+                                "PRAGMA index_xinfo(" + index_name +
+                                ")").fetchall() != template.execute(
+                                    "PRAGMA index_xinfo(" + index_name +
+                                    ")").fetchall():
+                            deny()
             return "READY"
     except sqlite3.Error:
         deny()
