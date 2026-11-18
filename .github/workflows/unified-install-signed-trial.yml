@@ -9,6 +9,7 @@ on:
       - 'scripts/create-unified-trial-pair.py'
       - 'tests/test_unified_trial_publication.py'
       - 'tests/test_foreign_install_migration.py'
+      - 'tests/test_retained_backhaul_panel_upgrade.py'
       - 'panel/**'
       - 'node/**'
       - 'frontend/**'
@@ -54,6 +55,30 @@ jobs:
           python3 -B tests/test_foreign_install_http.py -v
           python3 -B tests/test_foreign_install_recovery.py -v
           python3 -B tests/test_foreign_install_origins.py -v
+      - uses: actions/checkout@v4
+        with:
+          ref: e7f76185e9a7da51d7069d5d0a829dc192cc1e06
+          path: retained-rc9
+          persist-credentials: false
+      - name: Verify Panel upgrade with retained RC9 tunnels and Node
+        shell: bash
+        env:
+          DB_PATH: ${{ runner.temp }}/retained-backhaul-fixture.sqlite3
+          SMITE_PANEL_AGENT_AUTH_MODE: signed
+          SMITE_ENGINE_MANAGEMENT_MODE: managed
+        run: |
+          set -euo pipefail
+          test "$(git -C retained-rc9 rev-parse HEAD)" = e7f76185e9a7da51d7069d5d0a829dc192cc1e06
+          PYTHONPATH="$PWD/retained-rc9/panel" python3 -B tests/test_retained_backhaul_panel_upgrade.py prepare
+          PYTHONPATH="$PWD/panel" python3 -B tests/test_retained_backhaul_panel_upgrade.py candidate
+          PYTHONPATH="$PWD/retained-rc9/panel" python3 -B tests/test_retained_backhaul_panel_upgrade.py rollback
+          mkdir -p "$RUNNER_TEMP/mixed-smite/tests"
+          ln -s "$PWD/panel" "$RUNNER_TEMP/mixed-smite/panel"
+          ln -s "$PWD/retained-rc9/node" "$RUNNER_TEMP/mixed-smite/node"
+          for test_file in test_stage11_backhaul_frp_interop.py test_node_agent_signed_commands.py test_managed_engine_restart.py; do
+            cp "tests/$test_file" "$RUNNER_TEMP/mixed-smite/tests/$test_file"
+            python3 -B "$RUNNER_TEMP/mixed-smite/tests/$test_file" -v
+          done
       - name: Verify that live activation is not authorized
         run: echo NO_DEPLOYMENT_OR_RELEASE=YES
 

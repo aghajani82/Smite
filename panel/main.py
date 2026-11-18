@@ -323,16 +323,14 @@ async def _restore_node_tunnels():
             
             for tunnel in reverse_tunnels:
                 try:
-                    # Signed managed FRP owners (and their shared children) are
-                    # exclusively Node-owned. Panel startup must not send an
-                    # unsolicited Apply: it can interrupt the live :7000 FRPS.
-                    # Node restores its own persisted FRP state on restart.
-                    if (tunnel.core == "frp"
+                    # Nodes restore their own signed managed tunnels.
+                    # Panel startup must not send unsolicited Apply commands.
+                    if (tunnel.core in {"frp", "backhaul"}
                             and settings.smite_engine_management_mode == "managed"
                             and settings.smite_panel_agent_auth_mode == "signed"):
                         logger.info(
-                            "Skipping automatic signed managed FRP startup Apply for %s",
-                            tunnel.id,
+                            "Skipping automatic signed managed %s startup Apply for %s",
+                            tunnel.core.upper(), tunnel.id,
                         )
                         skipped_count += 1
                         continue
