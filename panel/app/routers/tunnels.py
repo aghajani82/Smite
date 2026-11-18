@@ -9,11 +9,13 @@ import logging
 import time
 
 from app.database import get_db
-from app.models import Tunnel, Node, FrpProxyLease
+from app.models import Tunnel, Node, FrpProxyLease, BackhaulPublishRequest
 from app.node_client import NodeClient
 from app.config import settings
 from app.engine_admission import engine_pair_readiness, require_engine_ready_pair, ENGINES
 from app.uopti_backhaul_lifecycle import require_managed_backhaul_activation
+from app.uopti_backhaul_publish import BackhaulPublishInput, enqueue as enqueue_backhaul_publish
+from app.uopti_backhaul_publish import result as backhaul_publish_result
 from app.uopti_backhaul_standard import StandardBackhaulSpecError
 from app.frp_wss_panel import owner_spec as frp_wss_owner_spec, server_address as frp_server_address
 from app.frp_server_admission import require_exclusive_frps_server_admission, FrpsServerAdmissionDenied
@@ -155,6 +157,19 @@ async def engine_readiness(iran_node_id: str = "", foreign_node_id: str = ""):
     return {"mode": "managed", "engines": await engine_pair_readiness(
         iran_node_id, foreign_node_id, NodeClient(),
     )}
+
+
+@router.post("/uopti-backhaul-publish", status_code=202)
+async def queue_backhaul_publication(request: BackhaulPublishInput, db: AsyncSession = Depends(get_db)):
+    return await enqueue_backhaul_publish(db, request, NodeClient())
+
+
+@router.get("/uopti-backhaul-publish/{request_id}")
+async def get_backhaul_publication(request_id: str, db: AsyncSession = Depends(get_db)):
+    row = await db.get(BackhaulPublishRequest, request_id)
+    if row is None:
+        raise HTTPException(404, "BACKHAUL_PUBLISH_REQUEST_NOT_FOUND")
+    return backhaul_publish_result(row)
 
 
 async def require_managed_tunnel_pair(tunnel: Tunnel, client: NodeClient) -> None:

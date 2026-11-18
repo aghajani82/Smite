@@ -3,7 +3,6 @@ import { Plus, Trash2, Edit2, RotateCw } from 'lucide-react'
 import api from '../api/client'
 import { parseAddressPort, formatAddressPort } from '../utils/addressUtils'
 import { parseInboundPorts } from '../utils/inboundPorts'
-import { buildManagedBackhaulSpec } from '../utils/managedBackhaul'
 import { isSharedFrpsChild as isSharedFrpsChildSpec, sharedChildRenamePayload } from '../utils/frpSharedChildEdit'
 import { useLanguage } from '../contexts/LanguageContext'
 
@@ -1337,15 +1336,35 @@ const AddTunnelModal = ({ nodes, servers, tunnels, onClose, onSuccess, onCreated
       }
       
       if (managedBackhaul) {
-        const managedSpec = buildManagedBackhaulSpec(backhaulState.public_port, ports)
-        if (!managedSpec) {
-          alert(dir === 'rtl'
-            ? 'یک پورت مجاز و جداگانه برای اینباند 3x-UI وارد کنید.'
-            : 'Enter one allowed, dedicated 3x-UI inbound port.')
+        if (ports.length !== 1) {
+          alert(t.tunnels.invalidPorts)
           return
         }
-        spec = managedSpec
-        tunnelType = managedSpec.transport
+        setCreating(true)
+        const endpoint = '/tunnels/uopti-backhaul-publish'
+        const { data } = await api.post(endpoint, {
+          iran_node_id: formData.iran_node_id,
+          foreign_node_id: formData.foreign_node_id,
+          port: ports[0],
+          name: formData.name,
+        })
+        const statusUrl = `${endpoint}/${encodeURIComponent(data.id)}`
+        let state = data
+        for (let attempt = 0; attempt < 45 && ['queued', 'applying'].includes(state.status); attempt++) {
+          await new Promise(resolve => window.setTimeout(resolve, 2000))
+          state = (await api.get(statusUrl)).data
+        }
+        if (state.status === 'hold') {
+          alert(state.detail || 'BACKHAUL_PUBLICATION_REQUIRES_REVIEW')
+          return
+        }
+        if (state.status !== 'applied') {
+          alert(dir === 'rtl'
+            ? 'درخواست در صف است. برای بررسی وضعیت، دوباره همین پورت را ثبت کنید.'
+            : 'The request is still pending. Submit the same port again to check its status.')
+        }
+        onSuccess()
+        return
       } else if (showLegacyBackhaul) {
         if (!formData.node_id) {
           alert('Backhaul tunnels require a node')
@@ -1688,8 +1707,8 @@ const AddTunnelModal = ({ nodes, servers, tunnels, onClose, onSuccess, onCreated
               />
               <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
                 {dir === 'rtl'
-                  ? 'تانل در وضعیت انتظار ذخیره می‌شود. پس از تأیید مسیر HTTPS/443، آن را روی هر دو نود فعال کنید.'
-                  : 'Saves the tunnel as pending. Apply it on both nodes after verifying the HTTPS/443 route.'}
+                  ? 'مسیر XHTTP از نود خارج خوانده می‌شود و تانل روی HTTPS/443 منتشر می‌شود.'
+                  : 'The foreign Node provides the XHTTP path. U-OPTI activates the tunnel and publishes it on HTTPS/443.'}
               </p>
             </div>
           )}
@@ -1927,7 +1946,7 @@ const AddTunnelModal = ({ nodes, servers, tunnels, onClose, onSuccess, onCreated
               className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed"
             >
               {creating ? t.tunnels.creatingTunnel : managedBackhaul
-                ? (dir === 'rtl' ? 'ذخیره برای فعال‌سازی' : 'Save as pending')
+                ? (dir === 'rtl' ? 'ساخت و انتشار تانل' : 'Create and publish tunnel')
                 : t.tunnels.createTunnel}
             </button>
           </div>

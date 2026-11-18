@@ -43,6 +43,20 @@ class Tunnel(Base):
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
 
+class BackhaulPublishRequest(Base):
+    __tablename__ = "uopti_backhaul_publish_requests"
+
+    id = Column(String, primary_key=True, default=generate_uuid)
+    name = Column(String, nullable=False)
+    port = Column(Integer, nullable=False, unique=True)
+    iran_node_id = Column(String, nullable=False)
+    foreign_node_id = Column(String, nullable=False)
+    status = Column(String, nullable=False)
+    path = Column(String)
+    detail = Column(String)
+    created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+
+
 class Admin(Base):
     __tablename__ = "admins"
     
