@@ -134,6 +134,9 @@ class TunnelReapplyManager:
                         )
                         continue
 
+                    if tunnel.core == "backhaul" and settings.smite_engine_management_mode == "managed":
+                        continue
+
                     is_reverse_tunnel = tunnel.core in {"rathole", "backhaul", "chisel", "frp"}
                     
                     if is_reverse_tunnel:

@@ -3,6 +3,7 @@ import { Plus, Trash2, Edit2, RotateCw } from 'lucide-react'
 import api from '../api/client'
 import { parseAddressPort, formatAddressPort } from '../utils/addressUtils'
 import { parseInboundPorts } from '../utils/inboundPorts'
+import { buildManagedBackhaulSpec } from '../utils/managedBackhaul'
 import { isSharedFrpsChild as isSharedFrpsChildSpec, sharedChildRenamePayload } from '../utils/frpSharedChildEdit'
 import { useLanguage } from '../contexts/LanguageContext'
 
@@ -290,6 +291,10 @@ const Tunnels = () => {
   }
 
   const reapplyTunnel = async (tunnel: Tunnel) => {
+    if (tunnel.core === 'backhaul' && tunnel.spec?.uopti_standard_backhaul === true &&
+        !confirm(dir === 'rtl'
+          ? 'پس از تأیید مسیر Backhaul روی HTTPS/443، تانل روی هر دو نود فعال شود؟'
+          : 'Apply this tunnel on both nodes after verifying the Backhaul HTTPS/443 route?')) return
     try {
       const response = await api.post(`/tunnels/${tunnel.id}/apply`)
       if (response.data && ['success', 'applied'].includes(response.data.status)) {
@@ -298,7 +303,7 @@ const Tunnels = () => {
         throw new Error(response.data?.message || 'Failed to reapply tunnel')
       }
     } catch (error: any) {
-      console.error('Failed to reapply tunnel:', error)
+      fetchData()
       const errorMessage = error.response?.data?.detail || error.message || 'Failed to reapply tunnel'
       alert(errorMessage)
     }
@@ -364,6 +369,7 @@ const Tunnels = () => {
 
       <div className="space-y-3">
         {tunnels.map((tunnel) => {
+          const standardBackhaul = tunnel.core === 'backhaul' && tunnel.spec?.uopti_standard_backhaul === true
           // Extract ports from spec
           const getPorts = (): string => {
             if (tunnel.spec?.ports) {
@@ -550,13 +556,22 @@ const Tunnels = () => {
                       )}
                     </>
                   )}
-                  <button
-                    onClick={() => reapplyTunnel(tunnel)}
-                    className="p-2.5 text-green-600 hover:bg-green-50 dark:hover:bg-green-900/20 rounded-lg transition-colors"
-                    title="Reapply tunnel"
-                  >
-                    <RotateCw size={18} />
-                  </button>
+                  {standardBackhaul ? tunnel.status === 'pending' && (
+                    <button
+                      onClick={() => reapplyTunnel(tunnel)}
+                      className="px-2.5 py-2 text-sm font-semibold text-green-700 dark:text-green-300 hover:bg-green-50 dark:hover:bg-green-900/20 rounded-lg"
+                    >
+                      {dir === 'rtl' ? 'فعال‌سازی روی هر دو نود' : 'Apply on both nodes'}
+                    </button>
+                  ) : (
+                    <button
+                      onClick={() => reapplyTunnel(tunnel)}
+                      className="p-2.5 text-green-600 hover:bg-green-50 dark:hover:bg-green-900/20 rounded-lg transition-colors"
+                      title="Reapply tunnel"
+                    >
+                      <RotateCw size={18} />
+                    </button>
+                  )}
                   <button
                     onClick={() => setEditingTunnel(tunnel)}
                     className="p-2.5 text-blue-600 hover:bg-blue-50 dark:hover:bg-blue-900/20 rounded-lg transition-colors"
@@ -566,8 +581,9 @@ const Tunnels = () => {
                   </button>
                   <button
                     onClick={() => deleteTunnel(tunnel.id)}
-                    className="p-2.5 text-red-600 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-lg transition-colors"
-                    title="Delete tunnel"
+                    disabled={standardBackhaul && (tunnel.status !== 'pending' || Boolean(tunnel.error_message))}
+                    className="p-2.5 text-red-600 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                    title={standardBackhaul ? 'Discard unapplied draft' : 'Delete tunnel'}
                   >
                     <Trash2 size={18} />
                   </button>
@@ -683,6 +699,7 @@ interface EditTunnelModalProps {
 const EditTunnelModal = ({ tunnel, onClose, onSuccess }: EditTunnelModalProps) => {
   const { t } = useLanguage()
   const isSharedFrpsChild = isSharedFrpsChildSpec(tunnel.core, tunnel.spec)
+  const standardBackhaul = tunnel.core === 'backhaul' && tunnel.spec?.uopti_standard_backhaul === true
   const forwardToParsed = tunnel.spec?.forward_to ? parseAddressPort(tunnel.spec.forward_to) : null
   const remoteIp = tunnel.spec?.remote_ip || forwardToParsed?.host || '127.0.0.1'
   const remotePort = tunnel.spec?.remote_port || forwardToParsed?.port || 8080
@@ -747,6 +764,11 @@ const EditTunnelModal = ({ tunnel, onClose, onSuccess }: EditTunnelModalProps) =
         // RC5 backend forbids spec updates to shared FRP children (HTTP 409).
         // Rename-only: do not fabricate a token, control port, or port list.
         await api.put(`/tunnels/${tunnel.id}`, sharedChildRenamePayload(formData.name))
+        onSuccess()
+        return
+      }
+      if (standardBackhaul) {
+        await api.put(`/tunnels/${tunnel.id}`, { name: formData.name })
         onSuccess()
         return
       }
@@ -892,7 +914,7 @@ const EditTunnelModal = ({ tunnel, onClose, onSuccess }: EditTunnelModalProps) =
             </>
           )}
           
-          {tunnel.core === 'backhaul' && (
+          {tunnel.core === 'backhaul' && !standardBackhaul && (
             <BackhaulForm
               state={backhaulState}
               onChange={(partial) => {
@@ -1221,6 +1243,8 @@ const AddTunnelModal = ({ nodes, servers, tunnels, onClose, onSuccess, onCreated
   const engineState = engineReadiness.pair === selectedPair
     ? engineReadiness.engines[formData.core]
     : undefined
+  const managedBackhaul = formData.core === 'backhaul' && engineReadiness.mode === 'managed'
+  const showLegacyBackhaul = formData.core === 'backhaul' && engineReadiness.mode === 'legacy'
   const engineReady = engineReadiness.pair === selectedPair && (
     engineReadiness.mode === 'legacy' ||
     (engineReadiness.mode === 'managed' && engineState === 'ready')
@@ -1312,7 +1336,17 @@ const AddTunnelModal = ({ nodes, servers, tunnels, onClose, onSuccess, onCreated
         spec.panel_host = panelHost
       }
       
-      if (formData.core === 'backhaul') {
+      if (managedBackhaul) {
+        const managedSpec = buildManagedBackhaulSpec(backhaulState.public_port, ports)
+        if (!managedSpec) {
+          alert(dir === 'rtl'
+            ? 'یک پورت مجاز و جداگانه برای اینباند 3x-UI وارد کنید.'
+            : 'Enter one allowed, dedicated 3x-UI inbound port.')
+          return
+        }
+        spec = managedSpec
+        tunnelType = managedSpec.transport
+      } else if (showLegacyBackhaul) {
         if (!formData.node_id) {
           alert('Backhaul tunnels require a node')
           return
@@ -1406,9 +1440,9 @@ const AddTunnelModal = ({ nodes, servers, tunnels, onClose, onSuccess, onCreated
       } else {
         onSuccess()
       }
-    } catch (error) {
-      console.error('Failed to create tunnel:', error)
-      alert('Failed to create tunnel')
+    } catch (error: any) {
+      const detail = error.response?.data?.detail
+      alert(typeof detail === 'string' ? detail : 'Failed to create tunnel')
     } finally {
       setCreating(false)
     }
@@ -1536,7 +1570,7 @@ const AddTunnelModal = ({ nodes, servers, tunnels, onClose, onSuccess, onCreated
                 {t.tunnels.type}
               </label>
               <select
-                value={formData.type}
+                value={managedBackhaul ? 'ws' : formData.type}
                 onChange={(e) => {
                   const value = e.target.value as BackhaulTransport
                   setFormData({ ...formData, type: value })
@@ -1545,7 +1579,7 @@ const AddTunnelModal = ({ nodes, servers, tunnels, onClose, onSuccess, onCreated
                   }
                 }}
                 className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg dark:bg-gray-700 dark:text-white"
-                disabled={formData.core === 'chisel'}
+                disabled={formData.core === 'chisel' || managedBackhaul}
               >
                 {formData.core === 'chisel' ? (
                   <option value={formData.core}>{formData.core.charAt(0).toUpperCase() + formData.core.slice(1)}</option>
@@ -1585,7 +1619,7 @@ const AddTunnelModal = ({ nodes, servers, tunnels, onClose, onSuccess, onCreated
             </p>
           )}
 
-          {(formData.core === 'frp' || formData.core === 'backhaul') && (
+          {(formData.core === 'frp' || showLegacyBackhaul) && (
             <div className="rounded-xl border border-blue-100 dark:border-blue-900/50 bg-blue-50/60 dark:bg-blue-900/10 px-4 py-3">
               <button type="button" aria-expanded={showTechnicalSettings}
                 onClick={() => setShowTechnicalSettings(value => !value)}
@@ -1637,7 +1671,30 @@ const AddTunnelModal = ({ nodes, servers, tunnels, onClose, onSuccess, onCreated
             </div>
           )}
           
-          {formData.core === 'backhaul' && (
+          {managedBackhaul && (
+            <div>
+              <label htmlFor="managed-backhaul-port" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                {dir === 'rtl' ? 'پورت اینباند جداگانهٔ 3x-UI روی سرور خارج' : 'Dedicated 3x-UI inbound port on the foreign server'}
+              </label>
+              <input
+                id="managed-backhaul-port"
+                type="text"
+                inputMode="numeric"
+                maxLength={5}
+                value={backhaulState.public_port}
+                onChange={(e) => setBackhaulState((prev) => ({ ...prev, public_port: e.target.value }))}
+                className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg dark:bg-gray-700 dark:text-white"
+                required
+              />
+              <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+                {dir === 'rtl'
+                  ? 'تانل در وضعیت انتظار ذخیره می‌شود. پس از تأیید مسیر HTTPS/443، آن را روی هر دو نود فعال کنید.'
+                  : 'Saves the tunnel as pending. Apply it on both nodes after verifying the HTTPS/443 route.'}
+              </p>
+            </div>
+          )}
+
+          {showLegacyBackhaul && (
             <BackhaulForm
               state={backhaulState}
               onChange={(partial) => {
@@ -1836,7 +1893,7 @@ const AddTunnelModal = ({ nodes, servers, tunnels, onClose, onSuccess, onCreated
           )}
           
           {/* v4 to v6 tunnel checkbox - only for Rathole, Backhaul, Chisel, FRP (not GOST) */}
-          {showTechnicalSettings && formData.core !== 'gost' && (
+          {showTechnicalSettings && formData.core !== 'gost' && !managedBackhaul && (
             <>
               <div className="flex items-center gap-2">
                 <input
@@ -1869,7 +1926,9 @@ const AddTunnelModal = ({ nodes, servers, tunnels, onClose, onSuccess, onCreated
               disabled={creating || !engineReady || nodes.length === 0 || servers.length === 0}
               className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed"
             >
-              {creating ? t.tunnels.creatingTunnel : t.tunnels.createTunnel}
+              {creating ? t.tunnels.creatingTunnel : managedBackhaul
+                ? (dir === 'rtl' ? 'ذخیره برای فعال‌سازی' : 'Save as pending')
+                : t.tunnels.createTunnel}
             </button>
           </div>
         </form>

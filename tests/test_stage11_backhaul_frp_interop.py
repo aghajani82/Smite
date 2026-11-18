@@ -261,6 +261,31 @@ class BackhaulSignedDispatchTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(saved.spec, CANONICAL)
 
 
+    async def test_managed_backhaul_legacy_mutations_are_denied(self):
+        from types import SimpleNamespace
+        from fastapi import HTTPException
+        from app.routers import tunnels as routes
+
+        record = SimpleNamespace(
+            core="backhaul", id="backhaul-ci-draft", spec=CANONICAL.copy(),
+        )
+        row = SimpleNamespace(scalar_one_or_none=lambda: record)
+        db = SimpleNamespace(
+            execute=AsyncMock(side_effect=[row, row, SimpleNamespace(rowcount=0)]),
+            rollback=AsyncMock(),
+            commit=AsyncMock(),
+        )
+        with patch.object(panel_settings, "smite_engine_management_mode", "managed"):
+            with self.assertRaisesRegex(HTTPException, "name changes only"):
+                await routes.update_tunnel(record.id, SimpleNamespace(
+                    spec={**record.spec, "token": "another-test-token-at-least-24"},
+                ), SimpleNamespace(), db)
+            with self.assertRaisesRegex(HTTPException, "paired removal or recovery"):
+                await routes.delete_tunnel(record.id, SimpleNamespace(), db)
+        db.commit.assert_not_awaited()
+        db.rollback.assert_awaited_once()
+
+
 class BackhaulPairCompensationTest(unittest.IsolatedAsyncioTestCase):
     """No live Node or network: signed Apply/Remove/status are fake endpoints."""
 

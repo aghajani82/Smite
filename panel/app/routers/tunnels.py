@@ -1,7 +1,7 @@
 """Tunnels API endpoints"""
 from fastapi import APIRouter, Depends, HTTPException, Request
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select
+from sqlalchemy import delete, select
 from typing import List
 from datetime import datetime
 from pydantic import BaseModel
@@ -1235,6 +1235,8 @@ async def update_tunnel(
         raise HTTPException(400, "Unsafe Standard Backhaul update") from exc
 
     spec_changed = tunnel_update.spec is not None and tunnel_update.spec != tunnel.spec
+    if spec_changed and tunnel.core == "backhaul" and settings.smite_engine_management_mode == "managed":
+        raise HTTPException(409, "Managed Backhaul allows name changes only")
     if spec_changed:
         try:
             require_managed_backhaul_activation(
@@ -1974,8 +1976,10 @@ async def reapply_all_tunnels(request: Request, db: AsyncSession = Depends(get_d
     failed = 0
     errors = []
     
-    # Call apply_tunnel for each tunnel
+    # A managed Backhaul must be applied individually after ingress review.
     for tunnel in tunnels:
+        if tunnel.core == "backhaul" and settings.smite_engine_management_mode == "managed":
+            continue
         try:
             # Call apply_tunnel directly - it's in the same module
             try:
@@ -2014,6 +2018,19 @@ async def delete_tunnel(tunnel_id: str, request: Request, db: AsyncSession = Dep
     if not tunnel:
         raise HTTPException(status_code=404, detail="Tunnel not found")
     
+    if settings.smite_engine_management_mode == "managed" and tunnel.core == "backhaul":
+        # Discard an unapplied draft only. Race atomically with the pair Apply
+        # claim instead of letting the legacy one-node delete orphan a client.
+        result = await db.execute(delete(Tunnel).where(
+            Tunnel.id == tunnel_id, Tunnel.status == "pending",
+            Tunnel.error_message.is_(None),
+        ))
+        if result.rowcount != 1:
+            await db.rollback()
+            raise HTTPException(409, "Managed Backhaul requires paired removal or recovery")
+        await db.commit()
+        return {"status": "deleted"}
+
     if settings.smite_engine_management_mode == "managed" and tunnel.core == "frp":
         if not is_shared_child(tunnel.spec):
             await require_no_shared_frps_owner_dependents(db=db, owner_tunnel_id=tunnel.id)

@@ -37,6 +37,7 @@ jobs:
         working-directory: frontend
         run: |
           ./node_modules/.bin/esbuild src/utils/inboundPorts.ts --bundle --format=cjs --platform=node --outfile=tests/inboundPorts.generated.cjs
+          ./node_modules/.bin/esbuild src/utils/managedBackhaul.ts --bundle --format=cjs --platform=node --outfile=tests/managedBackhaul.generated.cjs
           node --test tests/inboundPorts.test.cjs
       - name: Test immutable shared FRPS child edit form
         working-directory: frontend

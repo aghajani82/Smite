@@ -46,3 +46,19 @@ test('default UI stays small, preserves user-entered values and requires both no
   assert.match(dashboard, /setError\(true\)/)
   assert.match(dashboard, /statusUnknown/)
 })
+
+test('Managed Backhaul uses a dedicated loopback WS mapping', () => {
+  const { buildManagedBackhaulSpec } = require('./managedBackhaul.generated.cjs')
+  const spec = buildManagedBackhaulSpec('56053', [56053])
+  assert.equal(spec.uopti_standard_backhaul, true)
+  assert.equal(spec.transport, 'ws')
+  assert.equal(spec.control_port, 3080)
+  assert.equal(spec.bridge_port, 13080)
+  assert.deepEqual(spec.ports, ['127.0.0.1:56053=127.0.0.1:56053'])
+  assert.match(spec.token, /^[0-9a-f]{64}$/)
+  assert.notEqual(spec.token, buildManagedBackhaulSpec('56053', [56053]).token)
+
+  for (const input of ['443', '3080', '7000', '13080', '56053,56054', '000056053', '56053x']) {
+    assert.equal(buildManagedBackhaulSpec(input, parseInboundPorts(input) || []), null, input)
+  }
+})
