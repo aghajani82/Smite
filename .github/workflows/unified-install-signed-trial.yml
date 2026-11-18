@@ -179,14 +179,64 @@ jobs:
   trial-pair-handoff:
     needs: [preflight, build-panel, build-node]
     runs-on: ubuntu-24.04
-    timeout-minutes: 8
+    timeout-minutes: 20
     permissions:
       contents: read
+      packages: read
     steps:
       - uses: actions/checkout@v4
         with:
           ref: ${{ github.sha }}
           persist-credentials: false
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.repository_owner }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - uses: sigstore/cosign-installer@v4.1.0
+        with:
+          cosign-release: 'v3.0.6'
+      - name: Rehearse retained database upgrade and rollback with signed Panel images
+        shell: bash
+        env:
+          CANDIDATE_DIGEST: ${{ needs.build-panel.outputs.digest }}
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          [[ "$CANDIDATE_DIGEST" =~ ^sha256:[a-f0-9]{64}$ ]]
+          old_sha=e7f76185e9a7da51d7069d5d0a829dc192cc1e06
+          registry=ghcr.io/aghajani82/smite-panel
+          old_panel="$registry@sha256:f6999effd131f6b3272f8d9116b3fbae917f699bf9a29271fc5ede24cc387a2e"
+          new_panel="$registry@$CANDIDATE_DIGEST"
+          identity_prefix=https://github.com/aghajani82/Smite/.github/workflows
+          verify_panel() {
+            local image="$1" source="$2" identity="$3" trigger="$4"
+            shift 4
+            cosign verify --certificate-identity="$identity" \
+              --certificate-oidc-issuer=https://token.actions.githubusercontent.com \
+              --certificate-github-workflow-repository=aghajani82/Smite \
+              --certificate-github-workflow-sha="$source" \
+              --certificate-github-workflow-trigger="$trigger" \
+              -a smite_role=panel -a "smite_source_sha=$source" "$@" "$image" >/dev/null
+            docker pull "$image"
+            test "$(docker image inspect "$image" --format '{{index .Config.Labels "org.opencontainers.image.revision"}}')" = "$source"
+          }
+          verify_panel "$old_panel" "$old_sha" "$identity_prefix/publish-images.yml@refs/tags/v2.0.0-rc.9" workflow_dispatch
+          verify_panel "$new_panel" "$GITHUB_SHA" "$identity_prefix/unified-install-signed-trial.yml@$GITHUB_REF" push -a smite_trial=unified-install
+          data=$(mktemp -d)
+          fixture="$PWD/tests/test_retained_backhaul_panel_upgrade.py"
+          check_panel() {
+            docker run --rm --pull=never --network=none \
+              --mount "type=bind,source=$data,target=/fixture-data" \
+              --mount "type=bind,source=$fixture,target=/check-retained-panel.py,readonly" \
+              -e DB_PATH=/fixture-data/retained-backhaul-fixture.sqlite3 \
+              -e SMITE_PANEL_AGENT_AUTH_MODE=signed -e SMITE_ENGINE_MANAGEMENT_MODE=managed \
+              -e PYTHONPATH=/app --entrypoint python3 "$1" -B /check-retained-panel.py "$2"
+          }
+          check_panel "$old_panel" prepare
+          check_panel "$new_panel" candidate
+          check_panel "$old_panel" rollback
+          echo RETAINED_PANEL_SIGNED_IMAGE_DATABASE_REHEARSAL=PASS
       - name: Emit inert exact-SHA digest pair only after BOTH signed jobs
         shell: bash
         env:
