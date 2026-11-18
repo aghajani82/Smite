@@ -69,6 +69,8 @@ jobs:
         run: |
           set -euo pipefail
           test "$(git -C retained-rc9 rev-parse HEAD)" = e7f76185e9a7da51d7069d5d0a829dc192cc1e06
+          # Manager constructors use the image's fixed /app/data directory.
+          sudo install -d -o "$(id -u)" -g "$(id -g)" /app/data
           PYTHONPATH="$PWD/retained-rc9/panel" python3 -B tests/test_retained_backhaul_panel_upgrade.py prepare
           PYTHONPATH="$PWD/panel" python3 -B tests/test_retained_backhaul_panel_upgrade.py candidate
           PYTHONPATH="$PWD/retained-rc9/panel" python3 -B tests/test_retained_backhaul_panel_upgrade.py rollback
