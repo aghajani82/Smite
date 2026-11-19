@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import api from '../api/client'
-import { installationPacket, validInstallDomain, type InstallNode, type InstallationGrant } from './foreignInstallContract'
+import { installationPacket, installationLifetimeSeconds, validInstallDomain, type InstallNode, type InstallationGrant } from './foreignInstallContract'
 
 export function useForeignInstallAvailability() {
   const [ready, setReady] = useState(false)
@@ -25,7 +25,7 @@ export function ForeignInstallDialog({ node, onClose, onReserved }: {
   const [name, setName] = useState(node?.name || '')
   const [domain, setDomain] = useState('')
   const [packet, setPacket] = useState('')
-  const [expires, setExpires] = useState(0)
+  const [validUntil, setValidUntil] = useState(0)
   const [left, setLeft] = useState(0)
   const [busy, setBusy] = useState(false)
   const [uncertain, setUncertain] = useState(false)
@@ -34,16 +34,16 @@ export function ForeignInstallDialog({ node, onClose, onReserved }: {
   const request = useRef<AbortController | null>(null)
   useEffect(() => () => request.current?.abort(), [])
   useEffect(() => {
-    if (!expires) return
+    if (!validUntil) return
     const tick = () => {
-      const seconds = Math.max(0, Math.ceil((expires * 1000 - Date.now()) / 1000))
+      const seconds = Math.max(0, Math.ceil((validUntil - Date.now()) / 1000))
       setLeft(seconds)
-      if (!seconds) { setPacket(''); setExpires(0); setCopied(false) }
+      if (!seconds) { setPacket(''); setValidUntil(0); setCopied(false) }
     }
     tick()
     const timer = window.setInterval(tick, 1000)
     return () => window.clearInterval(timer)
-  }, [expires])
+  }, [validUntil])
 
   const issue = async () => {
     if (request.current || uncertain || packet) return
@@ -67,16 +67,32 @@ export function ForeignInstallDialog({ node, onClose, onReserved }: {
         current = { id: data.node_id, name: data.name }
         setReserved(current); setUncertain(false); onReserved()
       }
-      const { data } = await api.post<InstallationGrant>('/foreign-install/issue', {
+      const { data, headers } = await api.post<InstallationGrant>('/foreign-install/issue', {
         node_id: current.id, node_name: current.name, domain: normalized, ttl_seconds: 7200,
       }, { signal: abort.signal, headers: { 'Cache-Control': 'no-store' } })
       if (abort.signal.aborted) return
-      setPacket(installationPacket(data, current, normalized, window.location.origin))
-      setExpires(data.expires_at)
-    } catch {
-      if (!abort.signal.aborted) setError(current
-        ? 'Code could not be prepared. Retry for this same Node; any previous unused code will be replaced.'
-        : 'Reservation result is unknown. Close and refresh the Node list before trying again.')
+      const content = installationPacket(data, current, normalized, window.location.origin)
+      const serverDate = typeof headers?.get === 'function' ? headers.get('date') : headers?.date
+      const lifetime = installationLifetimeSeconds(data.expires_at, serverDate)
+      setPacket(content)
+      setValidUntil(Date.now() + lifetime * 1000)
+    } catch (error) {
+      if (!abort.signal.aborted) {
+        const status = (error as { response?: { status?: number } } | null)?.response?.status
+        setError(!current
+          ? 'Reservation result is unknown. Close and refresh the Node list before trying again.'
+          : status === 409
+            ? 'This Node reservation conflicts with an existing or enrolled identity. Do not delete the Node; check the signed pairing state on the Panel.'
+          : status === 503
+            ? 'The Panel installation service is not ready (signed pairing settings or database). Keep this Node and check the Panel service.'
+          : status === 422
+            ? 'The Panel rejected the installation details. Check the Node name and Gateway domain.'
+          : status === 401 || status === 403
+            ? 'Panel authorization was rejected. Sign in again and retry for this same Node.'
+          : error instanceof Error && error.message === 'Invalid installation response'
+            ? 'The Panel returned an invalid installation response. Keep this Node and check the Panel service.'
+          : 'The installation request failed. Retry for this same Node; do not delete it.')
+      }
     } finally {
       if (!abort.signal.aborted) { setBusy(false); request.current = null }
     }
@@ -86,12 +102,12 @@ export function ForeignInstallDialog({ node, onClose, onReserved }: {
     const abort = new AbortController(); request.current = abort; setBusy(true); setError('')
     try {
       await api.post('/foreign-install/revoke', { node_id: reserved.id }, { signal: abort.signal })
-      if (!abort.signal.aborted) { setPacket(''); setExpires(0); setCopied(false) }
+      if (!abort.signal.aborted) { setPacket(''); setValidUntil(0); setCopied(false) }
     } catch { if (!abort.signal.aborted) setError('Revocation could not be confirmed. The code may still be valid.') }
     finally { if (!abort.signal.aborted) { setBusy(false); request.current = null } }
   }
   const copy = async () => {
-    if (!packet || expires * 1000 <= Date.now()) return
+    if (!packet || validUntil <= Date.now()) return
     try { await navigator.clipboard.writeText(packet); setCopied(true) }
     catch { setError('Clipboard unavailable. Select and copy the installation information manually.') }
   }
