@@ -67,10 +67,43 @@ test('wrong identity response never displays a code',async()=>{
   globalThis.fixtureAPI={post:async()=>({data:{...grant(),node_id:'other-node-1234'}})}
   await mount();await submit();assert.equal(tree.root.findAllByType('textarea').length,0)
 })
+test('server Date accepts valid grant despite the PC clock being fifteen minutes behind',async()=>{
+  const serverNow=Date.parse('2026-11-19T16:00:00Z')
+  Date.now=()=>serverNow-15*60000
+  globalThis.fixtureAPI={post:async()=>({data:{...grant(),expires_at:serverNow/1000+7200},
+    headers:{date:new Date(serverNow).toUTCString()}})}
+  await mount();await submit()
+  assert.equal(JSON.parse(packet()).expires_at,serverNow/1000+7200)
+  assert.match(tree.root.findByProps({role:'status'}).children.join(''),/120 minutes/)
+})
+test('server Date accepts valid grant despite the PC clock being three hours ahead',async()=>{
+  const serverNow=Date.parse('2026-11-19T16:00:00Z')
+  Date.now=()=>serverNow+3*3600000
+  globalThis.fixtureAPI={post:async()=>({data:{...grant(),expires_at:serverNow/1000+7200},
+    headers:{get:()=>new Date(serverNow).toUTCString()}})}
+  await mount();await submit()
+  assert.equal(JSON.parse(packet()).expires_at,serverNow/1000+7200)
+})
+test('reject implausible server-reported expiry without revealing a code',async()=>{
+  const serverNow=Date.parse('2026-11-19T16:00:00Z')
+  globalThis.fixtureAPI={post:async()=>({data:{...grant(),expires_at:serverNow/1000+10800},
+    headers:{date:new Date(serverNow).toUTCString()}})}
+  await mount();await submit()
+  assert.equal(tree.root.findAllByType('textarea').length,0)
+  assert.match(tree.root.findByProps({role:'alert'}).children.join(''),/invalid installation response/)
+})
+test('HTTP 409 and 503 explain the reason without browser developer tools',async()=>{
+  let status=409
+  globalThis.fixtureAPI={post:async()=>{const error=new Error('rejected');error.response={status};throw error}}
+  await mount();await submit()
+  assert.match(tree.root.findByProps({role:'alert'}).children.join(''),/conflicts/)
+  status=503;await submit()
+  assert.match(tree.root.findByProps({role:'alert'}).children.join(''),/not ready/)
+})
 test('expiry clears code and permits same-node reissue',async()=>{
   let calls=0;globalThis.fixtureAPI={post:async()=>{calls++;return {data:grant()}}}
   await mount();await submit();const expires=JSON.parse(packet()).expires_at
-  Date.now=()=>expires*1000+1
+  Date.now=()=>expires*1000+60000
   await act(async()=>tick());assert.equal(tree.root.findAllByType('textarea').length,0)
   await submit();assert.equal(calls,2);assert.ok(packet())
 })
