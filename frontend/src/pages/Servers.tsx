@@ -133,7 +133,6 @@ const Servers = () => {
         <div>
           <h1 className="text-3xl font-bold text-gray-900 dark:text-white mb-2">{t.servers.title}</h1>
           <p className="text-gray-500 dark:text-gray-400">{t.servers.subtitle}</p>
-          <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">Experimental Foreign installation JSON is disabled. Existing signed Node pairing remains available.</p>
         </div>
         <div className="flex gap-3">
           <button

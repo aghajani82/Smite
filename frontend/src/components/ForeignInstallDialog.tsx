@@ -2,11 +2,19 @@ import { useEffect, useRef, useState } from 'react'
 import api from '../api/client'
 import { installationPacket, installationLifetimeSeconds, validInstallDomain, type InstallNode, type InstallationGrant } from './foreignInstallContract'
 
-/** Experimental one-time Foreign JSON issuance is deliberately disabled.
- * Keep the existing signed Node pairing controls available in Servers.tsx.
- * Never silently fall back to an unsigned enrollment channel. */
 export function useForeignInstallAvailability() {
-  return false
+  const [ready, setReady] = useState(false)
+  useEffect(() => {
+    const abort = new AbortController()
+    api.get('/foreign-install/capabilities', { signal: abort.signal,
+      headers: { 'Cache-Control': 'no-store' } }).then(({ data }) => {
+      if (!abort.signal.aborted) setReady(data.foreign_install_enabled === true &&
+        data.origin_trust_ready === true && data.protocol === 'smi1' && window.location.protocol === 'https:' &&
+        ['', '443'].includes(new URL(window.location.origin).port))
+    }).catch(() => { if (!abort.signal.aborted) setReady(false) })
+    return () => abort.abort()
+  }, [])
+  return ready
 }
 
 /** Secret is confined to the mounted dialog. Closing does not revoke the grant. */
