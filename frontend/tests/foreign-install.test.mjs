@@ -120,13 +120,12 @@ test('closing aborts in-flight request and does not revoke',async()=>{
   act(()=>tree.unmount());tree=null;assert.ok(signal.aborted)
   await act(async()=>resolve({data:grant()}));assert.equal(calls,1)
 })
-test('capability requires issuance, origin trust and correct protocol',async()=>{
+test('experimental Foreign JSON feature stays disabled even if backend claims ready',async()=>{
+  let requests=0
   function Probe(){return React.createElement('span',null,String(useForeignInstallAvailability()))}
-  for(const data of [{foreign_install_enabled:true,origin_trust_ready:false,protocol:'smi1'},
-                    {foreign_install_enabled:true,origin_trust_ready:true,protocol:'smi1'}]){
-    globalThis.fixtureAPI={get:async()=>({data})}
-    await act(async()=>{tree=create(React.createElement(Probe))})
-    assert.equal(tree.root.findByType('span').children[0],String(data.origin_trust_ready))
-    act(()=>tree.unmount());tree=null
-  }
+  globalThis.fixtureAPI={get:async()=>{requests++;return {data:{
+    foreign_install_enabled:true,origin_trust_ready:true,protocol:'smi1'}}}}
+  await act(async()=>{tree=create(React.createElement(Probe))})
+  assert.equal(tree.root.findByType('span').children[0],'false')
+  assert.equal(requests,0)
 })
